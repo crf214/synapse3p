@@ -20,8 +20,9 @@
 
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
-import { PrismaClient } from '@prisma/client'
+import type { PrismaClient } from '@prisma/client'
 import { createClient } from '@supabase/supabase-js'
+import { prisma } from '@/lib/prisma'
 
 // ---------------------------------------------------------------------------
 // Load .env.local (dev only — CI injects secrets directly)
@@ -237,7 +238,6 @@ async function sendAlert(failed: CheckResult[]): Promise<void> {
 async function main() {
   console.log('Synapse3P Health Check\n')
 
-  const prisma = new PrismaClient()
   const results: CheckResult[] = []
 
   results.push(await runCheck('Database connectivity',  () => checkDatabase(prisma)))
