@@ -10,6 +10,7 @@ export interface SessionData {
   userId?: string
   email?: string
   name?: string | null
+  avatar?: string | null
   orgId?: string
   role?: string
 }
