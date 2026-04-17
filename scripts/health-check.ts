@@ -216,6 +216,31 @@ async function checkEntityMasterTables(): Promise<string> {
   return `all ${tables.length} tables accessible`
 }
 
+async function checkPhase3Tables(): Promise<string> {
+  const tables: Array<[string, () => Promise<unknown>]> = [
+    ['processing_rules',             () => prisma.processingRule.count()],
+    ['processing_rule_evaluations',  () => prisma.processingRuleEvaluation.count()],
+    ['approval_workflows',           () => prisma.approvalWorkflow.count()],
+    ['purchase_orders',              () => prisma.purchaseOrder.count()],
+    ['po_line_items',                () => prisma.pOLineItem.count()],
+    ['po_approvals',                 () => prisma.pOApproval.count()],
+    ['po_amendments',                () => prisma.pOAmendment.count()],
+    ['goods_receipts',               () => prisma.goodsReceipt.count()],
+    ['documents',                    () => prisma.document.count()],
+    ['contracts',                    () => prisma.contract.count()],
+  ]
+
+  for (const [name, query] of tables) {
+    try {
+      await query()
+    } catch (e) {
+      throw new Error(`${name}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  return `all ${tables.length} tables accessible`
+}
+
 async function checkApiHealth(): Promise<string> {
   const base = process.env.HEALTH_CHECK_BASE_URL
   if (!base) {
@@ -282,7 +307,8 @@ async function main() {
   results.push(await runCheck('JWT claims',             () => checkJwtClaims()))
   results.push(await runCheck('Storage buckets',        () => checkStorageBuckets()))
   results.push(await runCheck('Audit log',              () => checkAuditLog(prisma)))
-  results.push(await runCheck('Entity master tables',   () => checkEntityMasterTables()))
+  results.push(await runCheck('Entity master tables',        () => checkEntityMasterTables()))
+  results.push(await runCheck('Phase 3 PO and document tables', () => checkPhase3Tables()))
 
   // API health is optional — skip entirely if base URL not configured
   if (process.env.HEALTH_CHECK_BASE_URL) {

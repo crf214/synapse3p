@@ -43,9 +43,14 @@ model Organisation {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  members            OrgMember[]
-  entityRelationships EntityOrgRelationship[]
-  serviceEngagements  ServiceEngagement[]
+  members              OrgMember[]
+  entityRelationships  EntityOrgRelationship[]
+  serviceEngagements   ServiceEngagement[]
+  processingRules      ProcessingRule[]
+  approvalWorkflows    ApprovalWorkflow[]
+  purchaseOrders       PurchaseOrder[]
+  documents            Document[]
+  contracts            Contract[]
 
   @@map("organisations")
 }
@@ -185,13 +190,15 @@ model Entity {
   ultimateParent     Entity?                  @relation("EntityUltimateParent", fields: [ultimateParentId], references: [id])
   ultimateChildren   Entity[]                 @relation("EntityUltimateParent")
 
-  classifications    EntityClassification[]
-  bankAccounts       EntityBankAccount[]
-  dueDiligence       EntityDueDiligence?
-  financial          EntityFinancial?
-  riskScores         EntityRiskScore[]
-  orgRelationships   EntityOrgRelationship[]
-  serviceEngagements ServiceEngagement[]
+  classifications          EntityClassification[]
+  bankAccounts             EntityBankAccount[]
+  dueDiligence             EntityDueDiligence?
+  financial                EntityFinancial?
+  riskScores               EntityRiskScore[]
+  orgRelationships         EntityOrgRelationship[]
+  serviceEngagements       ServiceEngagement[]
+  processingRuleEvaluations ProcessingRuleEvaluation[]
+  purchaseOrders           PurchaseOrder[]
 
   @@map("entities")
 }
@@ -357,6 +364,353 @@ model ServiceEngagement {
 
   @@unique([entityId, serviceCatalogueId, orgId])
   @@map("service_engagements")
+}
+
+// ============================================================
+// Procurement & Document Management — Phase 3
+// ============================================================
+
+enum PoType {
+  FIXED
+  OPEN
+  BLANKET
+}
+
+enum PoStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  PARTIALLY_RECEIVED
+  FULLY_RECEIVED
+  INVOICED
+  CLOSED
+  CANCELLED
+}
+
+enum ProcessingTrack {
+  FULL_PO
+  LIGHTWEIGHT
+  STP
+  CONTRACT_REQUIRED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DELEGATED
+  CANCELLED
+}
+
+enum GoodsReceiptStatus {
+  PARTIAL
+  FULL
+  REJECTED
+}
+
+enum DocumentSource {
+  INTERNAL
+  VENDOR
+  SYSTEM
+}
+
+enum DocType {
+  QUOTE
+  PROPOSAL
+  CONTRACT
+  SOW
+  INVOICE
+  RECEIPT
+  APPROVAL
+  COMPLIANCE
+  CERTIFICATE
+  REPORT
+  AMENDMENT
+  OTHER
+}
+
+enum ESignStatus {
+  NOT_REQUIRED
+  PENDING
+  SENT
+  SIGNED
+  DECLINED
+  EXPIRED
+}
+
+enum ContractStatus {
+  DRAFT
+  ACTIVE
+  EXPIRED
+  TERMINATED
+  UNDER_REVIEW
+  RENEWED
+}
+
+enum ContractType {
+  MASTER
+  SOW
+  AMENDMENT
+  NDA
+  SLA
+  FRAMEWORK
+  OTHER
+}
+
+model ProcessingRule {
+  id                   String          @id @default(cuid())
+  orgId                String
+  name                 String
+  description          String?
+  priority             Int
+  isActive             Boolean         @default(true)
+  conditions           Json
+  track                ProcessingTrack
+  requiresGoodsReceipt Boolean         @default(false)
+  requiresContract     Boolean         @default(false)
+  notes                String?
+  createdBy            String
+  updatedBy            String?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+
+  org                  Organisation              @relation(fields: [orgId], references: [id])
+  evaluations          ProcessingRuleEvaluation[]
+  purchaseOrders       PurchaseOrder[]
+
+  @@index([orgId, priority])
+  @@map("processing_rules")
+}
+
+model ProcessingRuleEvaluation {
+  id                 String           @id @default(cuid())
+  orgId              String
+  ruleId             String?
+  entityId           String
+  amount             Float
+  currency           String
+  conditionsSnapshot Json
+  matched            Boolean
+  trackAssigned      ProcessingTrack?
+  evaluatedAt        DateTime         @default(now())
+  evaluatedBy        String?
+  sourceType         String
+  sourceId           String
+
+  rule               ProcessingRule?  @relation(fields: [ruleId], references: [id])
+  entity             Entity           @relation(fields: [entityId], references: [id])
+
+  @@index([sourceType, sourceId])
+  @@index([orgId, evaluatedAt])
+  @@map("processing_rule_evaluations")
+}
+
+model ApprovalWorkflow {
+  id              String        @id @default(cuid())
+  orgId           String
+  name            String
+  description     String?
+  spendCategories String[]
+  departments     String[]
+  thresholdMin    Float         @default(0)
+  thresholdMax    Float?
+  steps           Json
+  isActive        Boolean       @default(true)
+  createdBy       String
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  org             Organisation   @relation(fields: [orgId], references: [id])
+  purchaseOrders  PurchaseOrder[]
+  poApprovals     POApproval[]
+
+  @@map("approval_workflows")
+}
+
+model PurchaseOrder {
+  id                     String           @id @default(cuid())
+  orgId                  String
+  poNumber               String
+  title                  String
+  description            String?
+  type                   PoType
+  track                  ProcessingTrack
+  status                 PoStatus         @default(DRAFT)
+  entityId               String
+  serviceEngagementId    String?
+  processingRuleId       String?
+  processingRuleSnapshot Json?
+  approvalWorkflowId     String?
+  totalAmount            Float
+  currency               String           @default("USD")
+  amountSpent            Float            @default(0)
+  spendCategory          String?
+  department             String?
+  costCentre             String?
+  glCode                 String?
+  requestedBy            String
+  validFrom              DateTime?
+  validTo                DateTime?
+  requiresGoodsReceipt   Boolean          @default(false)
+  requiresContract       Boolean          @default(false)
+  currentVersion         Int              @default(1)
+  notes                  String?
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  org              Organisation      @relation(fields: [orgId], references: [id])
+  entity           Entity            @relation(fields: [entityId], references: [id])
+  processingRule   ProcessingRule?   @relation(fields: [processingRuleId], references: [id])
+  approvalWorkflow ApprovalWorkflow? @relation(fields: [approvalWorkflowId], references: [id])
+  lineItems        POLineItem[]
+  approvals        POApproval[]
+  amendments       POAmendment[]
+  goodsReceipts    GoodsReceipt[]
+  documents        Document[]
+
+  @@unique([orgId, poNumber])
+  @@map("purchase_orders")
+}
+
+model POLineItem {
+  id          String        @id @default(cuid())
+  poId        String
+  lineNo      Int
+  description String
+  quantity    Float         @default(1)
+  unitPrice   Float
+  totalPrice  Float
+  currency    String        @default("USD")
+  glCode      String?
+  costCentre  String?
+  taxRate     Float         @default(0)
+  notes       String?
+
+  po          PurchaseOrder @relation(fields: [poId], references: [id])
+
+  @@unique([poId, lineNo])
+  @@map("po_line_items")
+}
+
+model POApproval {
+  id          String           @id @default(cuid())
+  poId        String
+  workflowId  String?
+  step        Int
+  approverId  String
+  status      ApprovalStatus   @default(PENDING)
+  decidedAt   DateTime?
+  comments    String?
+  delegatedTo String?
+  notifiedAt  DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  po          PurchaseOrder     @relation(fields: [poId], references: [id])
+  workflow    ApprovalWorkflow? @relation(fields: [workflowId], references: [id])
+
+  @@map("po_approvals")
+}
+
+model POAmendment {
+  id             String        @id @default(cuid())
+  poId           String
+  version        Int
+  changedFields  Json
+  previousValues Json
+  newValues      Json
+  reason         String
+  amendedBy      String
+  amendedAt      DateTime      @default(now())
+
+  po             PurchaseOrder @relation(fields: [poId], references: [id])
+
+  @@unique([poId, version])
+  @@map("po_amendments")
+}
+
+model GoodsReceipt {
+  id         String             @id @default(cuid())
+  poId       String
+  orgId      String
+  receivedAt DateTime
+  receivedBy String
+  status     GoodsReceiptStatus
+  lineItems  Json
+  notes      String?
+  createdAt  DateTime           @default(now())
+
+  po         PurchaseOrder @relation(fields: [poId], references: [id])
+
+  @@map("goods_receipts")
+}
+
+model Document {
+  id                  String         @id @default(cuid())
+  orgId               String
+  title               String
+  docType             DocType
+  source              DocumentSource @default(INTERNAL)
+  storageRef          String
+  storageBucket       String
+  mimeType            String?
+  fileSizeBytes       Int?
+  entityId            String?
+  poId                String?
+  contractId          String?
+  serviceEngagementId String?
+  status              String         @default("active")
+  expiresAt           DateTime?
+  issuedAt            DateTime?
+  issuedBy            String?
+  eSignRequired       Boolean        @default(false)
+  eSignStatus         ESignStatus    @default(NOT_REQUIRED)
+  eSignProvider       String?
+  eSignEnvelopeId     String?
+  eSignCompletedAt    DateTime?
+  uploadedBy          String
+  metadata            Json           @default("{}")
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  org                 Organisation   @relation(fields: [orgId], references: [id])
+  po                  PurchaseOrder? @relation(fields: [poId], references: [id])
+
+  @@index([orgId, docType])
+  @@index([entityId])
+  @@index([poId])
+  @@map("documents")
+}
+
+model Contract {
+  id               String         @id @default(cuid())
+  orgId            String
+  documentId       String         @unique
+  entityId         String
+  contractNo       String
+  type             ContractType
+  status           ContractStatus @default(DRAFT)
+  value            Float?
+  currency         String         @default("USD")
+  startDate        DateTime?
+  endDate          DateTime?
+  renewalDate      DateTime?
+  autoRenew        Boolean        @default(false)
+  noticePeriodDays Int            @default(30)
+  ownedBy          String
+  reviewedAt       DateTime?
+  linkedPoId       String?
+  notes            String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  org              Organisation   @relation(fields: [orgId], references: [id])
+
+  @@unique([orgId, contractNo])
+  @@index([orgId, status])
+  @@index([endDate])
+  @@map("contracts")
 }
 
 // ============================================================
