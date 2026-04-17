@@ -1,23 +1,17 @@
 // src/lib/session.ts
-import { getIronSession, IronSession, SessionOptions } from 'iron-session'
+import { getIronSession, IronSession } from 'iron-session'
 import { cookies } from 'next/headers'
 import { NextRequest, NextResponse } from 'next/server'
+import { sessionOptions } from '@/lib/session-config'
+
+export { sessionOptions }
 
 export interface SessionData {
   userId?: string
   email?: string
   name?: string | null
-}
-
-export const sessionOptions: SessionOptions = {
-  password: process.env.SESSION_SECRET!,
-  cookieName: 'homedecide_session',
-  cookieOptions: {
-    secure: process.env.NODE_ENV === 'production',
-    httpOnly: true,
-    sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 30, // 30 days
-  },
+  orgId?: string
+  role?: string
 }
 
 export async function getSession(): Promise<IronSession<SessionData>> {

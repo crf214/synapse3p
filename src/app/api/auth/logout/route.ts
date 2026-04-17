@@ -1,10 +1,9 @@
 // src/app/api/auth/logout/route.ts
-import { NextRequest, NextResponse } from 'next/server'
-import { getSessionFromRequest } from '@/lib/session'
+import { NextResponse } from 'next/server'
+import { getSession } from '@/lib/session'
 
-export async function POST(req: NextRequest) {
-  const res = NextResponse.json({ data: { ok: true } })
-  const session = await getSessionFromRequest(req, res)
+export async function POST() {
+  const session = await getSession()
   session.destroy()
-  return res
+  return NextResponse.json({ data: { ok: true } })
 }

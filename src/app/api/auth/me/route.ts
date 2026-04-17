@@ -8,6 +8,6 @@ export async function GET() {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
   }
   return NextResponse.json({
-    data: { id: session.userId, email: session.email, name: session.name },
+    data: { id: session.userId, email: session.email, name: session.name, orgId: session.orgId, role: session.role },
   })
 }

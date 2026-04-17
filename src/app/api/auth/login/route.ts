@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { compare } from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { getSessionFromRequest } from '@/lib/session'
+import { getSession } from '@/lib/session'
 
 const schema = z.object({
   email: z.string().email(),
@@ -25,16 +25,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
     }
 
-    const res = NextResponse.json({
-      data: { id: user.id, email: user.email, name: user.name },
-    })
-    const session = await getSessionFromRequest(req, res)
+    const session = await getSession()
     session.userId = user.id
     session.email = user.email
     session.name = user.name
+    session.orgId = user.orgId ?? undefined
+    session.role = user.role ?? undefined
     await session.save()
 
-    return res
+    return NextResponse.json({
+      data: { id: user.id, email: user.email, name: user.name },
+    })
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors[0].message }, { status: 400 })
