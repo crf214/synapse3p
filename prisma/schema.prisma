@@ -8,14 +8,73 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+enum OrgRole {
+  ADMIN
+  AP_CLERK
+  FINANCE_MANAGER
+  CONTROLLER
+  CFO
+  VENDOR
+  CLIENT
+}
+
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   name         String?
   avatar       String?
   passwordHash String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  orgId        String?
+  role         OrgRole?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  memberships  OrgMember[]
 
   @@map("users")
+}
+
+model Organisation {
+  id        String      @id @default(cuid())
+  name      String
+  slug      String      @unique
+  plan      String      @default("starter")
+  settings  Json        @default("{}")
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  members   OrgMember[]
+
+  @@map("organisations")
+}
+
+model OrgMember {
+  id        String       @id @default(cuid())
+  orgId     String
+  userId    String
+  role      OrgRole
+  status    String       @default("active")
+  createdAt DateTime     @default(now())
+
+  org       Organisation @relation(fields: [orgId], references: [id])
+  user      User         @relation(fields: [userId], references: [id])
+
+  @@unique([orgId, userId])
+  @@map("org_members")
+}
+
+// AuditEvent is append-only — no updates or deletes should ever be issued against this table.
+model AuditEvent {
+  id         String   @id @default(cuid())
+  orgId      String
+  actorId    String?
+  action     String
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@map("audit_events")
 }
