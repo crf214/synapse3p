@@ -58,6 +58,7 @@ model Organisation {
   entityActivityLogs    EntityActivityLog[]
   recurringSchedules    RecurringSchedule[]
   invoices              Invoice[]
+  paymentInstructions   PaymentInstruction[]
 
   @@map("organisations")
 }
@@ -1127,6 +1128,222 @@ model ExternalSignal {
   @@index([entityId, detectedAt])
   @@index([severity, dismissed])
   @@map("external_signals")
+}
+
+// ============================================================
+// Payment Instructions, ERP Sync & Period Management — Phase 5
+// ============================================================
+
+enum PaymentInstructionStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SENT_TO_ERP
+  CONFIRMED
+  CANCELLED
+  FAILED
+  AMENDMENT_PENDING
+}
+
+enum AmendmentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum AmendmentField {
+  AMOUNT
+  ENTITY
+  BANK_ACCOUNT
+}
+
+enum ErpTransactionType {
+  VENDOR_BILL
+  VENDOR_PAYMENT
+  JOURNAL_ENTRY
+  CREDIT_MEMO
+  PURCHASE_ORDER
+}
+
+enum ErpSyncStatus {
+  IN_PROGRESS
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum ErpSyncTrigger {
+  MANUAL
+  SCHEDULED
+  WEBHOOK
+}
+
+model PaymentInstruction {
+  id                  String                   @id @default(cuid())
+  orgId               String
+  invoiceId           String                   @unique
+  entityId            String
+  bankAccountId       String
+  amount              Float
+  currency            String                   @default("USD")
+  dueDate             DateTime?
+  glCode              String?
+  costCentre          String?
+  poReference         String?
+  status              PaymentInstructionStatus @default(DRAFT)
+  currentVersion      Int                      @default(1)
+  createdBy           String
+  approvedBy          String?
+  approvedAt          DateTime?
+  sentToErpAt         DateTime?
+  erpReference        String?
+  confirmedAt         DateTime?
+  confirmedAmount     Float?
+  cancelledAt         DateTime?
+  cancellationReason  String?
+  notes               String?
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+
+  org                 Organisation                    @relation(fields: [orgId], references: [id])
+  versions            PaymentInstructionVersion[]
+  amendments          PaymentInstructionAmendment[]
+
+  @@index([orgId, status])
+  @@map("payment_instructions")
+}
+
+// Append-only — no updates or deletes should ever be issued against this table.
+model PaymentInstructionVersion {
+  id                    String   @id @default(cuid())
+  paymentInstructionId  String
+  version               Int
+  entityId              String
+  bankAccountId         String
+  amount                Float
+  currency              String
+  dueDate               DateTime?
+  glCode                String?
+  costCentre            String?
+  snapshotAt            DateTime @default(now())
+  snapshotBy            String
+  changeReason          String?
+
+  paymentInstruction    PaymentInstruction @relation(fields: [paymentInstructionId], references: [id])
+
+  @@unique([paymentInstructionId, version])
+  @@map("payment_instruction_versions")
+}
+
+// NOTE: @@unique([paymentInstructionId, field, status]) prevents duplicate
+// combinations of all three values but does NOT enforce "only one PENDING
+// amendment per instruction per field" at the DB level on its own, because
+// Postgres unique constraints are not partial. To fully enforce this, add a
+// partial unique index via raw SQL migration:
+//   CREATE UNIQUE INDEX uq_pi_amendment_pending
+//   ON payment_instruction_amendments (payment_instruction_id, field)
+//   WHERE status = 'PENDING';
+model PaymentInstructionAmendment {
+  id                    String          @id @default(cuid())
+  paymentInstructionId  String
+  field                 AmendmentField
+  previousValue         String
+  proposedValue         String
+  status                AmendmentStatus @default(PENDING)
+  requestedBy           String
+  requestedAt           DateTime        @default(now())
+  reviewedBy            String?
+  reviewedAt            DateTime?
+  rejectionReason       String?
+  notes                 String?
+
+  paymentInstruction    PaymentInstruction @relation(fields: [paymentInstructionId], references: [id])
+
+  @@unique([paymentInstructionId, field, status])
+  @@index([paymentInstructionId, status])
+  @@map("payment_instruction_amendments")
+}
+
+model ErpTransaction {
+  id                    String             @id @default(cuid())
+  orgId                 String
+  entityId              String
+  erpInternalId         String
+  erpTransactionType    ErpTransactionType
+  transactionDate       DateTime
+  amount                Float
+  currency              String
+  vendorRef             String?
+  paymentReference      String?
+  period                String
+  periodClosed          Boolean            @default(false)
+  currentVersionNo      Int                @default(1)
+  lastSyncedAt          DateTime           @default(now())
+  paymentInstructionId  String?
+
+  versions              ErpTransactionVersion[]
+
+  @@unique([orgId, erpInternalId])
+  @@index([entityId])
+  @@index([period, periodClosed])
+  @@map("erp_transactions")
+}
+
+// Append-only — no updates or deletes should ever be issued against this table.
+model ErpTransactionVersion {
+  id                          String   @id @default(cuid())
+  erpTransactionId            String
+  versionNo                   Int
+  transactionDate             DateTime
+  amount                      Float
+  currency                    String
+  vendorRef                   String?
+  paymentReference            String?
+  period                      String
+  periodClosed                Boolean
+  previousValues              Json
+  detectedAt                  DateTime @default(now())
+  detectedBySync              String?
+  periodWasClosedAtDetection  Boolean  @default(false)
+
+  erpTransaction              ErpTransaction @relation(fields: [erpTransactionId], references: [id])
+
+  @@unique([erpTransactionId, versionNo])
+  @@map("erp_transaction_versions")
+}
+
+model ErpPeriod {
+  id        String    @id @default(cuid())
+  orgId     String
+  period    String
+  startDate DateTime
+  endDate   DateTime
+  closedAt  DateTime?
+  closedBy  String?
+  isOpen    Boolean   @default(true)
+
+  @@unique([orgId, period])
+  @@map("erp_periods")
+}
+
+model ErpSyncLog {
+  id                   String         @id @default(cuid())
+  orgId                String
+  trigger              ErpSyncTrigger
+  triggeredBy          String?
+  status               ErpSyncStatus
+  startedAt            DateTime       @default(now())
+  completedAt          DateTime?
+  durationMs           Int?
+  transactionsChecked  Int            @default(0)
+  transactionsChanged  Int            @default(0)
+  thirdPartyRelevant   Int            @default(0)
+  newTransactions      Int            @default(0)
+  errors               Json           @default("[]")
+  notes                String?
+
+  @@map("erp_sync_logs")
 }
 
 // ============================================================

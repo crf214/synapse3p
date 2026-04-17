@@ -23,6 +23,7 @@ import { resolve } from 'path'
 import type { PrismaClient } from '@prisma/client'
 import { createClient } from '@supabase/supabase-js'
 import { prisma } from '@/lib/prisma'
+import { getErpAdapter } from '@/lib/erp'
 
 // ---------------------------------------------------------------------------
 // Load .env.local (dev only — CI injects secrets directly)
@@ -268,6 +269,39 @@ async function checkPhase4Tables(): Promise<string> {
   return `all ${tables.length} tables accessible`
 }
 
+async function checkPhase5Tables(): Promise<string> {
+  const tables: Array<[string, () => Promise<unknown>]> = [
+    ['payment_instructions',          () => prisma.paymentInstruction.count()],
+    ['payment_instruction_versions',  () => prisma.paymentInstructionVersion.count()],
+    ['payment_instruction_amendments',() => prisma.paymentInstructionAmendment.count()],
+    ['erp_transactions',              () => prisma.erpTransaction.count()],
+    ['erp_transaction_versions',      () => prisma.erpTransactionVersion.count()],
+    ['erp_periods',                   () => prisma.erpPeriod.count()],
+    ['erp_sync_logs',                 () => prisma.erpSyncLog.count()],
+  ]
+
+  for (const [name, query] of tables) {
+    try {
+      await query()
+    } catch (e) {
+      throw new Error(`${name}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  return `all ${tables.length} tables accessible`
+}
+
+async function checkErpAdapterConnection(): Promise<string> {
+  const adapter = getErpAdapter()
+  const result  = await adapter.testConnection()
+  if (!result.connected) {
+    throw new Error(result.error ?? 'testConnection returned connected: false')
+  }
+  return result.accountId
+    ? `connected — accountId: ${result.accountId}`
+    : 'connected (mock adapter)'
+}
+
 async function checkApiHealth(): Promise<string> {
   const base = process.env.HEALTH_CHECK_BASE_URL
   if (!base) {
@@ -337,6 +371,8 @@ async function main() {
   results.push(await runCheck('Entity master tables',        () => checkEntityMasterTables()))
   results.push(await runCheck('Phase 3 PO and document tables',      () => checkPhase3Tables()))
   results.push(await runCheck('Phase 4 TPM and bill pay tables',      () => checkPhase4Tables()))
+  results.push(await runCheck('Phase 5 ERP and payment tables',       () => checkPhase5Tables()))
+  results.push(await runCheck('ERP adapter connection',               () => checkErpAdapterConnection()))
 
   // API health is optional — skip entirely if base URL not configured
   if (process.env.HEALTH_CHECK_BASE_URL) {
