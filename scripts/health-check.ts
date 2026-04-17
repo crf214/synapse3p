@@ -180,6 +180,42 @@ async function checkAuditLog(prisma: PrismaClient): Promise<string> {
   return `audit row created (id: ${auditRows[0].id})`
 }
 
+async function checkEntityMasterTables(): Promise<string> {
+  const tables: Array<() => Promise<unknown>> = [
+    () => prisma.entity.count(),
+    () => prisma.entityClassification.count(),
+    () => prisma.entityBankAccount.count(),
+    () => prisma.entityDueDiligence.count(),
+    () => prisma.entityFinancial.count(),
+    () => prisma.entityRiskScore.count(),
+    () => prisma.entityOrgRelationship.count(),
+    () => prisma.serviceCatalogue.count(),
+    () => prisma.serviceEngagement.count(),
+  ]
+
+  const names = [
+    'entities',
+    'entity_classifications',
+    'entity_bank_accounts',
+    'entity_due_diligence',
+    'entity_financials',
+    'entity_risk_scores',
+    'entity_org_relationships',
+    'service_catalogue',
+    'service_engagements',
+  ]
+
+  for (let i = 0; i < tables.length; i++) {
+    try {
+      await tables[i]()
+    } catch (e) {
+      throw new Error(`${names[i]}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  return `all ${tables.length} tables accessible`
+}
+
 async function checkApiHealth(): Promise<string> {
   const base = process.env.HEALTH_CHECK_BASE_URL
   if (!base) {
@@ -246,6 +282,7 @@ async function main() {
   results.push(await runCheck('JWT claims',             () => checkJwtClaims()))
   results.push(await runCheck('Storage buckets',        () => checkStorageBuckets()))
   results.push(await runCheck('Audit log',              () => checkAuditLog(prisma)))
+  results.push(await runCheck('Entity master tables',   () => checkEntityMasterTables()))
 
   // API health is optional — skip entirely if base URL not configured
   if (process.env.HEALTH_CHECK_BASE_URL) {

@@ -43,7 +43,9 @@ model Organisation {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  members   OrgMember[]
+  members            OrgMember[]
+  entityRelationships EntityOrgRelationship[]
+  serviceEngagements  ServiceEngagement[]
 
   @@map("organisations")
 }
@@ -63,6 +65,301 @@ model OrgMember {
   @@map("org_members")
 }
 
+// ============================================================
+// Entity Master — Phase 2
+// ============================================================
+
+enum LegalStructure {
+  INDIVIDUAL
+  COMPANY
+  FUND
+  TRUST
+  GOVERNMENT
+  OTHER
+}
+
+enum EntityType {
+  VENDOR
+  CONTRACTOR
+  PARTNER
+  COUNTERPARTY
+  SERVICE_PROVIDER
+  BROKER
+  PLATFORM
+  FUND_SERVICE
+  OTHER
+}
+
+enum EntityStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_REVIEW
+  OFFBOARDED
+}
+
+enum OnboardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum KycStatus {
+  NOT_REQUIRED
+  PENDING
+  IN_REVIEW
+  APPROVED
+  FAILED
+  EXPIRED
+}
+
+enum KybStatus {
+  NOT_REQUIRED
+  PENDING
+  IN_REVIEW
+  APPROVED
+  FAILED
+  EXPIRED
+}
+
+enum SanctionsStatus {
+  CLEAR
+  FLAGGED
+  UNDER_REVIEW
+  BLOCKED
+}
+
+enum PaymentRail {
+  ACH
+  BACS
+  SWIFT
+  SEPA
+  WIRE
+  STRIPE
+  ERP
+  OTHER
+}
+
+enum SlaStatus {
+  ON_TRACK
+  AT_RISK
+  BREACHED
+  NOT_APPLICABLE
+}
+
+enum ServiceCategory {
+  BANKING
+  CUSTODY
+  FUND_ADMIN
+  OUTSOURCING
+  LEGAL
+  AUDIT
+  TECHNOLOGY
+  COMPLIANCE
+  OTHER
+}
+
+model Entity {
+  id                 String        @id @default(cuid())
+  masterOrgId        String
+  name               String
+  slug               String        @unique
+  legalStructure     LegalStructure
+  registrationNo     String?
+  jurisdiction       String?
+  incorporationDate  DateTime?
+  status             EntityStatus  @default(ACTIVE)
+  primaryCurrency    String        @default("USD")
+  riskScore          Float         @default(0)
+  riskOverride       Boolean       @default(false)
+  parentId           String?
+  ultimateParentId   String?
+  metadata           Json          @default("{}")
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  parent             Entity?                  @relation("EntityParent",        fields: [parentId],         references: [id])
+  children           Entity[]                 @relation("EntityParent")
+  ultimateParent     Entity?                  @relation("EntityUltimateParent", fields: [ultimateParentId], references: [id])
+  ultimateChildren   Entity[]                 @relation("EntityUltimateParent")
+
+  classifications    EntityClassification[]
+  bankAccounts       EntityBankAccount[]
+  dueDiligence       EntityDueDiligence?
+  financial          EntityFinancial?
+  riskScores         EntityRiskScore[]
+  orgRelationships   EntityOrgRelationship[]
+  serviceEngagements ServiceEngagement[]
+
+  @@map("entities")
+}
+
+model EntityClassification {
+  id        String      @id @default(cuid())
+  entityId  String
+  type      EntityType
+  isPrimary Boolean     @default(false)
+  startDate DateTime?
+  endDate   DateTime?
+  notes     String?
+  createdAt DateTime    @default(now())
+
+  entity    Entity      @relation(fields: [entityId], references: [id])
+
+  @@unique([entityId, type])
+  @@map("entity_classifications")
+}
+
+model EntityBankAccount {
+  id          String        @id @default(cuid())
+  entityId    String
+  label       String
+  isPrimary   Boolean       @default(false)
+  accountName String
+  accountNo   String
+  routingNo   String?
+  swiftBic    String?
+  iban        String?
+  currency    String        @default("USD")
+  paymentRail PaymentRail
+  status      EntityStatus  @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  entity      Entity        @relation(fields: [entityId], references: [id])
+
+  @@map("entity_bank_accounts")
+}
+
+model EntityDueDiligence {
+  id              String          @id @default(cuid())
+  entityId        String          @unique
+  ddLevel         Int             @default(1)
+  kycStatus       KycStatus       @default(NOT_REQUIRED)
+  kybStatus       KybStatus       @default(NOT_REQUIRED)
+  sanctionsStatus SanctionsStatus @default(CLEAR)
+  pepStatus       Boolean         @default(false)
+  reviewedAt      DateTime?
+  reviewedBy      String?
+  nextReviewDate  DateTime?
+  internalFactors Json            @default("{}")
+  externalFactors Json            @default("{}")
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  entity          Entity          @relation(fields: [entityId], references: [id])
+
+  @@map("entity_due_diligence")
+}
+
+model EntityFinancial {
+  id                   String    @id @default(cuid())
+  entityId             String    @unique
+  paymentTerms         Int       @default(30)
+  defaultCurrency      String    @default("USD")
+  taxId                String?
+  vatNumber            String?
+  glCode               String?
+  costCentre           String?
+  creditLimit          Float?
+  preferredBankAccountId String?
+  invoiceCount         Int       @default(0)
+  spendYTD             Float     @default(0)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  entity               Entity    @relation(fields: [entityId], references: [id])
+
+  @@map("entity_financials")
+}
+
+model EntityRiskScore {
+  id                   String    @id @default(cuid())
+  entityId             String
+  computedScore        Float
+  parentInfluence      Float     @default(0)
+  ddScore              Float     @default(0)
+  behaviorScore        Float     @default(0)
+  sanctionsScore       Float     @default(0)
+  paymentHistoryScore  Float     @default(0)
+  weights              Json
+  notes                String?
+  scoredAt             DateTime  @default(now())
+  scoredBy             String?
+
+  entity               Entity    @relation(fields: [entityId], references: [id])
+
+  @@map("entity_risk_scores")
+}
+
+model EntityOrgRelationship {
+  id                      String           @id @default(cuid())
+  entityId                String
+  orgId                   String
+  managedBy               String?
+  onboardingStatus        OnboardingStatus @default(NOT_STARTED)
+  onboardingCompletedAt   DateTime?
+  contractStart           DateTime?
+  contractEnd             DateTime?
+  approvedSpendLimit      Float?
+  portalAccess            Boolean          @default(false)
+  portalUserId            String?
+  activeForBillPay        Boolean          @default(false)
+  notes                   String?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  entity                  Entity           @relation(fields: [entityId], references: [id])
+  org                     Organisation     @relation(fields: [orgId], references: [id])
+
+  @@unique([entityId, orgId])
+  @@map("entity_org_relationships")
+}
+
+model ServiceCatalogue {
+  id          String            @id @default(cuid())
+  name        String            @unique
+  category    ServiceCategory
+  description String?
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  engagements ServiceEngagement[]
+
+  @@map("service_catalogue")
+}
+
+model ServiceEngagement {
+  id                   String           @id @default(cuid())
+  entityId             String
+  serviceCatalogueId   String
+  orgId                String
+  internalOwner        String?
+  department           String?
+  status               EntityStatus     @default(ACTIVE)
+  contractId           String?
+  contractStart        DateTime?
+  contractEnd          DateTime?
+  slaTarget            String?
+  slaStatus            SlaStatus        @default(NOT_APPLICABLE)
+  lastReviewedAt       DateTime?
+  complianceDocs       Json             @default("[]")
+  notes                String?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  entity               Entity           @relation(fields: [entityId], references: [id])
+  serviceCatalogue     ServiceCatalogue @relation(fields: [serviceCatalogueId], references: [id])
+  org                  Organisation     @relation(fields: [orgId], references: [id])
+
+  @@unique([entityId, serviceCatalogueId, orgId])
+  @@map("service_engagements")
+}
+
+// ============================================================
 // AuditEvent is append-only — no updates or deletes should ever be issued against this table.
 model AuditEvent {
   id         String   @id @default(cuid())
