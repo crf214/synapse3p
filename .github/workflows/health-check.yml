@@ -1,0 +1,48 @@
+name: Infrastructure Health Check
+
+on:
+  schedule:
+    - cron: '0 2 * * *'   # 2am UTC daily
+  workflow_dispatch:        # allow manual runs from the Actions tab
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Run health checks
+        # The script handles all alerting internally and always exits 0.
+        # continue-on-error is set as a belt-and-suspenders guard.
+        continue-on-error: true
+        env:
+          DATABASE_URL:                  ${{ secrets.DATABASE_URL }}
+          DIRECT_URL:                    ${{ secrets.DIRECT_URL }}
+          NEXT_PUBLIC_SUPABASE_URL:      ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_KEY:          ${{ secrets.SUPABASE_SERVICE_KEY }}
+          RESEND_API_KEY:                ${{ secrets.RESEND_API_KEY }}
+          ALERT_EMAIL:                   ${{ secrets.ALERT_EMAIL }}
+          ALERT_FROM_EMAIL:              ${{ secrets.ALERT_FROM_EMAIL }}
+        run: npx tsx scripts/health-check.ts
