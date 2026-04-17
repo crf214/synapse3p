@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300&family=DM+Mono:wght@400;500&display=swap');
+
+:root {
+  --font-display: 'DM Serif Display', Georgia, serif;
+  --font-body:    'DM Sans', system-ui, sans-serif;
+  --font-mono:    'DM Mono', 'Fira Code', monospace;
+
+  --cream:   #FAFAF7;
+  --ink:     #1C1917;
+  --muted:   #78716C;
+  --border:  #E7E5E0;
+  --surface: #F5F4EF;
+
+  --green-soft: #ECFDF5;
+  --green-text: #065F46;
+  --amber-soft: #FFFBEB;
+  --amber-text: #92400E;
+  --red-soft:   #FEF2F2;
+  --red-text:   #991B1B;
+  --blue-soft:  #EFF6FF;
+  --blue-text:  #1E40AF;
+}
+
+* { box-sizing: border-box; }
+
+html { font-family: var(--font-body); background: var(--cream); color: var(--ink); }
+
+body { min-height: 100vh; }
+
+/* Typography */
+.font-display { font-family: var(--font-display); }
+.font-mono    { font-family: var(--font-mono); }
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* Focus rings */
+:focus-visible {
+  outline: 2px solid #A78BFA;
+  outline-offset: 2px;
+}
+
+/* Score colours */
+.score-high { color: var(--green-text); background: var(--green-soft); }
+.score-mid  { color: var(--amber-text); background: var(--amber-soft); }
+.score-low  { color: var(--red-text);   background: var(--red-soft);   }
+
+/* Drag states */
+.drag-over  { border-color: #A78BFA !important; background: #F5F3FF !important; }
+.dragging   { opacity: 0.4; }
+
+/* Page transitions */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-up { animation: fadeUp 0.2s ease both; }
+
+/* Star rating */
+.star-btn { background: none; border: none; cursor: pointer; padding: 0 1px; font-size: 20px; line-height: 1; transition: transform .1s; }
+.star-btn:hover { transform: scale(1.15); }
