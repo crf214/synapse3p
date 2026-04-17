@@ -241,6 +241,33 @@ async function checkPhase3Tables(): Promise<string> {
   return `all ${tables.length} tables accessible`
 }
 
+async function checkPhase4Tables(): Promise<string> {
+  const tables: Array<[string, () => Promise<unknown>]> = [
+    ['onboarding_workflows',    () => prisma.onboardingWorkflow.count()],
+    ['onboarding_instances',    () => prisma.onboardingInstance.count()],
+    ['third_party_reviews',     () => prisma.thirdPartyReview.count()],
+    ['review_cadences',         () => prisma.reviewCadence.count()],
+    ['entity_activity_logs',    () => prisma.entityActivityLog.count()],
+    ['recurring_schedules',     () => prisma.recurringSchedule.count()],
+    ['invoices',                () => prisma.invoice.count()],
+    ['risk_evaluations',        () => prisma.riskEvaluation.count()],
+    ['invoice_decisions',       () => prisma.invoiceDecision.count()],
+    ['payment_executions',      () => prisma.paymentExecution.count()],
+    ['external_signal_configs', () => prisma.externalSignalConfig.count()],
+    ['external_signals',        () => prisma.externalSignal.count()],
+  ]
+
+  for (const [name, query] of tables) {
+    try {
+      await query()
+    } catch (e) {
+      throw new Error(`${name}: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  return `all ${tables.length} tables accessible`
+}
+
 async function checkApiHealth(): Promise<string> {
   const base = process.env.HEALTH_CHECK_BASE_URL
   if (!base) {
@@ -308,7 +335,8 @@ async function main() {
   results.push(await runCheck('Storage buckets',        () => checkStorageBuckets()))
   results.push(await runCheck('Audit log',              () => checkAuditLog(prisma)))
   results.push(await runCheck('Entity master tables',        () => checkEntityMasterTables()))
-  results.push(await runCheck('Phase 3 PO and document tables', () => checkPhase3Tables()))
+  results.push(await runCheck('Phase 3 PO and document tables',      () => checkPhase3Tables()))
+  results.push(await runCheck('Phase 4 TPM and bill pay tables',      () => checkPhase4Tables()))
 
   // API health is optional — skip entirely if base URL not configured
   if (process.env.HEALTH_CHECK_BASE_URL) {

@@ -43,14 +43,21 @@ model Organisation {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  members              OrgMember[]
-  entityRelationships  EntityOrgRelationship[]
-  serviceEngagements   ServiceEngagement[]
-  processingRules      ProcessingRule[]
-  approvalWorkflows    ApprovalWorkflow[]
-  purchaseOrders       PurchaseOrder[]
-  documents            Document[]
-  contracts            Contract[]
+  members               OrgMember[]
+  entityRelationships   EntityOrgRelationship[]
+  serviceEngagements    ServiceEngagement[]
+  processingRules       ProcessingRule[]
+  approvalWorkflows     ApprovalWorkflow[]
+  purchaseOrders        PurchaseOrder[]
+  documents             Document[]
+  contracts             Contract[]
+  onboardingWorkflows   OnboardingWorkflow[]
+  onboardingInstances   OnboardingInstance[]
+  thirdPartyReviews     ThirdPartyReview[]
+  reviewCadences        ReviewCadence[]
+  entityActivityLogs    EntityActivityLog[]
+  recurringSchedules    RecurringSchedule[]
+  invoices              Invoice[]
 
   @@map("organisations")
 }
@@ -190,15 +197,22 @@ model Entity {
   ultimateParent     Entity?                  @relation("EntityUltimateParent", fields: [ultimateParentId], references: [id])
   ultimateChildren   Entity[]                 @relation("EntityUltimateParent")
 
-  classifications          EntityClassification[]
-  bankAccounts             EntityBankAccount[]
-  dueDiligence             EntityDueDiligence?
-  financial                EntityFinancial?
-  riskScores               EntityRiskScore[]
-  orgRelationships         EntityOrgRelationship[]
-  serviceEngagements       ServiceEngagement[]
+  classifications           EntityClassification[]
+  bankAccounts              EntityBankAccount[]
+  dueDiligence              EntityDueDiligence?
+  financial                 EntityFinancial?
+  riskScores                EntityRiskScore[]
+  orgRelationships          EntityOrgRelationship[]
+  serviceEngagements        ServiceEngagement[]
   processingRuleEvaluations ProcessingRuleEvaluation[]
-  purchaseOrders           PurchaseOrder[]
+  purchaseOrders            PurchaseOrder[]
+  onboardingInstances       OnboardingInstance[]
+  thirdPartyReviews         ThirdPartyReview[]
+  entityActivityLogs        EntityActivityLog[]
+  recurringSchedules        RecurringSchedule[]
+  invoices                  Invoice[]
+  externalSignalConfigs     ExternalSignalConfig[]
+  externalSignals           ExternalSignal[]
 
   @@map("entities")
 }
@@ -711,6 +725,408 @@ model Contract {
   @@index([orgId, status])
   @@index([endDate])
   @@map("contracts")
+}
+
+// ============================================================
+// Onboarding, Reviews, Invoicing & Signals — Phase 4
+// ============================================================
+
+enum OnboardingStepType {
+  DOCUMENT
+  REVIEW
+  APPROVAL
+  EXTERNAL_CHECK
+  INFORMATION
+}
+
+enum OnboardingInstanceStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  BLOCKED
+  PENDING_APPROVAL
+  COMPLETED
+  REJECTED
+}
+
+enum ReviewType {
+  ONBOARDING
+  PERIODIC
+  EVENT_TRIGGERED
+}
+
+enum ReviewStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  CANCELLED
+}
+
+enum ReviewDomain {
+  CYBERSECURITY
+  LEGAL
+  PRIVACY
+  FINANCIAL
+  OPERATIONAL
+}
+
+enum ActivityType {
+  ONBOARDING
+  REVIEW
+  PAYMENT
+  STATUS_CHANGE
+  INCIDENT
+  DOCUMENT
+  NOTE
+  EXTERNAL_SIGNAL
+  RISK_SCORE_CHANGE
+}
+
+enum InvoiceStatus {
+  RECEIVED
+  MATCHED
+  UNMATCHED
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+  PAID
+  CANCELLED
+  DUPLICATE
+}
+
+enum InvoiceSource {
+  EMAIL
+  PORTAL
+  MANUAL
+  EDI
+}
+
+enum MatchType {
+  TWO_WAY
+  THREE_WAY
+  NONE
+}
+
+enum InvoiceDecisionType {
+  AUTO_APPROVE
+  REVIEW
+  ESCALATE
+  REJECT
+}
+
+enum PaymentStatus {
+  SCHEDULED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  RECONCILED
+}
+
+enum PaymentRailExecution {
+  ERP
+  BANK_API
+  STRIPE
+}
+
+enum SignalType {
+  NEWS
+  STOCK_PRICE
+}
+
+enum SignalSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model OnboardingWorkflow {
+  id          String      @id @default(cuid())
+  orgId       String
+  name        String
+  description String?
+  entityTypes EntityType[]
+  steps       Json
+  isActive    Boolean     @default(true)
+  createdBy   String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  org         Organisation        @relation(fields: [orgId], references: [id])
+  instances   OnboardingInstance[]
+
+  @@map("onboarding_workflows")
+}
+
+model OnboardingInstance {
+  id              String                   @id @default(cuid())
+  entityId        String
+  orgId           String
+  workflowId      String
+  status          OnboardingInstanceStatus @default(NOT_STARTED)
+  currentStep     Int                      @default(1)
+  completedSteps  Json                     @default("[]")
+  startedAt       DateTime?
+  completedAt     DateTime?
+  blockedReason   String?
+  assignedTo      String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  entity          Entity             @relation(fields: [entityId], references: [id])
+  org             Organisation       @relation(fields: [orgId], references: [id])
+  workflow        OnboardingWorkflow @relation(fields: [workflowId], references: [id])
+
+  @@unique([entityId, orgId, workflowId])
+  @@map("onboarding_instances")
+}
+
+model ThirdPartyReview {
+  id              String       @id @default(cuid())
+  entityId        String
+  orgId           String
+  reviewType      ReviewType
+  status          ReviewStatus @default(IN_PROGRESS)
+  cyberScore      Float?
+  legalScore      Float?
+  privacyScore    Float?
+  overallScore    Float?
+  cyberFindings   Json         @default("{}")
+  legalFindings   Json         @default("{}")
+  privacyFindings Json         @default("{}")
+  reviewedBy      String?
+  approvedBy      String?
+  scheduledAt     DateTime?
+  completedAt     DateTime?
+  nextReviewDate  DateTime?
+  triggerEvent    String?
+  notes           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  entity          Entity       @relation(fields: [entityId], references: [id])
+  org             Organisation @relation(fields: [orgId], references: [id])
+
+  @@index([entityId, reviewType])
+  @@index([nextReviewDate])
+  @@map("third_party_reviews")
+}
+
+model ReviewCadence {
+  id                  String         @id @default(cuid())
+  orgId               String
+  name                String
+  riskScoreMin        Float          @default(0)
+  riskScoreMax        Float          @default(10)
+  reviewIntervalDays  Int
+  domains             ReviewDomain[]
+  isActive            Boolean        @default(true)
+  createdBy           String
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  org                 Organisation   @relation(fields: [orgId], references: [id])
+
+  @@map("review_cadences")
+}
+
+model EntityActivityLog {
+  id             String       @id @default(cuid())
+  entityId       String
+  orgId          String
+  activityType   ActivityType
+  title          String
+  description    String?
+  referenceId    String?
+  referenceType  String?
+  performedBy    String?
+  occurredAt     DateTime     @default(now())
+  metadata       Json         @default("{}")
+
+  entity         Entity       @relation(fields: [entityId], references: [id])
+  org            Organisation @relation(fields: [orgId], references: [id])
+
+  @@index([entityId, occurredAt])
+  @@index([orgId, activityType])
+  @@map("entity_activity_logs")
+}
+
+model RecurringSchedule {
+  id                  String       @id @default(cuid())
+  orgId               String
+  entityId            String
+  name                String
+  description         String?
+  spendCategory       String?
+  expectedAmount      Float
+  currency            String       @default("USD")
+  frequency           String
+  dayOfMonth          Int?
+  toleranceFixed      Float        @default(0)
+  tolerancePct        Float        @default(0.02)
+  toleranceDynamic    Float        @default(1.0)
+  isActive            Boolean      @default(true)
+  lastInvoiceAt       DateTime?
+  lastInvoiceAmount   Float?
+  invoiceCount        Int          @default(0)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  org                 Organisation @relation(fields: [orgId], references: [id])
+  entity              Entity       @relation(fields: [entityId], references: [id])
+
+  @@map("recurring_schedules")
+}
+
+model Invoice {
+  id                  String        @id @default(cuid())
+  orgId               String
+  invoiceNo           String
+  entityId            String
+  poId                String?
+  recurringScheduleId String?
+  amount              Float
+  currency            String        @default("USD")
+  invoiceDate         DateTime
+  dueDate             DateTime?
+  status              InvoiceStatus @default(RECEIVED)
+  source              InvoiceSource
+  isRecurring         Boolean       @default(false)
+  matchType           MatchType     @default(NONE)
+  documentId          String?
+  rawExtraction       Json          @default("{}")
+  notes               String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  org                 Organisation       @relation(fields: [orgId], references: [id])
+  entity              Entity             @relation(fields: [entityId], references: [id])
+  riskEvaluations     RiskEvaluation[]
+  decision            InvoiceDecision?
+  paymentExecutions   PaymentExecution[]
+
+  @@unique([orgId, invoiceNo])
+  @@index([entityId, status])
+  @@index([dueDate])
+  @@map("invoices")
+}
+
+model RiskEvaluation {
+  id                 String   @id @default(cuid())
+  invoiceId          String
+  orgId              String
+  overallScore       Float
+  amountScore        Float    @default(0)
+  frequencyScore     Float    @default(0)
+  vendorScore        Float    @default(0)
+  duplicateScore     Float    @default(0)
+  toleranceScore     Float    @default(0)
+  weights            Json
+  flags              Json     @default("[]")
+  explanation        Json
+  withinTolerance    Boolean  @default(true)
+  deviation          Float    @default(0)
+  deviationPct       Float    @default(0)
+  effectiveTolerance Float    @default(0)
+  evaluatedAt        DateTime @default(now())
+
+  invoice            Invoice  @relation(fields: [invoiceId], references: [id])
+
+  @@map("risk_evaluations")
+}
+
+model InvoiceDecision {
+  id               String              @id @default(cuid())
+  invoiceId        String              @unique
+  decision         InvoiceDecisionType
+  riskScore        Float
+  reasoning        Json
+  decidedAt        DateTime            @default(now())
+  decidedBy        String
+  overriddenBy     String?
+  overriddenAt     DateTime?
+  overrideReason   String?
+  previousDecision InvoiceDecisionType?
+
+  invoice          Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@map("invoice_decisions")
+}
+
+model PaymentExecution {
+  id            String               @id @default(cuid())
+  invoiceId     String
+  orgId         String
+  entityId      String?
+  amount        Float
+  currency      String               @default("USD")
+  rail          PaymentRailExecution
+  status        PaymentStatus        @default(SCHEDULED)
+  scheduledAt   DateTime?
+  executedAt    DateTime?
+  reference     String?
+  bankAccountId String?
+  reconciled    Boolean              @default(false)
+  reconciledAt  DateTime?
+  glPosted      Boolean              @default(false)
+  glPostedAt    DateTime?
+  failureReason String?
+  retryCount    Int                  @default(0)
+  metadata      Json                 @default("{}")
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  invoice       Invoice @relation(fields: [invoiceId], references: [id])
+
+  @@index([invoiceId])
+  @@index([status, scheduledAt])
+  @@map("payment_executions")
+}
+
+model ExternalSignalConfig {
+  id                 String          @id @default(cuid())
+  entityId           String
+  orgId              String
+  signalTypes        SignalType[]
+  stockTicker        String?
+  companyName        String
+  newsKeywords       String[]
+  severityThreshold  SignalSeverity  @default(MEDIUM)
+  alertRecipients    String[]
+  isActive           Boolean         @default(true)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  entity             Entity @relation(fields: [entityId], references: [id])
+
+  @@unique([entityId, orgId])
+  @@map("external_signal_configs")
+}
+
+model ExternalSignal {
+  id               String        @id @default(cuid())
+  entityId         String
+  orgId            String
+  signalType       SignalType
+  severity         SignalSeverity
+  title            String
+  summary          String
+  sourceUrl        String?
+  sourceName       String?
+  rawData          Json          @default("{}")
+  publishedAt      DateTime?
+  detectedAt       DateTime      @default(now())
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  dismissed        Boolean       @default(false)
+  affectedRiskScore Boolean      @default(false)
+
+  entity           Entity @relation(fields: [entityId], references: [id])
+
+  @@index([entityId, detectedAt])
+  @@index([severity, dismissed])
+  @@map("external_signals")
 }
 
 // ============================================================
