@@ -1,5 +1,5 @@
 // src/lib/prisma.ts
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient, Prisma } from '@prisma/client'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
@@ -62,8 +62,8 @@ client.$use(async (params, next) => {
         action:     params.action,
         entityType: params.model,
         entityId:   (result as any)?.id ?? (before as any)?.id ?? null,
-        before:     before   ?? undefined,
-        after:      after    ?? undefined,
+        before:     before as Prisma.InputJsonValue ?? undefined,
+        after:      after  as Prisma.InputJsonValue ?? undefined,
         ipAddress:  null,
       },
     })
