@@ -1,3 +1,6 @@
+// IMPORTANT: All data returned from NetSuite must be sanitised using functions
+// from src/lib/security/sanitise.ts before being stored or displayed.
+
 import type IErpAdapter from './IErpAdapter'
 import type {
   NetSuiteVendor,

@@ -17,6 +17,7 @@ import { resolve } from 'path'
 import { prisma } from '@/lib/prisma'
 import type { SignalSeverity, SignalType } from '@prisma/client'
 import { safeExternalFetch } from '@/lib/security/outbound'
+import { sanitiseNewsArticle, sanitiseStockData } from '@/lib/security/sanitise'
 
 // ---------------------------------------------------------------------------
 // Load .env.local in development
@@ -139,12 +140,16 @@ async function processNews(
   const res = await safeExternalFetch(url.toString(), {}, 'external-signals:news')
   if (!res.ok) throw new Error(`NewsAPI ${res.status}: ${await res.text()}`)
 
-  const data = await res.json() as { articles?: NewsArticle[] }
+  const data = await res.json() as { articles?: unknown[] }
   const articles = data.articles ?? []
   let stored = 0
 
-  for (const article of articles) {
-    const severity = detectNewsSeverity(article.title, article.description ?? '')
+  for (const rawArticle of articles) {
+    // Sanitise all third-party data before touching the database
+    const article = sanitiseNewsArticle(rawArticle)
+    if (!article) continue
+
+    const severity = detectNewsSeverity(article.title, article.description)
     if (!meetsThreshold(severity, config.severityThreshold)) continue
 
     // Deduplication: skip if same sourceUrl already exists for this entity
@@ -163,10 +168,10 @@ async function processNews(
         signalType: 'NEWS',
         severity,
         title:      article.title,
-        summary:    article.description ?? article.title,
+        summary:    article.description || article.title,
         sourceUrl:  article.url,
-        sourceName: article.source.name,
-        rawData:    article as object,
+        sourceName: article.sourceName,
+        rawData:    rawArticle as object,
         publishedAt: article.publishedAt ? new Date(article.publishedAt) : null,
       },
     })
@@ -177,7 +182,7 @@ async function processNews(
         orgId:         config.orgId,
         activityType:  'EXTERNAL_SIGNAL',
         title:         `News signal (${severity}): ${article.title}`,
-        description:   article.description ?? undefined,
+        description:   article.description || undefined,
         referenceType: 'ExternalSignal',
         performedBy:   'system',
         metadata:      { signalType: 'NEWS', severity, sourceUrl: article.url },
@@ -188,7 +193,7 @@ async function processNews(
     console.log(`    [news] ${severity}: ${article.title.slice(0, 80)}`)
 
     // Alert recipients
-    await sendSignalAlerts(config, entityName, 'NEWS', severity, article.title, article.description ?? '', article.url, article.source.name)
+    await sendSignalAlerts(config, entityName, 'NEWS', severity, article.title, article.description, article.url ?? undefined, article.sourceName)
   }
 
   return stored
@@ -222,16 +227,15 @@ async function processStock(
   const data = await res.json() as YahooChartResponse
   if (data.chart.error) throw new Error(data.chart.error.description)
 
-  const closes = data.chart.result?.[0]?.indicators?.quote?.[0]?.close ?? []
-  const validCloses = closes.filter((c): c is number => c !== null)
-
-  if (validCloses.length < 2) {
-    console.log('    [stock] Not enough data points')
+  // Sanitise all third-party data before touching the database
+  const stock = sanitiseStockData(data)
+  if (!stock || stock.previousClose === null || stock.lastClose === null) {
+    console.log('    [stock] Not enough valid data points')
     return 0
   }
 
-  const prev      = validCloses[validCloses.length - 2]
-  const latest    = validCloses[validCloses.length - 1]
+  const prev      = stock.previousClose
+  const latest    = stock.lastClose
   const changePct = ((latest - prev) / prev) * 100
 
   // Only alert on drops

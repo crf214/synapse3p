@@ -1,9 +1,13 @@
 // src/lib/prisma.ts
 import { PrismaClient, Prisma } from '@prisma/client'
+import { assertSecrets } from '@/lib/security/secrets-audit'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
+
+// Verify all required secrets are present at startup
+assertSecrets()
 
 const client =
   globalForPrisma.prisma ??

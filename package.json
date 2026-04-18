@@ -13,7 +13,9 @@
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "audit": "npm audit --audit-level=moderate",
+    "audit:fix": "npm audit fix"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.88.0",

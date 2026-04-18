@@ -28,6 +28,7 @@ import { execSync } from 'child_process'
 import { computeAndStoreSnapshot } from '@/lib/reporting/snapshots'
 import { safeExternalFetch, addAllowedDomain } from '@/lib/security/outbound'
 import { ForbiddenError } from '@/lib/errors'
+import { auditSecrets } from '@/lib/security/secrets-audit'
 
 // ---------------------------------------------------------------------------
 // Load .env.local (dev only — CI injects secrets directly)
@@ -381,6 +382,68 @@ async function checkReportSnapshots(): Promise<string> {
   return `AP_AGING snapshot created (id: ${snapshot.id}, ${recordCount} currency rows)`
 }
 
+async function checkSecretsAudit(): Promise<string> {
+  const { passed, warnings, errors } = auditSecrets()
+
+  if (errors.length > 0) {
+    throw new Error(`Secrets audit failed:\n${errors.map(e => `  • ${e}`).join('\n')}`)
+  }
+
+  if (warnings.length > 0) {
+    return `passed with ${warnings.length} warning${warnings.length === 1 ? '' : 's'}: ${warnings.join('; ')}`
+  }
+
+  return 'all required secrets present and correctly formatted'
+}
+
+async function checkDependencyAudit(): Promise<string> {
+  let output: string
+  try {
+    output = execSync('npm audit --json --audit-level=high', {
+      encoding: 'utf8',
+      // npm audit exits non-zero when vulnerabilities are found; capture output regardless
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+  } catch (err: unknown) {
+    // execSync throws when exit code !== 0 — the stdout is still attached to the error
+    const execError = err as { stdout?: string; stderr?: string; message?: string }
+    if (execError.stdout) {
+      output = execError.stdout
+    } else {
+      // audit tool itself unavailable (e.g., no network in sandbox)
+      return 'npm audit unavailable — skipping (tool error: ' + (execError.message ?? String(err)) + ')'
+    }
+  }
+
+  let parsed: {
+    vulnerabilities?: Record<string, { severity: string }>
+    metadata?: { vulnerabilities?: { high?: number; critical?: number; moderate?: number; low?: number } }
+  }
+  try {
+    parsed = JSON.parse(output) as typeof parsed
+  } catch {
+    return 'npm audit output could not be parsed — skipping'
+  }
+
+  const counts = parsed.metadata?.vulnerabilities ?? {}
+  const high     = counts.high     ?? 0
+  const critical = counts.critical ?? 0
+  const moderate = counts.moderate ?? 0
+  const low      = counts.low      ?? 0
+
+  if (high > 0 || critical > 0) {
+    throw new Error(
+      `${critical} critical, ${high} high severity vulnerabilities found — run: npm audit`
+    )
+  }
+
+  if (moderate > 0 || low > 0) {
+    return `no high/critical vulnerabilities (${moderate} moderate, ${low} low)`
+  }
+
+  return 'no vulnerabilities found'
+}
+
 async function checkApiHealth(): Promise<string> {
   const base = process.env.HEALTH_CHECK_BASE_URL
   if (!base) {
@@ -455,6 +518,8 @@ async function main() {
   results.push(await runCheck('FX rates',                             () => checkFxRates()))
   results.push(await runCheck('Outbound security controls',           () => checkOutboundSecurityControls()))
   results.push(await runCheck('Report snapshots',                     () => checkReportSnapshots()))
+  results.push(await runCheck('Secrets audit',                         () => checkSecretsAudit()))
+  results.push(await runCheck('Dependency audit',                       () => checkDependencyAudit()))
 
   // API health is optional — skip entirely if base URL not configured
   if (process.env.HEALTH_CHECK_BASE_URL) {
