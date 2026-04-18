@@ -186,12 +186,13 @@ export async function sendToErp(
   const adapter = getErpAdapter()
 
   const payload: PaymentInstructionPayload = {
-    vendorErpId:  instruction.entityId,   // resolved to ERP vendor id at send time by adapter
-    amount:       instruction.amount,
-    currency:     instruction.currency,
-    dueDate:      instruction.dueDate ?? undefined,
-    glCode:       instruction.glCode ?? undefined,
-    memo:         instruction.notes ?? undefined,
+    instructionId: instructionId,
+    vendorErpId:   instruction.entityId,   // resolved to ERP vendor id at send time by adapter
+    bankAccount:   { accountNo: instruction.bankAccountId },
+    amount:        instruction.amount,
+    currency:      instruction.currency,
+    dueDate:       instruction.dueDate ?? undefined,
+    memo:          instruction.notes ?? undefined,
   }
 
   const confirmation = await adapter.sendPaymentInstruction(payload)
@@ -199,9 +200,9 @@ export async function sendToErp(
   await prisma.paymentInstruction.update({
     where: { id: instructionId },
     data: {
-      status:      confirmation.success ? 'SENT_TO_ERP' : 'FAILED',
-      sentToErpAt: new Date(),
-      erpReference: confirmation.erpReference ?? null,
+      status:       confirmation.status === 'SUCCESS' ? 'SENT_TO_ERP' : 'FAILED',
+      sentToErpAt:  new Date(),
+      erpReference: confirmation.erpReference,
     },
   })
 
@@ -210,17 +211,17 @@ export async function sendToErp(
       entityId:      instruction.entityId,
       orgId:         instruction.orgId,
       activityType:  'PAYMENT',
-      title:         confirmation.success
+      title:         confirmation.status === 'SUCCESS'
         ? `Payment instruction sent to ERP — ref ${confirmation.erpReference}`
         : `Payment instruction ERP submission failed — ${confirmation.failureReason}`,
       referenceId:   instructionId,
       referenceType: 'PaymentInstruction',
       performedBy:   triggeredBy,
-      metadata:      { erpReference: confirmation.erpReference, success: confirmation.success },
+      metadata:      { erpReference: confirmation.erpReference, status: confirmation.status },
     },
   })
 
-  if (!confirmation.success) {
+  if (confirmation.status !== 'SUCCESS') {
     throw new Error(`ERP submission failed: ${confirmation.failureReason}`)
   }
 
@@ -347,7 +348,6 @@ export async function approveAmendment(
       amount:               instruction.amount,
       currency:             instruction.currency,
       dueDate:              instruction.dueDate,
-      glCode:               instruction.glCode,
       costCentre:           instruction.costCentre,
       snapshotAt:           now,
       snapshotBy:           reviewedBy,
