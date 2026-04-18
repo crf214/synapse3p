@@ -26,9 +26,6 @@ interface ApiResponse {
   currencies:  string[]
 }
 
-function toInputDate(iso: string) {
-  return iso.slice(0, 10)
-}
 
 function fmt(n: number, currency: string) {
   return new Intl.NumberFormat('en-US', {

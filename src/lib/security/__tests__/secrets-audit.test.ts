@@ -18,7 +18,7 @@ const VALID_ENV: Record<string, string> = {
 function withEnv(overrides: Record<string, string | undefined>) {
   // vi.stubEnv only accepts string values; we handle removal via undefined
   const merged = { ...VALID_ENV, ...overrides }
-  for (const [k, v] of Object.entries(merged)) {
+  for (const [, v] of Object.entries(merged)) {
     if (v === undefined) {
       vi.unstubAllEnvs() // reset first, then re-stub without the key
       break

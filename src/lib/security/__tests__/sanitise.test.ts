@@ -163,7 +163,7 @@ describe('sanitiseNewsArticle', () => {
   })
 
   it('returns null when title is missing', () => {
-    const { title: _, ...noTitle } = validArticle
+    const { title: _title, ...noTitle } = validArticle
     expect(sanitiseNewsArticle(noTitle)).toBeNull()
   })
 

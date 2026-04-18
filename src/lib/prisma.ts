@@ -34,6 +34,7 @@ client.$use(async (params, next) => {
     return next(params)
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dynamic Prisma model access requires any
   const modelDelegate = (client as any)[
     params.model.charAt(0).toLowerCase() + params.model.slice(1)
   ]
@@ -65,6 +66,7 @@ client.$use(async (params, next) => {
         actorId:    null,
         action:     params.action,
         entityType: params.model,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Dynamic Prisma model access requires any
         entityId:   (result as any)?.id ?? (before as any)?.id ?? null,
         before:     before as Prisma.InputJsonValue ?? undefined,
         after:      after  as Prisma.InputJsonValue ?? undefined,

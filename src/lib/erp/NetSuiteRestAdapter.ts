@@ -95,7 +95,7 @@ export class NetSuiteRestAdapter implements IErpAdapter {
     throw new Error(NOT_IMPLEMENTED)
   }
 
-  async sendPaymentInstruction(payload: PaymentInstructionPayload): Promise<PaymentConfirmation> {
+  async sendPaymentInstruction(_payload: PaymentInstructionPayload): Promise<PaymentConfirmation> {
     // TODO: POST {baseUrl}/vendorpayment
     // Body shape:
     //   { entity: { id: payload.vendorErpId },

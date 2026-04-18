@@ -6,7 +6,7 @@ import type { ErpSyncResult, NetSuiteTransaction } from './types'
 // Helpers
 // ---------------------------------------------------------------------------
 
-function periodKey(date: Date): string {
+function _periodKey(date: Date): string {
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
 }
 

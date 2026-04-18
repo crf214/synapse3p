@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
-import { getOrComputeSnapshot, computeAndStoreSnapshot } from '@/lib/reporting/snapshots'
+import { getOrComputeSnapshot } from '@/lib/reporting/snapshots'
 import { getSpendByVendor, type SpendByVendorRow } from '@/lib/reporting/queries'
 import { convertToUsd } from '@/lib/fx/FxService'
 import { handleApiError, UnauthorizedError, ValidationError } from '@/lib/errors'
