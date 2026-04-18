@@ -13,14 +13,15 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard',                  label: 'Dashboard',       icon: '◈', roles: 'all' },
+  { href: '/dashboard/entities',         label: 'Entities',        icon: '◑', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'] },
+  { href: '/dashboard/reports',          label: 'Reports',         icon: '◉', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
+  { href: '/dashboard/controls',         label: 'Controls',        icon: '◆', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
+  { href: '/dashboard/audit-periods',    label: 'Audit Periods',   icon: '◈', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
   { href: '/dashboard/invoices',         label: 'Invoices',        icon: '◎', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/purchase-orders',  label: 'Purchase Orders', icon: '◻', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/approvals',        label: 'Approvals',       icon: '✓', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/vendors',          label: 'Vendors',         icon: '◑', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/documents',        label: 'Documents',       icon: '◧', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
-  { href: '/dashboard/reports',          label: 'Reports',         icon: '◉', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
-  { href: '/dashboard/controls',         label: 'Controls',        icon: '◆', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
-  { href: '/dashboard/audit-periods',    label: 'Audit Periods',   icon: '◈', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
   { href: '/dashboard/settings',         label: 'Settings',        icon: '◌', roles: ['ADMIN'] },
   { href: '/portal',                     label: 'My Portal',       icon: '◐', roles: ['VENDOR', 'CLIENT'] },
 ]
