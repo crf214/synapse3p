@@ -39,5 +39,8 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Test
+        run: npx vitest run --reporter=verbose
+
       - name: Generate Prisma Client
         run: npx prisma generate

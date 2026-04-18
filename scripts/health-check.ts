@@ -26,6 +26,8 @@ import { prisma } from '@/lib/prisma'
 import { getErpAdapter } from '@/lib/erp'
 import { execSync } from 'child_process'
 import { computeAndStoreSnapshot } from '@/lib/reporting/snapshots'
+import { safeExternalFetch, addAllowedDomain } from '@/lib/security/outbound'
+import { ForbiddenError } from '@/lib/errors'
 
 // ---------------------------------------------------------------------------
 // Load .env.local (dev only — CI injects secrets directly)
@@ -330,6 +332,43 @@ async function checkFxRates(): Promise<string> {
   return `${count} rate${count === 1 ? '' : 's'} present`
 }
 
+async function checkOutboundSecurityControls(): Promise<string> {
+  const failures: string[] = []
+
+  // Test A: private IP must be blocked
+  try {
+    await safeExternalFetch('https://192.168.1.1/test')
+    failures.push('192.168.1.1 was NOT blocked (expected ForbiddenError)')
+  } catch (e) {
+    if (!(e instanceof ForbiddenError)) {
+      failures.push(`192.168.1.1 threw unexpected error type: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  // Test B: non-allowlisted domain must be blocked
+  try {
+    await safeExternalFetch('https://not-allowed-domain.com/test')
+    failures.push('not-allowed-domain.com was NOT blocked (expected ForbiddenError)')
+  } catch (e) {
+    if (!(e instanceof ForbiddenError)) {
+      failures.push(`not-allowed-domain.com threw unexpected error type: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  // Test C: http must be blocked even for allowlisted domains
+  try {
+    await safeExternalFetch('http://api.frankfurter.app/latest')
+    failures.push('http:// was NOT blocked (expected ForbiddenError)')
+  } catch (e) {
+    if (!(e instanceof ForbiddenError)) {
+      failures.push(`http:// threw unexpected error type: ${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
+  if (failures.length > 0) throw new Error(failures.join('; '))
+  return 'all three controls enforced (private IP, domain allowlist, HTTPS-only)'
+}
+
 async function checkReportSnapshots(): Promise<string> {
   const acme = await prisma.organisation.findUnique({ where: { slug: 'acme' } })
   if (!acme) throw new Error('acme org not found — run: npx prisma db seed')
@@ -414,6 +453,7 @@ async function main() {
   results.push(await runCheck('Phase 5 ERP and payment tables',       () => checkPhase5Tables()))
   results.push(await runCheck('ERP adapter connection',               () => checkErpAdapterConnection()))
   results.push(await runCheck('FX rates',                             () => checkFxRates()))
+  results.push(await runCheck('Outbound security controls',           () => checkOutboundSecurityControls()))
   results.push(await runCheck('Report snapshots',                     () => checkReportSnapshots()))
 
   // API health is optional — skip entirely if base URL not configured

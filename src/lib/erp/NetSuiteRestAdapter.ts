@@ -26,6 +26,11 @@ export class NetSuiteRestAdapter implements IErpAdapter {
     this.baseUrl = `https://${config.accountId}.suitetalk.api.netsuite.com/services/rest/record/v1`
   }
 
+  // IMPORTANT: All fetch calls in this adapter MUST use safeExternalFetch from
+  // src/lib/security/outbound.ts — never use the global fetch directly.
+  // The NetSuite domain is dynamically added to the allowlist at startup via
+  // addAllowedDomain() when NETSUITE_ACCOUNT_ID is set in the environment.
+
   // TODO: Implement OAuth 1.0a TBA header generation using consumerKey,
   // consumerSecret, tokenId, tokenSecret. NetSuite requires HMAC-SHA256
   // signatures on every request. Use the 'oauth-1.0a' npm package.

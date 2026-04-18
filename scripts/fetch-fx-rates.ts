@@ -9,6 +9,7 @@
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 import { PrismaClient } from '@prisma/client'
+import { safeExternalFetch } from '@/lib/security/outbound'
 
 // Load .env.local in development
 const envLocalPath = resolve(process.cwd(), '.env.local')
@@ -38,7 +39,7 @@ function midnightUtc(date: Date): Date {
 
 async function fetchAndUpsert(isoDate: string): Promise<number> {
   const url = `https://api.frankfurter.app/${isoDate}?from=USD`
-  const res  = await fetch(url, { signal: AbortSignal.timeout(10_000) })
+  const res  = await safeExternalFetch(url, {}, 'fetch-fx-rates')
 
   if (!res.ok) throw new Error(`Frankfurter returned HTTP ${res.status} for ${isoDate}`)
 

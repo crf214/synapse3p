@@ -16,6 +16,7 @@ import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 import { prisma } from '@/lib/prisma'
 import type { SignalSeverity, SignalType } from '@prisma/client'
+import { safeExternalFetch } from '@/lib/security/outbound'
 
 // ---------------------------------------------------------------------------
 // Load .env.local in development
@@ -83,7 +84,7 @@ async function sendResendAlert(
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) return
 
-  const res = await fetch('https://api.resend.com/emails', {
+  const res = await safeExternalFetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -135,7 +136,7 @@ async function processNews(
   url.searchParams.set('from', yesterday())
   url.searchParams.set('apiKey', apiKey)
 
-  const res = await fetch(url.toString())
+  const res = await safeExternalFetch(url.toString(), {}, 'external-signals:news')
   if (!res.ok) throw new Error(`NewsAPI ${res.status}: ${await res.text()}`)
 
   const data = await res.json() as { articles?: NewsArticle[] }
@@ -215,7 +216,7 @@ async function processStock(
   entityName: string,
 ): Promise<number> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(config.stockTicker)}?interval=1d&range=5d`
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
+  const res = await safeExternalFetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, 'external-signals:stock')
   if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`)
 
   const data = await res.json() as YahooChartResponse
