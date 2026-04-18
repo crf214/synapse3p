@@ -19,6 +19,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard/vendors',          label: 'Vendors',         icon: '◑', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/documents',        label: 'Documents',       icon: '◧', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/reports',          label: 'Reports',         icon: '◉', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
+  { href: '/dashboard/controls',         label: 'Controls',        icon: '◆', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
+  { href: '/dashboard/audit-periods',    label: 'Audit Periods',   icon: '◈', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
   { href: '/dashboard/settings',         label: 'Settings',        icon: '◌', roles: ['ADMIN'] },
   { href: '/portal',                     label: 'My Portal',       icon: '◐', roles: ['VENDOR', 'CLIENT'] },
 ]
@@ -31,6 +33,7 @@ const ROLE_LABEL: Record<string, string> = {
   CFO:              'CFO',
   VENDOR:           'Vendor',
   CLIENT:           'Client',
+  AUDITOR:          'Auditor',
 }
 
 interface Props {

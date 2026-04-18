@@ -16,6 +16,7 @@ const roles: OrgRole[] = [
   OrgRole.CFO,
   OrgRole.VENDOR,
   OrgRole.CLIENT,
+  OrgRole.AUDITOR,
 ]
 
 async function main() {

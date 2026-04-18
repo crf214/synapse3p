@@ -16,6 +16,7 @@ enum OrgRole {
   CFO
   VENDOR
   CLIENT
+  AUDITOR
 }
 
 model User {
@@ -1394,4 +1395,181 @@ model AuditEvent {
   createdAt  DateTime @default(now())
 
   @@map("audit_events")
+}
+
+// ============================================================
+// Control Framework — enums
+
+enum ControlDomain {
+  ACCESS_CONTROL
+  CHANGE_MANAGEMENT
+  FINANCIAL_INTEGRITY
+  VENDOR_RISK
+  BC_DR
+  MONITORING
+}
+
+enum ControlFrequency {
+  CONTINUOUS
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  PER_EVENT
+}
+
+enum ControlStatus {
+  ACTIVE
+  INACTIVE
+  UNDER_REVIEW
+  DEPRECATED
+}
+
+enum TestResultStatus {
+  PASS
+  FAIL
+  WARNING
+  NOT_RUN
+  ERROR
+}
+
+enum EvidenceType {
+  AUTOMATED_TEST
+  MANUAL_REVIEW
+  DOCUMENT
+  SCREENSHOT
+  EXPORT
+  SIGN_OFF
+}
+
+enum AuditPeriodStatus {
+  OPEN
+  CLOSED
+  LOCKED
+}
+
+// ============================================================
+// Control — defines a control requirement within the framework
+model Control {
+  id               String          @id @default(cuid())
+  controlId        String          @unique                  // e.g. "AC-01"
+  orgId            String
+  domain           ControlDomain
+  title            String
+  objective        String                                   // what this control achieves
+  frequency        ControlFrequency
+  ownerRole        String                                   // which role is responsible
+  automatedTestKey String?                                  // key linking to the automated test function
+  sox              Boolean         @default(false)          // relevant to SOX
+  soc2Criteria     String[]                                 // e.g. ["CC6.1", "CC9.1"]
+  status           ControlStatus   @default(ACTIVE)
+  notes            String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  testResults      ControlTestResult[]
+  evidence         ControlEvidence[]
+
+  @@index([orgId, domain])
+  @@index([controlId])
+  @@map("controls")
+}
+
+// ============================================================
+// AuditPeriod — a defined window of time for an audit engagement
+model AuditPeriod {
+  id            String            @id @default(cuid())
+  orgId         String
+  name          String                                      // e.g. "SOC2 Type II — Q1 2026"
+  framework     String                                      // e.g. "SOC2", "SOX", "INTERNAL"
+  periodStart   DateTime
+  periodEnd     DateTime
+  status        AuditPeriodStatus @default(OPEN)
+  openedBy      String                                      // userId
+  closedBy      String?
+  closedAt      DateTime?
+  lockedBy      String?
+  lockedAt      DateTime?
+  auditorNotes  String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  testResults   ControlTestResult[]
+  evidence      ControlEvidence[]
+
+  @@unique([orgId, name])
+  @@map("audit_periods")
+}
+
+// ============================================================
+// ControlTestResult — append-only record of a control test execution.
+// No updates or deletes should ever be issued against this table.
+model ControlTestResult {
+  id            String           @id @default(cuid())
+  controlId     String
+  orgId         String
+  auditPeriodId String?                                     // FK hint to AuditPeriod
+  status        TestResultStatus
+  summary       String                                      // one-line result description
+  details       Json                                        // full test output, counts, sampled records
+  evidence      Json             @default("[]")             // array of { type, description, storageRef? }
+  testedAt      DateTime         @default(now())
+  testedBy      String                                      // userId or 'system'
+  reviewedBy    String?                                     // userId who signed off
+  reviewedAt    DateTime?
+  reviewNotes   String?
+
+  control       Control          @relation(fields: [controlId], references: [id])
+  auditPeriod   AuditPeriod?     @relation(fields: [auditPeriodId], references: [id])
+
+  @@index([controlId, testedAt])
+  @@index([orgId, status])
+  @@map("control_test_results")
+}
+
+// ============================================================
+// ControlEvidence — evidence artefacts collected for a control
+model ControlEvidence {
+  id            String       @id @default(cuid())
+  controlId     String
+  orgId         String
+  auditPeriodId String?                                     // FK hint to AuditPeriod
+  evidenceType  EvidenceType
+  title         String
+  description   String?
+  storageRef    String?                                     // Supabase storage path in audit-evidence bucket
+  storageHash   String?                                     // SHA256 of the file for integrity verification
+  collectedAt   DateTime     @default(now())
+  collectedBy   String                                      // userId or 'system'
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  metadata      Json         @default("{}")
+
+  control       Control      @relation(fields: [controlId], references: [id])
+  auditPeriod   AuditPeriod? @relation(fields: [auditPeriodId], references: [id])
+
+  @@index([controlId, collectedAt])
+  @@index([auditPeriodId])
+  @@map("control_evidence")
+}
+
+// ============================================================
+// BcDrRecord — BC/DR test and incident records
+model BcDrRecord {
+  id              String           @id @default(cuid())
+  orgId           String
+  recordType      String                                    // BACKUP_VERIFICATION, RTO_TEST, RPO_TEST, INCIDENT, RECOVERY
+  rtoTargetHours  Float            @default(8)
+  rpoTargetHours  Float            @default(24)
+  actualRtoHours  Float?                                    // measured during test/incident
+  actualRpoHours  Float?                                    // measured during test/incident
+  status          TestResultStatus
+  description     String
+  testedAt        DateTime         @default(now())
+  testedBy        String
+  evidence        Json             @default("[]")
+  notes           String?
+
+  @@index([orgId, recordType])
+  @@map("bc_dr_records")
 }

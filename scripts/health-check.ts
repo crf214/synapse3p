@@ -29,6 +29,7 @@ import { computeAndStoreSnapshot } from '@/lib/reporting/snapshots'
 import { safeExternalFetch, addAllowedDomain } from '@/lib/security/outbound'
 import { ForbiddenError } from '@/lib/errors'
 import { auditSecrets } from '@/lib/security/secrets-audit'
+import { runControl } from '@/lib/controls/ControlTestRunner'
 
 // ---------------------------------------------------------------------------
 // Load .env.local (dev only — CI injects secrets directly)
@@ -454,6 +455,19 @@ async function checkDependencyAudit(): Promise<string> {
     : 'no vulnerabilities found'
 }
 
+async function checkControlFramework(): Promise<string> {
+  const acme = await prisma.organisation.findUnique({ where: { slug: 'acme' } })
+  if (!acme) throw new Error('acme org not found — run: npx prisma db seed')
+
+  const result = await runControl(acme.id, 'MO-02')
+
+  if (result.status === 'FAIL' || result.status === 'ERROR') {
+    throw new Error(`MO-02 (Security controls verification) ${result.status}: ${result.summary}`)
+  }
+
+  return `MO-02 ${result.status}: ${result.summary}`
+}
+
 async function checkApiHealth(): Promise<string> {
   const base = process.env.HEALTH_CHECK_BASE_URL
   if (!base) {
@@ -530,6 +544,7 @@ async function main() {
   results.push(await runCheck('Report snapshots',                     () => checkReportSnapshots()))
   results.push(await runCheck('Secrets audit',                         () => checkSecretsAudit()))
   results.push(await runCheck('Dependency audit',                       () => checkDependencyAudit()))
+  results.push(await runCheck('Control framework',                       () => checkControlFramework()))
 
   // API health is optional — skip entirely if base URL not configured
   if (process.env.HEALTH_CHECK_BASE_URL) {

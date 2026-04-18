@@ -73,3 +73,16 @@ jobs:
           DATABASE_URL:  ${{ secrets.DATABASE_URL }}
           DIRECT_URL:    ${{ secrets.DIRECT_URL }}
         run: npx tsx scripts/compute-snapshots.ts
+
+      - name: Run control tests
+        continue-on-error: true
+        env:
+          DATABASE_URL:                  ${{ secrets.DATABASE_URL }}
+          DIRECT_URL:                    ${{ secrets.DIRECT_URL }}
+          RESEND_API_KEY:                ${{ secrets.RESEND_API_KEY }}
+          ALERT_EMAIL:                   ${{ secrets.ALERT_EMAIL }}
+          ALERT_FROM_EMAIL:              ${{ secrets.ALERT_FROM_EMAIL }}
+          NEXT_PUBLIC_SUPABASE_URL:      ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SESSION_SECRET:                ${{ secrets.SESSION_SECRET }}
+        run: npx tsx scripts/run-controls.ts
