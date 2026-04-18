@@ -18,6 +18,7 @@ import { prisma } from '@/lib/prisma'
 import type { SignalSeverity, SignalType } from '@prisma/client'
 import { safeExternalFetch } from '@/lib/security/outbound'
 import { sanitiseNewsArticle, sanitiseStockData } from '@/lib/security/sanitise'
+import { fetchAndStorePrices, backfillHistory, getLatestPrice } from '@/lib/stocks/StockPriceService'
 
 // ---------------------------------------------------------------------------
 // Load .env.local in development
@@ -220,6 +221,15 @@ async function processStock(
   },
   entityName: string,
 ): Promise<number> {
+  // Store price history — backfill 18 months on first run, otherwise just today
+  const existing = await getLatestPrice(config.entityId, config.stockTicker)
+  if (!existing) {
+    const stored = await backfillHistory(config.entityId, config.stockTicker)
+    console.log(`    [stock] Backfilled ${stored} days of history for ${config.stockTicker}`)
+  } else {
+    await fetchAndStorePrices(config.entityId, config.stockTicker, 5)
+  }
+
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(config.stockTicker)}?interval=1d&range=5d`
   const res = await safeExternalFetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, 'external-signals:stock')
   if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`)

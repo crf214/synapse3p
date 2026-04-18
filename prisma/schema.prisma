@@ -1573,3 +1573,29 @@ model BcDrRecord {
   @@index([orgId, recordType])
   @@map("bc_dr_records")
 }
+
+// ============================================================
+// EntityStockPrice — daily OHLCV price history per entity/ticker
+model EntityStockPrice {
+  id          String   @id @default(cuid())
+  entityId    String                        // FK hint to Entity
+  ticker      String
+  priceDate   DateTime                      // trading day (midnight UTC)
+  closePrice  Float
+  openPrice   Float?
+  highPrice   Float?
+  lowPrice    Float?
+  volume      BigInt?
+  changeAmt   Float?                        // close minus prior day close
+  changePct   Float?                        // percentage change from prior day
+  week52High  Float?
+  week52Low   Float?
+  currency    String   @default("USD")
+  source      String   @default("yahoo_finance")
+  createdAt   DateTime @default(now())
+
+  @@unique([entityId, ticker, priceDate])
+  @@index([entityId, priceDate])
+  @@index([ticker, priceDate])
+  @@map("entity_stock_prices")
+}

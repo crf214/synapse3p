@@ -51,7 +51,7 @@ jobs:
           ALERT_FROM_EMAIL:              ${{ secrets.ALERT_FROM_EMAIL }}
         run: npx tsx scripts/health-check.ts
 
-      - name: Run external signals batch
+      - name: Run external signals and stock prices
         continue-on-error: true
         env:
           DATABASE_URL:                  ${{ secrets.DATABASE_URL }}
