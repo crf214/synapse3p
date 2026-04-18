@@ -25,6 +25,7 @@ import { createClient } from '@supabase/supabase-js'
 import { prisma } from '@/lib/prisma'
 import { getErpAdapter } from '@/lib/erp'
 import { execSync } from 'child_process'
+import { computeAndStoreSnapshot } from '@/lib/reporting/snapshots'
 
 // ---------------------------------------------------------------------------
 // Load .env.local (dev only — CI injects secrets directly)
@@ -329,6 +330,18 @@ async function checkFxRates(): Promise<string> {
   return `${count} rate${count === 1 ? '' : 's'} present`
 }
 
+async function checkReportSnapshots(): Promise<string> {
+  const acme = await prisma.organisation.findUnique({ where: { slug: 'acme' } })
+  if (!acme) throw new Error('acme org not found — run: npx prisma db seed')
+
+  const snapshot = await computeAndStoreSnapshot(acme.id, 'AP_AGING')
+
+  if (!snapshot?.id) throw new Error('computeAndStoreSnapshot returned no snapshot')
+
+  const recordCount = Array.isArray(snapshot.data) ? (snapshot.data as unknown[]).length : 1
+  return `AP_AGING snapshot created (id: ${snapshot.id}, ${recordCount} currency rows)`
+}
+
 async function checkApiHealth(): Promise<string> {
   const base = process.env.HEALTH_CHECK_BASE_URL
   if (!base) {
@@ -401,6 +414,7 @@ async function main() {
   results.push(await runCheck('Phase 5 ERP and payment tables',       () => checkPhase5Tables()))
   results.push(await runCheck('ERP adapter connection',               () => checkErpAdapterConnection()))
   results.push(await runCheck('FX rates',                             () => checkFxRates()))
+  results.push(await runCheck('Report snapshots',                     () => checkReportSnapshots()))
 
   // API health is optional — skip entirely if base URL not configured
   if (process.env.HEALTH_CHECK_BASE_URL) {

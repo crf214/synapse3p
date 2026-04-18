@@ -65,3 +65,10 @@ jobs:
           DATABASE_URL:  ${{ secrets.DATABASE_URL }}
           DIRECT_URL:    ${{ secrets.DIRECT_URL }}
         run: npx tsx scripts/fetch-fx-rates.ts
+
+      - name: Compute report snapshots
+        continue-on-error: true
+        env:
+          DATABASE_URL:  ${{ secrets.DATABASE_URL }}
+          DIRECT_URL:    ${{ secrets.DIRECT_URL }}
+        run: npx tsx scripts/compute-snapshots.ts

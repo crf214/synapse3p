@@ -1363,6 +1363,23 @@ model FxRate {
 }
 
 // ============================================================
+// Pre-computed report snapshots — one row per org/reportType/period
+model ReportSnapshot {
+  id           String   @id @default(cuid())
+  orgId        String
+  reportType   String
+  period       String
+  snapshotDate DateTime @default(now())
+  data         Json
+  metadata     Json     @default("{}")
+  createdAt    DateTime @default(now())
+
+  @@index([orgId, reportType, period])
+  @@index([orgId, snapshotDate])
+  @@map("report_snapshots")
+}
+
+// ============================================================
 // AuditEvent is append-only — no updates or deletes should ever be issued against this table.
 model AuditEvent {
   id         String   @id @default(cuid())
