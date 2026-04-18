@@ -24,6 +24,7 @@ import type { PrismaClient } from '@prisma/client'
 import { createClient } from '@supabase/supabase-js'
 import { prisma } from '@/lib/prisma'
 import { getErpAdapter } from '@/lib/erp'
+import { execSync } from 'child_process'
 
 // ---------------------------------------------------------------------------
 // Load .env.local (dev only — CI injects secrets directly)
@@ -302,6 +303,32 @@ async function checkErpAdapterConnection(): Promise<string> {
     : 'connected (mock adapter)'
 }
 
+async function checkFxRates(): Promise<string> {
+  let count = await prisma.fxRate.count()
+
+  if (count === 0) {
+    // Attempt an inline fetch so the check self-heals on first run
+    try {
+      execSync('npx tsx scripts/fetch-fx-rates.ts', {
+        stdio: 'pipe',
+        timeout: 30_000,
+        env: { ...process.env },
+      })
+    } catch (e) {
+      throw new Error(
+        `No FX rates found and inline fetch failed: ${e instanceof Error ? e.message : String(e)}`
+      )
+    }
+    count = await prisma.fxRate.count()
+  }
+
+  if (count === 0) {
+    throw new Error('No FX rates found even after attempting fetch')
+  }
+
+  return `${count} rate${count === 1 ? '' : 's'} present`
+}
+
 async function checkApiHealth(): Promise<string> {
   const base = process.env.HEALTH_CHECK_BASE_URL
   if (!base) {
@@ -373,6 +400,7 @@ async function main() {
   results.push(await runCheck('Phase 4 TPM and bill pay tables',      () => checkPhase4Tables()))
   results.push(await runCheck('Phase 5 ERP and payment tables',       () => checkPhase5Tables()))
   results.push(await runCheck('ERP adapter connection',               () => checkErpAdapterConnection()))
+  results.push(await runCheck('FX rates',                             () => checkFxRates()))
 
   // API health is optional — skip entirely if base URL not configured
   if (process.env.HEALTH_CHECK_BASE_URL) {

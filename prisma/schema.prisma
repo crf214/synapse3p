@@ -1347,6 +1347,22 @@ model ErpSyncLog {
 }
 
 // ============================================================
+// FX rates — one row per currency pair per day, sourced from ECB via Frankfurter
+model FxRate {
+  id            String   @id @default(cuid())
+  baseCurrency  String   @default("USD")
+  quoteCurrency String
+  rate          Float
+  rateDate      DateTime
+  source        String   @default("ECB")
+  createdAt     DateTime @default(now())
+
+  @@unique([baseCurrency, quoteCurrency, rateDate])
+  @@index([quoteCurrency, rateDate])
+  @@map("fx_rates")
+}
+
+// ============================================================
 // AuditEvent is append-only — no updates or deletes should ever be issued against this table.
 model AuditEvent {
   id         String   @id @default(cuid())

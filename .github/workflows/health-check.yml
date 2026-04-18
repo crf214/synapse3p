@@ -58,3 +58,10 @@ jobs:
           NEWS_API_KEY:                  ${{ secrets.NEWS_API_KEY }}
           RESEND_API_KEY:                ${{ secrets.RESEND_API_KEY }}
         run: npx tsx scripts/external-signals.ts
+
+      - name: Fetch FX rates
+        continue-on-error: true
+        env:
+          DATABASE_URL:  ${{ secrets.DATABASE_URL }}
+          DIRECT_URL:    ${{ secrets.DIRECT_URL }}
+        run: npx tsx scripts/fetch-fx-rates.ts
