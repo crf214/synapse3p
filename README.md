@@ -1,110 +1,86 @@
-# HomeDecide — Setup & Deployment Guide
+# Synapse3P
 
-## Overview
+Third-party entity management platform for finance and compliance teams.
 
-Full-stack Next.js app for you and your wife to evaluate UK properties.  
-Stack: **Next.js 14 · PostgreSQL (Supabase) · Prisma · iron-session · Tailwind CSS**
-
----
-
-## Step 1 — Create a Supabase project (10 min)
-
-1. Go to [supabase.com](https://supabase.com) and sign up (free)
-2. Click **New project**, choose a name (e.g. `homedecide`) and a strong DB password
-3. Choose region: **Europe West (London)** — closest to you
-4. Wait ~2 minutes for the project to provision
-
-### Get your credentials
-
-From the Supabase dashboard:
-
-- **API URL + Anon key**: Settings → API
-- **Database URLs**: Settings → Database → Connection string
-  - Copy the **Transaction** pooler URL → this is your `DATABASE_URL`
-  - Copy the **Direct** connection URL → this is your `DIRECT_URL`
-
-### Create the storage bucket
-
-In Supabase: Storage → New bucket  
-- Name: `property-photos`  
-- Public: **Yes** (so photos load without auth tokens)
+**Stack:** Next.js 14 · PostgreSQL (Supabase) · Prisma · iron-session · Tailwind CSS · TypeScript
 
 ---
 
-## Step 2 — Configure environment variables
+## Features
+
+- **Entity management** — create, classify, and track third-party entities (vendors, clients, subsidiaries)
+- **7-step onboarding workflow** — role-gated approval process covering legal review, cybersecurity, data privacy, bank setup, NetSuite linking, and CFO sign-off
+- **NetSuite reconciliation** — match Synapse3P entities to ERP vendor records; surface unmatched entities on both sides
+- **Document attachments** — upload compliance docs (PDF, DOC, DOCX, PNG, JPEG) against onboarding steps via Supabase Storage
+- **SOX/SOC2 controls framework** — 20 controls with automated testing and audit period tracking
+- **Role-based access** — 10 roles with per-route and per-action enforcement
+- **Stock price history** — 18-month backfill with daily price tracking per entity
+- **Activity logs** — immutable audit trail on every entity
+
+---
+
+## Roles
+
+| Role | Description |
+|------|-------------|
+| `ADMIN` | Full access |
+| `CFO` | Financial oversight, final onboarding approval |
+| `CONTROLLER` | Financial controls and reporting |
+| `FINANCE_MANAGER` | Day-to-day entity and payment management |
+| `AP_CLERK` | Accounts payable operations |
+| `LEGAL` | Legal & compliance review (onboarding Step 2) |
+| `CISO` | Cybersecurity assessment (onboarding Step 3) |
+| `AUDITOR` | Read-only access to controls and audit periods |
+| `VENDOR` | Vendor self-service portal |
+| `CLIENT` | Client portal |
+
+---
+
+## Getting started
+
+### 1. Supabase project
+
+1. Go to [supabase.com](https://supabase.com) and create a new project
+2. From **Settings → API**: copy your API URL and anon key
+3. From **Settings → Database → Connection string**:
+   - **Transaction** pooler URL (port 6543) → `DATABASE_URL`
+   - **Direct** connection URL (port 5432) → `DIRECT_URL`
+4. From **Settings → API**: copy the service role key → `SUPABASE_SERVICE_KEY`
+5. In **Storage → New bucket**: create `synapse3p-files` (private)
+   - Also create `contracts` bucket (private) for onboarding document attachments
+
+### 2. Environment variables
 
 ```bash
 cp .env.example .env.local
 ```
 
-Edit `.env.local` and fill in:
+Fill in `.env.local`:
 
 ```env
-NEXT_PUBLIC_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
-DATABASE_URL=postgresql://postgres.YOUR_PROJECT_ID:PASSWORD@aws-0-eu-west-2.pooler.supabase.com:6543/postgres?pgbouncer=true
-DIRECT_URL=postgresql://postgres.YOUR_PROJECT_ID:PASSWORD@aws-0-eu-west-2.pooler.supabase.com:5432/postgres
+DATABASE_URL=postgresql://postgres.your-project:PASSWORD@aws-x-us-east-x.pooler.supabase.com:6543/postgres?pgbouncer=true
+DIRECT_URL=postgresql://postgres.your-project:PASSWORD@aws-x-us-east-x.pooler.supabase.com:5432/postgres
 SESSION_SECRET=<run: openssl rand -hex 32>
-ANTHROPIC_API_KEY=sk-ant-...
-SUPABASE_STORAGE_BUCKET=property-photos
+SUPABASE_SERVICE_KEY=your_service_key_here
+SUPABASE_STORAGE_BUCKET=synapse3p-files
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Optional
+ANTHROPIC_API_KEY=sk-ant-...
+RESEND_API_KEY=re_...         # For onboarding step email notifications
+ERP_ADAPTER=mock              # mock | netsuite
 ```
 
-Generate a session secret:
-```bash
-openssl rand -hex 32
-```
-
----
-
-## Step 3 — Install and run locally
+### 3. Install and run
 
 ```bash
 npm install
-npm run db:push       # Creates all tables in Supabase
-npm run dev           # Starts at http://localhost:3000
+npm run db:migrate    # Apply all migrations
+npm run db:seed       # Seed demo data and default roles
+npm run dev           # Starts at http://localhost:3001
 ```
-
-Open http://localhost:3000 — you'll be redirected to `/auth/register`.
-
-**Register yourself first, then your wife registers separately.**  
-Each account gets their own independent set of ratings and criteria.
-
----
-
-## Step 4 — Deploy to Vercel (5 min)
-
-### Option A — Vercel CLI (fastest)
-
-```bash
-npm i -g vercel
-vercel                # Follow prompts, link to your GitHub or deploy directly
-```
-
-### Option B — GitHub + Vercel dashboard
-
-1. Push this project to a GitHub repo:
-   ```bash
-   git init && git add . && git commit -m "Initial commit"
-   git remote add origin https://github.com/YOUR_USERNAME/homedecide
-   git push -u origin main
-   ```
-2. Go to [vercel.com](https://vercel.com) → New Project → Import your repo
-3. Add all environment variables from `.env.local` (except `NEXT_PUBLIC_APP_URL` — set that to your Vercel URL)
-4. Deploy
-
-### After deployment
-
-Update `NEXT_PUBLIC_APP_URL` in Vercel to your live URL (e.g. `https://homedecide.vercel.app`)
-
----
-
-## Step 5 — Share a property with your wife
-
-1. You both register with your own email addresses
-2. On any property page, scroll to **Share this property**
-3. Enter your wife's email address → she can now view and rate it independently
-4. Her ratings are completely separate from yours — you each see your own scores
 
 ---
 
@@ -114,71 +90,77 @@ Update `NEXT_PUBLIC_APP_URL` in Vercel to your live URL (e.g. `https://homedecid
 src/
   app/
     api/
-      auth/           login, register, logout, me
-      properties/     CRUD, photos, sharing
-      criteria/       CRUD, reorder
-      ratings/        bulk upsert
-      formula/        get/update
+      auth/                   Login, register, logout, me
+      entities/               Entity CRUD, bank accounts, onboarding,
+                              netsuite-match, reconciliation
+      controls/               SOX/SOC2 controls and test runs
+      audit-periods/          Audit period management
+      erp/                    ERP adapter endpoints
+      reports/                Reporting endpoints
+      user/                   User profile
     dashboard/
-      page.tsx        Overview dashboard
-      properties/     List, add, edit, view
-      evaluate/       Side-by-side compare
-      criteria/       Manage criteria
-      formula/        Score formula builder
-      rankings/       Sorted leaderboard
+      page.tsx                Overview dashboard
+      entities/               Entity list, detail, onboarding, reconciliation
+      controls/               Controls framework
+      audit-periods/          Audit periods
+      reports/                Reports
     auth/
       login/
       register/
+    portal/                   Vendor/client self-service portal
   components/
-    shared/           Sidebar
-    property/         PropertyForm, EvaluatePanel, SharePanel, CompareView
-    criteria/         CriteriaManager, FormulaBuilder
+    shared/                   Sidebar, layout primitives
   lib/
-    prisma.ts         DB client
-    session.ts        Auth session
-    supabase.ts       Photo storage
-    scoring.ts        Score calculation engine
-    defaults.ts       Default criteria for new users
-  types/index.ts      All TypeScript types
+    prisma.ts                 DB client
+    session.ts                iron-session auth
+    supabase.ts               Supabase storage client
+    erp/                      ERP adapter (mock + NetSuite)
+    fx/                       FX rate utilities
+    stocks/                   Stock price utilities
+    controls/                 Control testing logic
+    security/                 Input sanitisation, outbound fetch guard
+    errors.ts                 AppError hierarchy + handleApiError
 prisma/
-  schema.prisma       Database schema (6 tables)
-  seed.ts             Default criteria definitions
+  schema.prisma               Full database schema
+  migrations/                 Migration history
+  seed.ts                     Demo seed data
 ```
 
 ---
 
-## Monthly costs (approximate)
-
-| Service | Tier | Cost |
-|---------|------|------|
-| Vercel  | Pro  | $20/mo |
-| Supabase| Pro  | $25/mo |
-| Total   |      | ~$45/mo |
-
-**Free tier alternative** (for light use):  
-Vercel Hobby (free) + Supabase Free (500MB, 50k rows) = **$0/mo**  
-The free tiers are sufficient for 2 users and ~100 properties.
-
----
-
-## Useful commands
+## Commands
 
 ```bash
-npm run dev           # Run locally
-npm run db:studio     # Visual database browser (Prisma Studio)
-npm run db:push       # Sync schema to database
-npm run db:migrate    # Create a migration file
+npm run dev           # Run locally (port 3001)
 npm run build         # Production build
+npm run db:migrate    # Create and apply a migration
+npm run db:push       # Sync schema without migration (dev only)
+npm run db:seed       # Seed demo data
+npm run db:studio     # Open Prisma Studio
+npm run test          # Run tests (Vitest)
+npm run test:watch    # Watch mode
+npm run lint          # ESLint
 ```
+
+---
+
+## Deployment (Vercel)
+
+```bash
+npm i -g vercel
+vercel
+```
+
+Add all `.env.local` variables to the Vercel project environment, then update `NEXT_PUBLIC_APP_URL` to your live domain.
 
 ---
 
 ## Troubleshooting
 
-**"Invalid session"** — Your `SESSION_SECRET` must be the same across all deployments. Don't regenerate it after users are registered.
+**Session errors** — `SESSION_SECRET` must be identical across all deployments. Generate once with `openssl rand -hex 32` and never rotate it while users are logged in.
 
-**Photos not loading** — Check your Supabase storage bucket is set to **Public** and `SUPABASE_STORAGE_BUCKET` matches the bucket name exactly.
+**Storage upload failures** — confirm both Supabase buckets (`synapse3p-files`, `contracts`) exist and that `SUPABASE_SERVICE_KEY` is the service role key, not the anon key.
 
-**Database connection errors** — Use the Transaction pooler URL (port 6543) for `DATABASE_URL` and the direct URL (port 5432) for `DIRECT_URL`.
+**Prisma type errors** — run `npm run postinstall` (or `npx prisma generate`) after any schema change.
 
-**Prisma type errors** — Run `npm run postinstall` (or `npx prisma generate`) after any schema changes.
+**`LEGAL`/`CISO` role errors** — ensure migration `20260419002442_add_legal_ciso_roles` has been applied (`npm run db:migrate`).
