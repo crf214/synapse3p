@@ -1,6 +1,26 @@
 # Synapse3P
 
-Third-party entity management platform for finance and compliance teams.
+Synapse3P is an enterprise-grade corporate operations platform designed to consolidate and automate the management of third-party relationships, business processes, and internal controls across the organisation.
+
+Rather than relying on a collection of narrow, consultant-dependent tools, Synapse3P provides a single platform that grows with the business and integrates with existing systems — replacing point solutions with a configurable, auditable, and extensible foundation.
+
+**Who it serves**
+Management, risk, compliance, legal, technology, operations, and business line owners — not just finance. Every team that touches a third-party relationship, a business process, or a control objective has a role in the platform.
+
+**What it manages**
+- **Third-party lifecycle** — onboarding, due diligence, ongoing monitoring, risk scoring, and offboarding of vendors, service providers, brokers, counterparties, fund administrators, platforms, and other external relationships
+- **Business process management** — configurable approval workflows, processing rules, and routing logic that adapt to how the organisation actually works, without code changes
+- **Controls and compliance** — a built-in SOX/SOC2 control framework with automated testing, evidence collection, and audit period management — reducing reliance on manual spreadsheet-based compliance programmes
+- **Financial operations** — purchase orders, invoice processing, bill pay, payment instruction management with four-eyes controls, and ERP integration
+
+**How it integrates**
+Synapse3P is designed to connect — not replace — the systems of record. It integrates with ERP systems (NetSuite), bank interfaces, e-signature providers (DocuSign, Adobe Sign), communication platforms (Microsoft Teams), and external data sources (news signals, stock prices, sanctions lists). It acts as the process and intelligence layer that sits above these systems, providing the workflow, audit trail, and risk context that individual integrations lack.
+
+**What it automates**
+Nightly health checks verify infrastructure integrity. Security controls are tested and logged daily. External signals (news, market data) are monitored for all active third parties. Report snapshots are pre-computed. FX rates are fetched and stored. Control tests run automatically and alert on failures — removing the need for manual monitoring routines and consultant-led reviews.
+
+**The consolidation benefit**
+Organisations typically manage third-party risk, contract lifecycle, AP workflow, compliance controls, and vendor onboarding across five or more separate tools — each with limited scope, poor integration, and dependency on external support for configuration changes. Synapse3P is designed to replace this fragmented landscape with a single configurable platform that internal teams can own and evolve.
 
 **Stack:** Next.js 14 · PostgreSQL (Supabase) · Prisma · iron-session · Tailwind CSS · TypeScript
 
