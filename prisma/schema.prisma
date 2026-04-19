@@ -17,6 +17,8 @@ enum OrgRole {
   VENDOR
   CLIENT
   AUDITOR
+  LEGAL
+  CISO
 }
 
 model User {

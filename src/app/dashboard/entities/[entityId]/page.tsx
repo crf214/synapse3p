@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
-const WRITE_ROLES   = new Set(['ADMIN', 'FINANCE_MANAGER'])
+const WRITE_ROLES      = new Set(['ADMIN', 'FINANCE_MANAGER'])
+const ONBOARDING_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'LEGAL', 'CISO', 'CFO', 'CONTROLLER'])
 
 // ---------------------------------------------------------------------------
 // Types
@@ -610,10 +611,20 @@ export default function EntityDetailPage() {
               {entity.jurisdiction ?? ''} · {entity.legalStructure.charAt(0) + entity.legalStructure.slice(1).toLowerCase()}
             </p>
           </div>
-          <span className="text-lg font-display tabular-nums px-3 py-1.5 rounded-xl"
-            style={{ background: rc.bg, color: rc.color, border: `1px solid ${rc.border}` }}>
-            {entity.riskScore.toFixed(1)}
-          </span>
+          <div className="flex items-center gap-2">
+            {ONBOARDING_ROLES.has(role ?? '') && (
+              <button
+                onClick={() => router.push(`/dashboard/entities/${entityId}/onboarding`)}
+                className="text-sm font-medium px-4 py-2 rounded-xl"
+                style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #2563eb22' }}>
+                Onboarding
+              </button>
+            )}
+            <span className="text-lg font-display tabular-nums px-3 py-1.5 rounded-xl"
+              style={{ background: rc.bg, color: rc.color, border: `1px solid ${rc.border}` }}>
+              {entity.riskScore.toFixed(1)}
+            </span>
+          </div>
         </div>
       </div>
 

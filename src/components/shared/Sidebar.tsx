@@ -12,18 +12,20 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { href: '/dashboard',                  label: 'Dashboard',       icon: '◈', roles: 'all' },
-  { href: '/dashboard/entities',         label: 'Entities',        icon: '◑', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'] },
-  { href: '/dashboard/reports',          label: 'Reports',         icon: '◉', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
-  { href: '/dashboard/controls',         label: 'Controls',        icon: '◆', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
-  { href: '/dashboard/audit-periods',    label: 'Audit Periods',   icon: '◈', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
-  { href: '/dashboard/invoices',         label: 'Invoices',        icon: '◎', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
-  { href: '/dashboard/purchase-orders',  label: 'Purchase Orders', icon: '◻', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
-  { href: '/dashboard/approvals',        label: 'Approvals',       icon: '✓', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
-  { href: '/dashboard/vendors',          label: 'Vendors',         icon: '◑', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
-  { href: '/dashboard/documents',        label: 'Documents',       icon: '◧', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
-  { href: '/dashboard/settings',         label: 'Settings',        icon: '◌', roles: ['ADMIN'] },
-  { href: '/portal',                     label: 'My Portal',       icon: '◐', roles: ['VENDOR', 'CLIENT'] },
+  { href: '/dashboard',                        label: 'Dashboard',          icon: '◈', roles: 'all' },
+  { href: '/dashboard/entities',               label: 'Entities',           icon: '◑', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR', 'LEGAL', 'CISO'] },
+  { href: '/dashboard/entities/reconciliation', label: 'Reconciliation',    icon: '◎', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
+  { href: '/dashboard/reviews',                label: 'Third Party Reviews', icon: '◉', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'] },
+  { href: '/dashboard/reports',                label: 'Reports',            icon: '◉', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
+  { href: '/dashboard/controls',               label: 'Controls',           icon: '◆', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
+  { href: '/dashboard/audit-periods',          label: 'Audit Periods',      icon: '◈', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
+  { href: '/dashboard/invoices',               label: 'Invoices',           icon: '◎', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
+  { href: '/dashboard/purchase-orders',        label: 'Purchase Orders',    icon: '◻', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
+  { href: '/dashboard/approvals',              label: 'Approvals',          icon: '✓', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
+  { href: '/dashboard/vendors',                label: 'Vendors',            icon: '◑', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'] },
+  { href: '/dashboard/documents',              label: 'Documents',          icon: '◧', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'] },
+  { href: '/dashboard/settings',               label: 'Settings',           icon: '◌', roles: ['ADMIN'] },
+  { href: '/portal',                           label: 'My Portal',          icon: '◐', roles: ['VENDOR', 'CLIENT'] },
 ]
 
 const ROLE_LABEL: Record<string, string> = {
@@ -35,6 +37,8 @@ const ROLE_LABEL: Record<string, string> = {
   VENDOR:           'Vendor',
   CLIENT:           'Client',
   AUDITOR:          'Auditor',
+  LEGAL:            'Legal',
+  CISO:             'CISO',
 }
 
 interface Props {
