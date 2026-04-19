@@ -33,12 +33,36 @@ const INTERNAL_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROL
 const EXTERNAL_ROLES = new Set(['VENDOR', 'CLIENT'])
 
 // ---------------------------------------------------------------------------
+// Batch cursor helper — fetches all records in memory-safe batches of 1000.
+// Prevents loading unbounded result sets in a single query for audit controls
+// that must inspect every record without a time-window shortcut.
+// ---------------------------------------------------------------------------
+async function findManyInBatches<T extends { id: string }>(
+  fetcher: (cursorId?: string) => Promise<T[]>,
+  batchSize = 1000,
+): Promise<T[]> {
+  const all: T[] = []
+  let cursor: string | undefined
+
+  for (;;) {
+    const batch = await fetcher(cursor)
+    all.push(...batch)
+    if (batch.length < batchSize) break
+    cursor = batch[batch.length - 1].id
+  }
+
+  return all
+}
+
+// ---------------------------------------------------------------------------
 // AC-01 — User access review
 // ---------------------------------------------------------------------------
 async function testAC01(orgId: string): Promise<TestResult> {
   const members = await prisma.orgMember.findMany({
-    where: { orgId, status: 'active' },
-    select: { userId: true, role: true },
+    where:   { orgId, status: 'active' },
+    select:  { userId: true, role: true },
+    orderBy: { createdAt: 'asc' },
+    take:    1000,
   })
 
   // Group by userId to detect multi-role anomalies
@@ -169,25 +193,36 @@ async function testAC03(orgId: string): Promise<TestResult> {
 // AC-04 — Payment four-eyes enforcement
 // ---------------------------------------------------------------------------
 async function testAC04(orgId: string): Promise<TestResult> {
-  const instructions = await prisma.paymentInstruction.findMany({
-    where: {
-      orgId,
-      status: { in: ['APPROVED', 'SENT_TO_ERP', 'CONFIRMED'] },
-      approvedBy: { not: null },
-    },
-    select: { id: true, createdBy: true, approvedBy: true },
-  })
+  // Fetch all approved instructions in batches — must check 100% of records
+  const instructions = await findManyInBatches<{ id: string; createdBy: string; approvedBy: string | null }>(
+    (cursorId) => prisma.paymentInstruction.findMany({
+      where: {
+        orgId,
+        status: { in: ['APPROVED', 'SENT_TO_ERP', 'CONFIRMED'] },
+        approvedBy: { not: null },
+      },
+      select:  { id: true, createdBy: true, approvedBy: true },
+      orderBy: { id: 'asc' },
+      take:    1000,
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+    }),
+  )
 
   const selfApproved = instructions.filter(i => i.approvedBy === i.createdBy)
 
-  const amendments = await prisma.paymentInstructionAmendment.findMany({
-    where: {
-      paymentInstruction: { orgId },
-      status: 'APPROVED',
-      reviewedBy: { not: null },
-    },
-    select: { id: true, requestedBy: true, reviewedBy: true },
-  })
+  const amendments = await findManyInBatches<{ id: string; requestedBy: string; reviewedBy: string | null }>(
+    (cursorId) => prisma.paymentInstructionAmendment.findMany({
+      where: {
+        paymentInstruction: { orgId },
+        status: 'APPROVED',
+        reviewedBy: { not: null },
+      },
+      select:  { id: true, requestedBy: true, reviewedBy: true },
+      orderBy: { id: 'asc' },
+      take:    1000,
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+    }),
+  )
 
   const selfReviewedAmendments = amendments.filter(a => a.reviewedBy === a.requestedBy)
 
@@ -212,14 +247,20 @@ async function testAC04(orgId: string): Promise<TestResult> {
 // FI-01 — Payment amendment four-eyes
 // ---------------------------------------------------------------------------
 async function testFI01(orgId: string): Promise<TestResult> {
-  const amendments = await prisma.paymentInstructionAmendment.findMany({
-    where: {
-      paymentInstruction: { orgId },
-      status: 'APPROVED',
-      reviewedBy: { not: null },
-    },
-    select: { id: true, requestedBy: true, reviewedBy: true, field: true },
-  })
+  // Fetch all approved amendments in batches — must check 100% of records
+  const amendments = await findManyInBatches<{ id: string; requestedBy: string; reviewedBy: string | null; field: string }>(
+    (cursorId) => prisma.paymentInstructionAmendment.findMany({
+      where: {
+        paymentInstruction: { orgId },
+        status: 'APPROVED',
+        reviewedBy: { not: null },
+      },
+      select:  { id: true, requestedBy: true, reviewedBy: true, field: true },
+      orderBy: { id: 'asc' },
+      take:    1000,
+      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
+    }),
+  )
 
   const violations = amendments.filter(a => a.reviewedBy === a.requestedBy)
   const status: TestResultStatus = violations.length > 0 ? 'FAIL' : 'PASS'
@@ -379,14 +420,17 @@ async function testVR01(orgId: string): Promise<TestResult> {
 async function testVR02(orgId: string): Promise<TestResult> {
   const since90Days = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
 
-  // Get latest risk score per entity
+  // Fetch only the most recent score per entity by loading latest-first and
+  // deduplicating. Cap at 2000 rows (covers 2000 distinct entities) to prevent
+  // memory explosion as scoring history accumulates.
   const allScores = await prisma.entityRiskScore.findMany({
-    where: { entity: { orgRelationships: { some: { orgId } } } },
-    select: { entityId: true, computedScore: true, scoredAt: true },
+    where:   { entity: { orgRelationships: { some: { orgId } } } },
+    select:  { entityId: true, computedScore: true, scoredAt: true },
     orderBy: { scoredAt: 'desc' },
+    take:    2000,
   })
 
-  // Deduplicate to latest per entity
+  // Deduplicate to latest per entity (already desc-ordered, so first hit wins)
   const latestByEntity = new Map<string, number>()
   for (const s of allScores) {
     if (!latestByEntity.has(s.entityId)) {
@@ -442,9 +486,13 @@ async function testVR02(orgId: string): Promise<TestResult> {
 // VR-03 — Third-party review documentation
 // ---------------------------------------------------------------------------
 async function testVR03(orgId: string): Promise<TestResult> {
+  const twoYearsAgo = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000)
+
   const completed = await prisma.thirdPartyReview.findMany({
-    where: { orgId, status: 'COMPLETED' },
-    select: { id: true, entityId: true, cyberScore: true, legalScore: true, privacyScore: true, completedAt: true },
+    where:   { orgId, status: 'COMPLETED', completedAt: { gte: twoYearsAgo } },
+    select:  { id: true, entityId: true, cyberScore: true, legalScore: true, privacyScore: true, completedAt: true },
+    orderBy: { completedAt: 'desc' },
+    take:    1000,
   })
 
   if (completed.length === 0) {

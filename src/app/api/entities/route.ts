@@ -7,36 +7,63 @@ import { sanitiseString } from '@/lib/security/sanitise'
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER'])
 
-export async function GET() {
+const DEFAULT_LIMIT = 50
+const MAX_LIMIT     = 100
+
+export async function GET(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
-    const entities = await prisma.entity.findMany({
-      where: { masterOrgId: session.orgId },
-      orderBy: { name: 'asc' },
-      include: {
-        classifications: {
-          where:   { isPrimary: true },
-          take:    1,
-          select:  { type: true },
+    const { searchParams } = req.nextUrl
+    const page     = Math.max(1, parseInt(searchParams.get('page')  ?? '1',  10) || 1)
+    const limit    = Math.min(MAX_LIMIT, Math.max(1, parseInt(searchParams.get('limit') ?? String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT))
+    const search   = sanitiseString(searchParams.get('search') ?? '', 200).trim()
+    const status   = sanitiseString(searchParams.get('status') ?? '', 50).trim() || null
+    const highRisk = searchParams.get('highRisk') === 'true'
+
+    const where = {
+      masterOrgId: session.orgId,
+      ...(status ? { status: status as never } : {}),
+      ...(highRisk ? { riskScore: { gte: 7 } } : {}),
+      ...(search ? {
+        OR: [
+          { name:         { contains: search, mode: 'insensitive' as const } },
+          { jurisdiction: { contains: search, mode: 'insensitive' as const } },
+        ],
+      } : {}),
+    }
+
+    const [total, entities] = await Promise.all([
+      prisma.entity.count({ where }),
+      prisma.entity.findMany({
+        where,
+        orderBy: { name: 'asc' },
+        skip:    (page - 1) * limit,
+        take:    limit,
+        include: {
+          classifications: {
+            where:   { isPrimary: true },
+            take:    1,
+            select:  { type: true },
+          },
+          riskScores: {
+            orderBy: { scoredAt: 'desc' },
+            take:    1,
+            select:  { computedScore: true, scoredAt: true },
+          },
+          orgRelationships: {
+            where:  { orgId: session.orgId },
+            take:   1,
+            select: { onboardingStatus: true, activeForBillPay: true, approvedSpendLimit: true },
+          },
+          _count: {
+            select: { bankAccounts: true, serviceEngagements: true },
+          },
         },
-        riskScores: {
-          orderBy: { scoredAt: 'desc' },
-          take:    1,
-          select:  { computedScore: true, scoredAt: true },
-        },
-        orgRelationships: {
-          where:  { orgId: session.orgId },
-          take:   1,
-          select: { onboardingStatus: true, activeForBillPay: true, approvedSpendLimit: true },
-        },
-        _count: {
-          select: { bankAccounts: true, serviceEngagements: true },
-        },
-      },
-    })
+      }),
+    ])
 
     const data = entities.map(e => ({
       id:               e.id,
@@ -54,7 +81,19 @@ export async function GET() {
       engagementCount:  e._count.serviceEngagements,
     }))
 
-    return NextResponse.json({ entities: data, total: data.length })
+    const totalPages = Math.ceil(total / limit)
+
+    return NextResponse.json({
+      entities: data,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
+    })
   } catch (err) {
     return handleApiError(err, 'GET /api/entities')
   }

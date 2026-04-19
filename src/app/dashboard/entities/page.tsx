@@ -7,6 +7,8 @@ import { useUser } from '@/context/UserContext'
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'FINANCE_MANAGER'])
 
+const PAGE_LIMIT = 50
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -30,6 +32,15 @@ interface EntityRow {
   engagementCount:  number
 }
 
+interface Pagination {
+  page:       number
+  limit:      number
+  total:      number
+  totalPages: number
+  hasNext:    boolean
+  hasPrev:    boolean
+}
+
 type FilterKey = 'ALL' | 'ACTIVE' | 'PENDING_REVIEW' | 'HIGH_RISK'
 
 // ---------------------------------------------------------------------------
@@ -50,11 +61,11 @@ const STATUS_COLOR: Record<EntityStatus, { bg: string; color: string; border: st
 }
 
 const ONBOARDING_COLOR: Record<OnboardingStatus, { bg: string; color: string; border: string; label: string }> = {
-  NOT_STARTED:      { bg: '#f9fafb', color: '#6b7280', border: '#6b728022', label: 'Not started'     },
-  IN_PROGRESS:      { bg: '#eff6ff', color: '#2563eb', border: '#2563eb22', label: 'In progress'     },
+  NOT_STARTED:      { bg: '#f9fafb', color: '#6b7280', border: '#6b728022', label: 'Not started'      },
+  IN_PROGRESS:      { bg: '#eff6ff', color: '#2563eb', border: '#2563eb22', label: 'In progress'      },
   PENDING_APPROVAL: { bg: '#fffbeb', color: '#d97706', border: '#d9770622', label: 'Pending approval' },
-  APPROVED:         { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22', label: 'Approved'        },
-  REJECTED:         { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Rejected'        },
+  APPROVED:         { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22', label: 'Approved'         },
+  REJECTED:         { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Rejected'         },
 }
 
 const TYPE_LABEL: Record<EntityType, string> = {
@@ -192,43 +203,53 @@ export default function EntitiesPage() {
   const router   = useRouter()
 
   const [entities,   setEntities]   = useState<EntityRow[]>([])
+  const [pagination, setPagination] = useState<Pagination | null>(null)
   const [loading,    setLoading]    = useState(true)
   const [error,      setError]      = useState<string | null>(null)
   const [search,     setSearch]     = useState('')
   const [filter,     setFilter]     = useState<FilterKey>('ALL')
+  const [page,       setPage]       = useState(1)
   const [showAdd,    setShowAdd]    = useState(false)
 
   const canWrite = WRITE_ROLES.has(role ?? '')
 
-  const fetchEntities = useCallback(() => {
+  const fetchEntities = useCallback((p: number, q: string, f: FilterKey) => {
     setLoading(true)
-    fetch('/api/entities')
+    const params = new URLSearchParams({ page: String(p), limit: String(PAGE_LIMIT) })
+    if (q)               params.set('search', q)
+    if (f === 'ACTIVE')         params.set('status', 'ACTIVE')
+    if (f === 'PENDING_REVIEW') params.set('status', 'PENDING_REVIEW')
+    if (f === 'HIGH_RISK')      params.set('highRisk', 'true')
+
+    fetch(`/api/entities?${params.toString()}`)
       .then(r => r.json())
-      .then((d: { entities: EntityRow[] }) => setEntities(d.entities ?? []))
+      .then((d: { entities: EntityRow[]; pagination: Pagination }) => {
+        setEntities(d.entities ?? [])
+        setPagination(d.pagination ?? null)
+      })
       .catch(e => setError((e as Error).message))
       .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
     if (!ALLOWED_ROLES.has(role ?? '')) { router.replace('/dashboard'); return }
-    fetchEntities()
-  }, [role, router, fetchEntities])
+    fetchEntities(page, search, filter)
+  }, [role, router, fetchEntities, page, search, filter])
+
+  // Reset to page 1 when search or filter changes
+  function handleSearch(val: string) {
+    setSearch(val)
+    setPage(1)
+  }
+
+  function handleFilter(f: FilterKey) {
+    setFilter(f)
+    setPage(1)
+  }
 
   if (!ALLOWED_ROLES.has(role ?? '')) return null
   if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
   if (error)   return <div className="p-8 text-sm text-red-600">{error}</div>
-
-  // Filter + search
-  const visible = entities.filter(e => {
-    const q = search.toLowerCase()
-    const matchesSearch = !q || e.name.toLowerCase().includes(q) || (e.jurisdiction ?? '').toLowerCase().includes(q)
-    const matchesFilter =
-      filter === 'ALL'            ? true :
-      filter === 'ACTIVE'         ? e.status === 'ACTIVE' :
-      filter === 'PENDING_REVIEW' ? e.status === 'PENDING_REVIEW' :
-      filter === 'HIGH_RISK'      ? e.riskScore >= 7 : true
-    return matchesSearch && matchesFilter
-  })
 
   const FILTERS: { key: FilterKey; label: string }[] = [
     { key: 'ALL',            label: 'All'           },
@@ -263,7 +284,7 @@ export default function EntitiesPage() {
       {/* Search + Filters */}
       <div className="flex flex-wrap items-center gap-3">
         <input
-          value={search} onChange={e => setSearch(e.target.value)}
+          value={search} onChange={e => handleSearch(e.target.value)}
           placeholder="Search by name or jurisdiction…"
           className="text-sm px-3 py-2 rounded-xl w-72 outline-none"
           style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }}
@@ -272,7 +293,7 @@ export default function EntitiesPage() {
           {FILTERS.map(f => {
             const active = filter === f.key
             return (
-              <button key={f.key} onClick={() => setFilter(f.key)}
+              <button key={f.key} onClick={() => handleFilter(f.key)}
                 className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
                 style={{
                   background: active ? '#2563eb' : 'var(--surface)',
@@ -284,9 +305,11 @@ export default function EntitiesPage() {
             )
           })}
         </div>
-        <span className="text-xs ml-auto" style={{ color: 'var(--muted)' }}>
-          {visible.length} of {entities.length}
-        </span>
+        {pagination && (
+          <span className="text-xs ml-auto" style={{ color: 'var(--muted)' }}>
+            {pagination.total} total · page {pagination.page} of {pagination.totalPages}
+          </span>
+        )}
       </div>
 
       {/* Table */}
@@ -303,14 +326,14 @@ export default function EntitiesPage() {
             </tr>
           </thead>
           <tbody>
-            {visible.length === 0 && (
+            {entities.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-10 text-sm text-center" style={{ color: 'var(--muted)' }}>
                   No entities found.
                 </td>
               </tr>
             )}
-            {visible.map((e, i) => {
+            {entities.map((e, i) => {
               const rc = riskColor(e.riskScore)
               const sc = STATUS_COLOR[e.status] ?? STATUS_COLOR.ACTIVE
               const oc = e.orgRelationship ? ONBOARDING_COLOR[e.orgRelationship.onboardingStatus] : ONBOARDING_COLOR.NOT_STARTED
@@ -375,10 +398,33 @@ export default function EntitiesPage() {
         </table>
       </div>
 
+      {/* Pagination controls */}
+      {pagination && pagination.totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <button
+            onClick={() => setPage(p => p - 1)}
+            disabled={!pagination.hasPrev || loading}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-40"
+            style={{ background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+            ← Previous
+          </button>
+          <span className="text-xs tabular-nums" style={{ color: 'var(--muted)' }}>
+            Page {pagination.page} of {pagination.totalPages}
+          </span>
+          <button
+            onClick={() => setPage(p => p + 1)}
+            disabled={!pagination.hasNext || loading}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg disabled:opacity-40"
+            style={{ background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+            Next →
+          </button>
+        </div>
+      )}
+
       {showAdd && (
         <AddEntityModal
           onClose={() => setShowAdd(false)}
-          onSaved={() => { setShowAdd(false); fetchEntities() }}
+          onSaved={() => { setShowAdd(false); fetchEntities(1, search, filter); setPage(1) }}
         />
       )}
     </div>

@@ -7,8 +7,11 @@ import { sanitiseString } from '@/lib/security/sanitise'
 const READ_ROLES  = new Set(['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'CFO', 'CONTROLLER'])
 
+const DEFAULT_LIMIT = 20
+const MAX_LIMIT     = 50
+
 export async function GET(
-  _req: Request,
+  req: NextRequest,
   { params }: { params: { controlId: string } },
 ) {
   try {
@@ -21,12 +24,35 @@ export async function GET(
     })
     if (!control) throw new NotFoundError('Control not found')
 
-    const evidence = await prisma.controlEvidence.findMany({
-      where:   { controlId: params.controlId, orgId: session.orgId },
-      orderBy: { collectedAt: 'desc' },
-    })
+    const { searchParams } = req.nextUrl
+    const page  = Math.max(1, parseInt(searchParams.get('page')  ?? '1',  10) || 1)
+    const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(searchParams.get('limit') ?? String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT))
 
-    return NextResponse.json({ evidence, total: evidence.length })
+    const where = { controlId: params.controlId, orgId: session.orgId }
+
+    const [total, evidence] = await Promise.all([
+      prisma.controlEvidence.count({ where }),
+      prisma.controlEvidence.findMany({
+        where,
+        orderBy: { collectedAt: 'desc' },
+        skip:    (page - 1) * limit,
+        take:    limit,
+      }),
+    ])
+
+    const totalPages = Math.ceil(total / limit)
+
+    return NextResponse.json({
+      evidence,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1,
+      },
+    })
   } catch (err) {
     return handleApiError(err, `GET /api/controls/${params.controlId}/evidence`)
   }
