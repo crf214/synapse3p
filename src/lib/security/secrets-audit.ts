@@ -122,6 +122,16 @@ export function auditSecrets(): SecretsAuditResult {
 }
 
 export function assertSecrets(): void {
+  // During Next.js build phase, skip throwing — secrets are not available at build time
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    const { warnings, errors } = auditSecrets()
+    if (errors.length > 0) {
+      console.warn('[secrets-audit] Build-time secrets check — errors found (will throw at runtime):', errors)
+    }
+    warnings.forEach(w => console.warn(`[secrets-audit] WARN: ${w}`))
+    return
+  }
+
   const { passed, warnings, errors } = auditSecrets()
 
   for (const w of warnings) {
