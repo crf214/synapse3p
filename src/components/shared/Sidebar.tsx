@@ -20,6 +20,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard/controls',               label: 'Controls',           icon: '◆', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
   { href: '/dashboard/audit-periods',          label: 'Audit Periods',      icon: '◈', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
   { href: '/dashboard/invoices',               label: 'Invoices',           icon: '◎', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
+  { href: '/dashboard/invoices/ingestion',     label: 'Ingestion Monitor',  icon: '◫', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/purchase-orders',        label: 'Purchase Orders',    icon: '◻', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/contracts',              label: 'Contracts',          icon: '◧', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'AUDITOR'] },
   { href: '/dashboard/payments',               label: 'Payments',           icon: '◈', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'] },
@@ -32,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard/settings',                    label: 'Settings',           icon: '◌', roles: ['ADMIN'] },
   { href: '/dashboard/settings/processing-rules',      label: 'Processing Rules',   icon: '◧', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/settings/auto-approve-policies', label: 'Auto-Approve',       icon: '◎', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
+  { href: '/dashboard/settings/external-signals',      label: 'External Signals',   icon: '◉', roles: ['ADMIN', 'CISO', 'CONTROLLER', 'CFO', 'AUDITOR'] },
   { href: '/portal',                           label: 'My Portal',          icon: '◐', roles: ['VENDOR', 'CLIENT'] },
 ]
 
