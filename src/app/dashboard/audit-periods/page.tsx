@@ -84,8 +84,8 @@ function NewPeriodForm({ onCreated, onCancel }: NewPeriodFormProps) {
         body:    JSON.stringify({ name, framework, periodStart, periodEnd }),
       })
       if (!res.ok) {
-        const d = await res.json() as { error?: string }
-        throw new Error(d.error ?? `HTTP ${res.status}`)
+        const d = await res.json() as { error?: { message: string; code: string } }
+        throw new Error(d.error?.message ?? `HTTP ${res.status}`)
       }
       onCreated()
     } catch (err) {
@@ -231,8 +231,8 @@ export default function AuditPeriodsPage() {
     try {
       const res = await fetch(`/api/audit-periods/${periodId}/${action}`, { method: 'POST' })
       if (!res.ok) {
-        const d = await res.json() as { error?: string }
-        throw new Error(d.error ?? `HTTP ${res.status}`)
+        const d = await res.json() as { error?: { message: string; code: string } }
+        throw new Error(d.error?.message ?? `HTTP ${res.status}`)
       }
       fetchPeriods()
     } catch (err) {

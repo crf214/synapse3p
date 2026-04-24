@@ -122,8 +122,8 @@ function AddEntityModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
         body: JSON.stringify(form),
       })
       if (!res.ok) {
-        const d = await res.json() as { error?: string }
-        throw new Error(d.error ?? `HTTP ${res.status}`)
+        const d = await res.json() as { error?: { message: string; code: string } }
+        throw new Error(d.error?.message ?? `HTTP ${res.status}`)
       }
       onSaved()
     } catch (err) {

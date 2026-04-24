@@ -112,7 +112,7 @@ export default function ReviewsPage() {
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed')
+      if (!res.ok) throw new Error(data.error?.message ?? 'Failed')
       setShowNew(false)
       setNewForm({ entityId: '', reviewType: 'PERIODIC', notes: '', scheduledAt: '' })
       router.push(`/dashboard/reviews/${data.id}`)

@@ -377,7 +377,7 @@ export default function ExternalSignalsPage() {
     )
     if (!res.ok) {
       const j = await res.json().catch(() => ({}))
-      throw new Error(j.error ?? 'Save failed')
+      throw new Error(j.error?.message ?? 'Save failed')
     }
     setModal(null)
     await loadConfigs()

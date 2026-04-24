@@ -196,8 +196,8 @@ function ClassificationsTab({ entity, canWrite, onRefresh }: { entity: EntityDet
         body: JSON.stringify({ type: newType }),
       })
       if (!res.ok) {
-        const d = await res.json() as { error?: string }
-        throw new Error(d.error ?? `HTTP ${res.status}`)
+        const d = await res.json() as { error?: { message: string; code: string } }
+        throw new Error(d.error?.message ?? `HTTP ${res.status}`)
       }
       setAdding(false); onRefresh()
     } catch (err) {
@@ -294,8 +294,8 @@ function BankAccountsTab({ entity, canWrite, onRefresh }: { entity: EntityDetail
         body: JSON.stringify(form),
       })
       if (!res.ok) {
-        const d = await res.json() as { error?: string }
-        throw new Error(d.error ?? `HTTP ${res.status}`)
+        const d = await res.json() as { error?: { message: string; code: string } }
+        throw new Error(d.error?.message ?? `HTTP ${res.status}`)
       }
       setShowForm(false); onRefresh()
     } catch (err) {
@@ -574,8 +574,8 @@ export default function EntityDetailPage() {
     setLoading(true)
     fetch(`/api/entities/${entityId}`)
       .then(r => r.json())
-      .then((d: { entity: EntityDetail; error?: string }) => {
-        if (d.error) throw new Error(d.error)
+      .then((d: { entity: EntityDetail; error?: { message: string; code: string } }) => {
+        if (d.error) throw new Error(d.error.message)
         setEntity(d.entity)
       })
       .catch(e => setError((e as Error).message))

@@ -259,8 +259,8 @@ function Step2LegalPanel({ entityId, onComplete, saving, canComplete }: {
       fd.append('title',   docTitle.trim() || file.name)
       const res = await fetch(`/api/entities/${entityId}/onboarding/attachments`, { method: 'POST', body: fd })
       if (!res.ok) {
-        const d = await res.json() as { error?: string }
-        throw new Error(d.error ?? `HTTP ${res.status}`)
+        const d = await res.json() as { error?: { message: string; code: string } }
+        throw new Error(d.error?.message ?? `HTTP ${res.status}`)
       }
       setDocTitle('')
       e.target.value = ''
@@ -687,8 +687,8 @@ export default function OnboardingPage() {
     try {
       const res = await fetch(`/api/entities/${entityId}/onboarding`, { method: 'POST' })
       if (!res.ok) {
-        const d = await res.json() as { error?: string }
-        throw new Error(d.error ?? `HTTP ${res.status}`)
+        const d = await res.json() as { error?: { message: string; code: string } }
+        throw new Error(d.error?.message ?? `HTTP ${res.status}`)
       }
       await loadData()
     } catch (e) {
@@ -707,8 +707,8 @@ export default function OnboardingPage() {
         body: JSON.stringify({ status: 'COMPLETED', notes, completedBy: role ?? 'unknown' }),
       })
       if (!res.ok) {
-        const d = await res.json() as { error?: string }
-        throw new Error(d.error ?? `HTTP ${res.status}`)
+        const d = await res.json() as { error?: { message: string; code: string } }
+        throw new Error(d.error?.message ?? `HTTP ${res.status}`)
       }
       await loadData()
     } catch (e) {

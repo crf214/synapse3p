@@ -98,7 +98,7 @@ export default function ApprovalsPage() {
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        throw new Error(d.error ?? 'Failed')
+        throw new Error(d.error?.message ?? 'Failed')
       }
       setModal(null)
       setComments('')

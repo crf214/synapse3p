@@ -106,7 +106,7 @@ export default function NewMergedAuthPage() {
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        throw new Error(j.error ?? 'Failed to create batch')
+        throw new Error(j.error?.message ?? 'Failed to create batch')
       }
       const { id } = await res.json()
       router.push(`/dashboard/merged-authorizations/${id}`)

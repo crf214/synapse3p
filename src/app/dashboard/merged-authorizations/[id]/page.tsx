@@ -122,7 +122,7 @@ export default function MergedAuthDetailPage() {
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        throw new Error(j.error ?? 'Action failed')
+        throw new Error(j.error?.message ?? 'Action failed')
       }
       await load()
     } catch (err: unknown) {
@@ -143,7 +143,7 @@ export default function MergedAuthDetailPage() {
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        throw new Error(j.error ?? 'Action failed')
+        throw new Error(j.error?.message ?? 'Action failed')
       }
       setShowApproveModal(false)
       setShowRejectModal(false)
@@ -162,7 +162,7 @@ export default function MergedAuthDetailPage() {
       const res = await fetch(`/api/merged-authorizations/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        throw new Error(j.error ?? 'Delete failed')
+        throw new Error(j.error?.message ?? 'Delete failed')
       }
       router.push('/dashboard/merged-authorizations')
     } catch (err: unknown) {

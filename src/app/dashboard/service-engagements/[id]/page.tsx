@@ -156,7 +156,7 @@ export default function ServiceEngagementDetailPage() {
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        throw new Error(j.error ?? 'Save failed')
+        throw new Error(j.error?.message ?? 'Save failed')
       }
       setEditing(false)
       await load()
@@ -187,7 +187,7 @@ export default function ServiceEngagementDetailPage() {
       const res = await fetch(`/api/service-engagements/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        throw new Error(j.error ?? 'Delete failed')
+        throw new Error(j.error?.message ?? 'Delete failed')
       }
       router.push('/dashboard/service-engagements')
     } catch (err: unknown) {

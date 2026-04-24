@@ -120,7 +120,7 @@ export default function ContractDetailPage() {
       })
       if (!res.ok) {
         const d = await res.json().catch(() => ({}))
-        throw new Error(d.error ?? 'Failed')
+        throw new Error(d.error?.message ?? 'Failed')
       }
       setEditing(false)
       await load()

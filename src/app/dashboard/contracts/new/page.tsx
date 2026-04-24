@@ -76,7 +76,7 @@ export default function NewContractPage() {
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed to create contract')
+      if (!res.ok) throw new Error(data.error?.message ?? 'Failed to create contract')
       router.push(`/dashboard/contracts/${data.id}`)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed')

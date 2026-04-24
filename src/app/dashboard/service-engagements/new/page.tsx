@@ -96,7 +96,7 @@ export default function NewServiceEngagementPage() {
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        throw new Error(j.error ?? 'Failed to create engagement')
+        throw new Error(j.error?.message ?? 'Failed to create engagement')
       }
       const { id } = await res.json()
       router.push(`/dashboard/service-engagements/${id}`)

@@ -165,7 +165,7 @@ export default function PaymentDetailPage() {
         body: JSON.stringify(body),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error ?? 'Failed')
+      if (!res.ok) throw new Error(data.error?.message ?? 'Failed')
       onSuccess?.()
       await load()
     } catch (e: unknown) {
@@ -185,7 +185,7 @@ export default function PaymentDetailPage() {
         body: JSON.stringify({ amendmentId: amendment.id, decision, rejectionReason: reason }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error ?? 'Failed')
+      if (!res.ok) throw new Error(data.error?.message ?? 'Failed')
       setApproveAmendModal(null)
       await load()
     } catch (e: unknown) {

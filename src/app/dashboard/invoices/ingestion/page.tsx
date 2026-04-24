@@ -90,7 +90,7 @@ export default function IngestionMonitorPage() {
         body: JSON.stringify({ action }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Action failed')
+      if (!res.ok) throw new Error(data.error?.message ?? 'Action failed')
       await load()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Action failed')

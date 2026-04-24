@@ -23,7 +23,7 @@ export default function RegisterPage() {
         body: JSON.stringify({ name, email, password }),
       })
       const json = await res.json()
-      if (!res.ok) { setError(json.error); return }
+      if (!res.ok) { setError(json.error?.message ?? json.error ?? 'Registration failed'); return }
       router.push('/dashboard')
       router.refresh()
     } finally {
