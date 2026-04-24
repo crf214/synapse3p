@@ -26,6 +26,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard/merged-authorizations', label: 'Merged Auth',        icon: '◫', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'] },
   { href: '/dashboard/approvals',              label: 'Approvals',          icon: '✓', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/vendors',                label: 'Vendors',            icon: '◑', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'] },
+  { href: '/dashboard/service-engagements',   label: 'Service Engagements',icon: '◉', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'] },
   { href: '/dashboard/documents',              label: 'Documents',          icon: '◫', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'] },
   { href: '/dashboard/settings',               label: 'Settings',           icon: '◌', roles: ['ADMIN'] },
   { href: '/portal',                           label: 'My Portal',          icon: '◐', roles: ['VENDOR', 'CLIENT'] },
