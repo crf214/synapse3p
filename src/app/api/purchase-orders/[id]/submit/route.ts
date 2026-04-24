@@ -120,11 +120,9 @@ export async function POST(
       })
     }
 
+    // Atomic: create approval records + advance PO status together.
     await prisma.$transaction(async (tx) => {
-      // Create POApproval records
       await tx.pOApproval.createMany({ data: approvalData as never[] })
-
-      // Advance PO status
       await tx.purchaseOrder.update({
         where: { id },
         data:  {
@@ -132,21 +130,21 @@ export async function POST(
           approvalWorkflowId: workflow?.id ?? null,
         },
       })
+    }, { timeout: 15000 })
 
-      // Audit log
-      await tx.entityActivityLog.create({
-        data: {
-          entityId:    po.entityId,
-          orgId:       session.orgId!,
-          activityType: 'STATUS_CHANGE' as never,
-          title:       `PO submitted for approval: ${po.poNumber}`,
-          description: `${po.title} — ${po.totalAmount} ${po.currency}`,
-          referenceId:   id,
-          referenceType: 'PurchaseOrder',
-          performedBy:   session.userId,
-        },
-      })
-    })
+    // Audit log — non-critical follow-up write, outside transaction.
+    await prisma.entityActivityLog.create({
+      data: {
+        entityId:    po.entityId,
+        orgId:       session.orgId!,
+        activityType: 'STATUS_CHANGE' as never,
+        title:       `PO submitted for approval: ${po.poNumber}`,
+        description: `${po.title} — ${po.totalAmount} ${po.currency}`,
+        referenceId:   id,
+        referenceType: 'PurchaseOrder',
+        performedBy:   session.userId,
+      },
+    }).catch(e => console.error('[po-submit] audit log failed:', e))
 
     // Notify first-step approver (outside transaction — email failure should not roll back)
     const firstApproval = approvalData[0]

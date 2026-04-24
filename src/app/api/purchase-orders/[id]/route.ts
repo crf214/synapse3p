@@ -238,7 +238,7 @@ export async function PUT(
           })),
         })
         await tx.purchaseOrder.update({ where: { id }, data: updates })
-      })
+      }, { timeout: 15000 })
     } else {
       await prisma.purchaseOrder.update({ where: { id }, data: updates })
     }

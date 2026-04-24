@@ -79,6 +79,7 @@ export async function POST(
     }
     // REJECTED keeps PO status unchanged (the GR is rejected, PO remains APPROVED)
 
+    // Atomic: create GR + update PO spend/status together.
     const gr = await prisma.$transaction(async (tx) => {
       const created = await tx.goodsReceipt.create({
         data: {
@@ -102,21 +103,22 @@ export async function POST(
         })
       }
 
-      await tx.entityActivityLog.create({
-        data: {
-          entityId:    po.entityId,
-          orgId:       session.orgId!,
-          activityType: 'PAYMENT' as never,
-          title:       `Goods receipt recorded (${body.status}): ${po.poNumber}`,
-          description: `${body.lineItems.length} line item(s) · received value ${receivedAmount.toFixed(2)} ${po.currency}`,
-          referenceId:   created.id,
-          referenceType: 'GoodsReceipt',
-          performedBy:   session.userId,
-        },
-      })
-
       return created
-    })
+    }, { timeout: 15000 })
+
+    // Audit log — non-critical follow-up write, outside transaction.
+    await prisma.entityActivityLog.create({
+      data: {
+        entityId:    po.entityId,
+        orgId:       session.orgId!,
+        activityType: 'PAYMENT' as never,
+        title:       `Goods receipt recorded (${body.status}): ${po.poNumber}`,
+        description: `${body.lineItems.length} line item(s) · received value ${receivedAmount.toFixed(2)} ${po.currency}`,
+        referenceId:   gr.id,
+        referenceType: 'GoodsReceipt',
+        performedBy:   session.userId,
+      },
+    }).catch(e => console.error('[goods-receipt] audit log failed:', e))
 
     return NextResponse.json({ goodsReceipt: gr }, { status: 201 })
   } catch (err) {

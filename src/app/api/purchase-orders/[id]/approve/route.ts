@@ -66,8 +66,10 @@ export async function POST(
     const isApproved  = body.decision === 'APPROVED'
     const isChangesReq = body.decision === 'CHANGES_REQUESTED'
 
+    const actionLabel = isApproved ? 'approved' : isChangesReq ? 'returned for changes' : 'rejected'
+
+    // Atomic: record decision + update PO/approval statuses together.
     await prisma.$transaction(async (tx) => {
-      // Record decision on current approval step
       await tx.pOApproval.update({
         where: { id: pendingApproval.id },
         data:  {
@@ -78,52 +80,37 @@ export async function POST(
       })
 
       if (isApproved && nextApproval) {
-        // More steps to go — next step is already PENDING (created at submit time)
-        // No status change needed on the PO itself
+        // More steps to go — next step is already PENDING, no PO status change needed
       } else if (isApproved && !nextApproval) {
-        // Final step approved
-        await tx.purchaseOrder.update({
-          where: { id },
-          data:  { status: 'APPROVED' as never },
-        })
+        await tx.purchaseOrder.update({ where: { id }, data: { status: 'APPROVED' as never } })
       } else if (isChangesReq) {
-        // Return to requester for editing
-        await tx.purchaseOrder.update({
-          where: { id },
-          data:  { status: 'DRAFT' as never },
-        })
-        // Cancel remaining pending approvals
+        await tx.purchaseOrder.update({ where: { id }, data: { status: 'DRAFT' as never } })
         await tx.pOApproval.updateMany({
           where: { poId: id, status: 'PENDING' as never },
           data:  { status: 'CANCELLED' as never },
         })
       } else {
-        // Hard reject
-        await tx.purchaseOrder.update({
-          where: { id },
-          data:  { status: 'REJECTED' as never },
-        })
+        await tx.purchaseOrder.update({ where: { id }, data: { status: 'REJECTED' as never } })
         await tx.pOApproval.updateMany({
           where: { poId: id, status: 'PENDING' as never },
           data:  { status: 'CANCELLED' as never },
         })
       }
+    }, { timeout: 15000 })
 
-      // Audit log
-      const actionLabel = isApproved ? 'approved' : isChangesReq ? 'returned for changes' : 'rejected'
-      await tx.entityActivityLog.create({
-        data: {
-          entityId:    po.entityId,
-          orgId:       session.orgId!,
-          activityType: 'STATUS_CHANGE' as never,
-          title:       `PO ${actionLabel}: ${po.poNumber}`,
-          description: comments ?? undefined,
-          referenceId:   id,
-          referenceType: 'PurchaseOrder',
-          performedBy:   session.userId,
-        },
-      })
-    })
+    // Audit log — non-critical follow-up write, outside transaction.
+    await prisma.entityActivityLog.create({
+      data: {
+        entityId:    po.entityId,
+        orgId:       session.orgId!,
+        activityType: 'STATUS_CHANGE' as never,
+        title:       `PO ${actionLabel}: ${po.poNumber}`,
+        description: comments ?? undefined,
+        referenceId:   id,
+        referenceType: 'PurchaseOrder',
+        performedBy:   session.userId,
+      },
+    }).catch(e => console.error('[po-approve] audit log failed:', e))
 
     // Notifications (outside transaction)
     if (isApproved && nextApproval) {

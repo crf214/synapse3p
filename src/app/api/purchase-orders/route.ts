@@ -211,7 +211,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       })
 
       return created
-    })
+    }, { timeout: 15000 })
 
     return NextResponse.json({ purchaseOrder: { ...po, entity } }, { status: 201 })
   } catch (err) {

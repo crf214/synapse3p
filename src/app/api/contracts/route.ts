@@ -126,50 +126,48 @@ export async function POST(req: NextRequest) {
     const exists = await prisma.contract.findFirst({ where: { orgId, contractNo } })
     if (exists) throw new ValidationError(`Contract ${contractNo} already exists`)
 
-    const result = await prisma.$transaction(async tx => {
-      // Create a document stub (file can be uploaded later from the contract page)
-      const doc = await tx.document.create({
-        data: {
-          orgId,
-          title:        docTitle,
-          docType:      'CONTRACT',
-          source:       'INTERNAL',
-          storageRef:   '',
-          storageBucket:'',
-          entityId,
-          uploadedBy:   session.userId!,
-          metadata:     {},
-        },
-      })
-
-      const contract = await tx.contract.create({
-        data: {
-          orgId,
-          documentId:      doc.id,
-          entityId,
-          contractNo,
-          type:            contractType,
-          status:          body.status ?? 'DRAFT',
-          value:           body.value !== undefined && body.value !== '' ? Number(body.value) : null,
-          currency:        sanitiseString(body.currency ?? 'USD'),
-          startDate:       body.startDate  ? new Date(body.startDate)  : null,
-          endDate:         body.endDate    ? new Date(body.endDate)    : null,
-          renewalDate:     body.renewalDate? new Date(body.renewalDate): null,
-          autoRenew:       body.autoRenew  ?? false,
-          noticePeriodDays:body.noticePeriodDays ? Number(body.noticePeriodDays) : 30,
-          ownedBy:         session.userId!,
-          linkedPoId:      body.linkedPoId ?? null,
-          notes:           body.notes ? sanitiseString(body.notes) : null,
-        },
-      })
-
-      // Back-link document to contract
-      await tx.document.update({ where: { id: doc.id }, data: { contractId: contract.id } })
-
-      return contract
+    // Create document stub outside any transaction — this is a non-critical pre-write.
+    // The contract is the atomic record; the document back-link is a follow-up update.
+    const doc = await prisma.document.create({
+      data: {
+        orgId,
+        title:        docTitle,
+        docType:      'CONTRACT',
+        source:       'INTERNAL',
+        storageRef:   '',
+        storageBucket:'',
+        entityId,
+        uploadedBy:   session.userId!,
+        metadata:     {},
+      },
     })
 
-    return NextResponse.json(result, { status: 201 })
+    // Single atomic write — no interactive transaction needed.
+    const contract = await prisma.contract.create({
+      data: {
+        orgId,
+        documentId:      doc.id,
+        entityId,
+        contractNo,
+        type:            contractType,
+        status:          body.status ?? 'DRAFT',
+        value:           body.value !== undefined && body.value !== '' ? Number(body.value) : null,
+        currency:        sanitiseString(body.currency ?? 'USD'),
+        startDate:       body.startDate  ? new Date(body.startDate)  : null,
+        endDate:         body.endDate    ? new Date(body.endDate)    : null,
+        renewalDate:     body.renewalDate? new Date(body.renewalDate): null,
+        autoRenew:       body.autoRenew  ?? false,
+        noticePeriodDays:body.noticePeriodDays ? Number(body.noticePeriodDays) : 30,
+        ownedBy:         session.userId!,
+        linkedPoId:      body.linkedPoId ?? null,
+        notes:           body.notes ? sanitiseString(body.notes) : null,
+      },
+    })
+
+    // Back-link document to contract — follow-up write, outside any transaction.
+    await prisma.document.update({ where: { id: doc.id }, data: { contractId: contract.id } })
+
+    return NextResponse.json(contract, { status: 201 })
   } catch (err) {
     return handleApiError(err, "")
   }

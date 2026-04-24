@@ -238,7 +238,7 @@ export async function PATCH(
           }
         }
       }
-    })
+    }, { timeout: 15000 })
 
     return NextResponse.json({ ok: true })
   } catch (err) {

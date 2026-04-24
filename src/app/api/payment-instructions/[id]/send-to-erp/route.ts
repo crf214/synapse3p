@@ -68,7 +68,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
           erpReference:`ERP-${Date.now()}`, // real implementation would call ERP adapter
         },
       })
-    })
+    }, { timeout: 15000 })
 
     return NextResponse.json({ ok: true })
   } catch (err) {

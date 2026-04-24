@@ -133,7 +133,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       })
 
       return payment
-    })
+    }, { timeout: 15000 })
 
     return NextResponse.json({ ...updated, amount: Number(updated.amount) })
   } catch (err) {

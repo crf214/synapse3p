@@ -106,6 +106,7 @@ export async function POST(
     }
     updateData.currentVersion = nextVersion
 
+    // Atomic: record amendment + update PO together.
     await prisma.$transaction(async (tx) => {
       await tx.pOAmendment.create({
         data: {
@@ -118,22 +119,22 @@ export async function POST(
           amendedBy:      session.userId!,
         },
       })
-
       await tx.purchaseOrder.update({ where: { id }, data: updateData })
+    }, { timeout: 15000 })
 
-      await tx.entityActivityLog.create({
-        data: {
-          entityId:    po.entityId,
-          orgId:       session.orgId!,
-          activityType: 'NOTE' as never,
-          title:       `PO amended (v${nextVersion}): ${po.poNumber}`,
-          description: `Changed: ${changedFields.join(', ')}. Reason: ${reason}`,
-          referenceId:   id,
-          referenceType: 'PurchaseOrder',
-          performedBy:   session.userId,
-        },
-      })
-    })
+    // Audit log — non-critical follow-up write, outside transaction.
+    await prisma.entityActivityLog.create({
+      data: {
+        entityId:    po.entityId,
+        orgId:       session.orgId!,
+        activityType: 'NOTE' as never,
+        title:       `PO amended (v${nextVersion}): ${po.poNumber}`,
+        description: `Changed: ${changedFields.join(', ')}. Reason: ${reason}`,
+        referenceId:   id,
+        referenceType: 'PurchaseOrder',
+        performedBy:   session.userId,
+      },
+    }).catch(e => console.error('[po-amend] audit log failed:', e))
 
     const updated = await prisma.purchaseOrder.findUnique({
       where:   { id },

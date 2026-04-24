@@ -167,7 +167,7 @@ export async function POST(req: NextRequest) {
       })
 
       return payment
-    })
+    }, { timeout: 15000 })
 
     return NextResponse.json(pi, { status: 201 })
   } catch (err) {
