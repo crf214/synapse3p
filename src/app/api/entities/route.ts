@@ -19,13 +19,15 @@ export async function GET(req: NextRequest) {
     const { searchParams } = req.nextUrl
     const page     = Math.max(1, parseInt(searchParams.get('page')  ?? '1',  10) || 1)
     const limit    = Math.min(MAX_LIMIT, Math.max(1, parseInt(searchParams.get('limit') ?? String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT))
-    const search   = sanitiseString(searchParams.get('search') ?? '', 200).trim()
-    const status   = sanitiseString(searchParams.get('status') ?? '', 50).trim() || null
-    const highRisk = searchParams.get('highRisk') === 'true'
+    const search      = sanitiseString(searchParams.get('search') ?? '', 200).trim()
+    const status      = sanitiseString(searchParams.get('status') ?? '', 50).trim() || null
+    const entityTypes = searchParams.get('types')?.split(',').filter(Boolean) ?? []
+    const highRisk    = searchParams.get('highRisk') === 'true'
 
     const where = {
       masterOrgId: session.orgId,
       ...(status ? { status: status as never } : {}),
+      ...(entityTypes.length > 0 ? { classifications: { some: { type: { in: entityTypes as never[] }, isPrimary: true } } } : {}),
       ...(highRisk ? { riskScore: { gte: 7 } } : {}),
       ...(search ? {
         OR: [
