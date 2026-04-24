@@ -32,7 +32,9 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  memberships  OrgMember[]
+  memberships             OrgMember[]
+  notificationPreference  NotificationPreference?
+  invoiceApprovals        InvoiceApproval[]       @relation("InvoiceAssignee")
 
   @@map("users")
 }
@@ -46,22 +48,27 @@ model Organisation {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  members               OrgMember[]
-  entityRelationships   EntityOrgRelationship[]
-  serviceEngagements    ServiceEngagement[]
-  processingRules       ProcessingRule[]
-  approvalWorkflows     ApprovalWorkflow[]
-  purchaseOrders        PurchaseOrder[]
-  documents             Document[]
-  contracts             Contract[]
-  onboardingWorkflows   OnboardingWorkflow[]
-  onboardingInstances   OnboardingInstance[]
-  thirdPartyReviews     ThirdPartyReview[]
-  reviewCadences        ReviewCadence[]
-  entityActivityLogs    EntityActivityLog[]
-  recurringSchedules    RecurringSchedule[]
-  invoices              Invoice[]
-  paymentInstructions   PaymentInstruction[]
+  members                  OrgMember[]
+  entityRelationships      EntityOrgRelationship[]
+  serviceEngagements       ServiceEngagement[]
+  processingRules          ProcessingRule[]
+  approvalWorkflows        ApprovalWorkflow[]
+  purchaseOrders           PurchaseOrder[]
+  documents                Document[]
+  contracts                Contract[]
+  onboardingWorkflows      OnboardingWorkflow[]
+  onboardingInstances      OnboardingInstance[]
+  thirdPartyReviews        ThirdPartyReview[]
+  reviewCadences           ReviewCadence[]
+  entityActivityLogs       EntityActivityLog[]
+  recurringSchedules       RecurringSchedule[]
+  invoices                 Invoice[]
+  paymentInstructions      PaymentInstruction[]
+  invoiceIngestionEvents   InvoiceIngestionEvent[]
+  invoiceApprovals         InvoiceApproval[]
+  autoApprovePolicies      AutoApprovePolicy[]
+  mergedAuthorizations     MergedAuthorization[]
+  notificationPreferences  NotificationPreference[]
 
   @@map("organisations")
 }
@@ -217,6 +224,7 @@ model Entity {
   invoices                  Invoice[]
   externalSignalConfigs     ExternalSignalConfig[]
   externalSignals           ExternalSignal[]
+  vendorSpendSnapshots      VendorSpendSnapshot[]
 
   @@map("entities")
 }
@@ -724,6 +732,7 @@ model Contract {
   updatedAt        DateTime       @updatedAt
 
   org              Organisation   @relation(fields: [orgId], references: [id])
+  invoices         Invoice[]
 
   @@unique([orgId, contractNo])
   @@index([orgId, status])
@@ -816,6 +825,48 @@ enum InvoiceDecisionType {
   REVIEW
   ESCALATE
   REJECT
+}
+
+enum RiskTier {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum RiskSignalType {
+  NEW_VENDOR
+  AMOUNT_VARIANCE
+  NO_CONTRACT_MATCH
+  CONTRACT_EXPIRED
+  CONTRACT_EXPIRING_SOON
+  DUPLICATE_FLAG
+  MISSING_FIELDS
+  UNCONTRACTED_SPEND
+  AMOUNT_OVER_THRESHOLD
+  FREQUENCY_ANOMALY
+  SANCTION_FLAG
+}
+
+enum DuplicateFlagStatus {
+  QUARANTINED
+  OVERRIDE_APPROVED
+  FALSE_POSITIVE
+}
+
+enum InvoiceApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DELEGATED
+  EXPIRED
+}
+
+enum MergedAuthStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  PAID
 }
 
 enum PaymentStatus {
@@ -989,6 +1040,8 @@ model Invoice {
   invoiceNo           String
   entityId            String
   poId                String?
+  contractId          String?
+  contractMatchConf   Float?                         // AI confidence for contract match (0–1)
   recurringScheduleId String?
   amount              Float
   currency            String        @default("USD")
@@ -999,43 +1052,56 @@ model Invoice {
   isRecurring         Boolean       @default(false)
   matchType           MatchType     @default(NONE)
   documentId          String?
+  emailMessageId      String?       @unique           // inbound email Message-ID header, for dedup
+  pdfFingerprint      String?                        // SHA-256 of raw PDF bytes, for dedup
   rawExtraction       Json          @default("{}")
   notes               String?
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
 
-  org                 Organisation       @relation(fields: [orgId], references: [id])
-  entity              Entity             @relation(fields: [entityId], references: [id])
+  org                 Organisation          @relation(fields: [orgId], references: [id])
+  entity              Entity                @relation(fields: [entityId], references: [id])
+  contract            Contract?             @relation(fields: [contractId], references: [id])
   riskEvaluations     RiskEvaluation[]
   decision            InvoiceDecision?
   paymentExecutions   PaymentExecution[]
+  extractedFields     InvoiceExtractedField[]
+  // InvoiceApproval is the source of truth for approver state; this is a convenience back-relation
+  approvals           InvoiceApproval[]
+  duplicateFlags      InvoiceDuplicateFlag[] @relation("DuplicateSuspect")
+  flaggedAsOriginal   InvoiceDuplicateFlag[] @relation("DuplicateOriginal")
+  ingestionEvent      InvoiceIngestionEvent?
+  mergedAuthItem      MergedAuthItem?
 
   @@unique([orgId, invoiceNo])
   @@index([entityId, status])
+  @@index([contractId])
   @@index([dueDate])
   @@map("invoices")
 }
 
 model RiskEvaluation {
-  id                 String   @id @default(cuid())
+  id                 String    @id @default(cuid())
   invoiceId          String
   orgId              String
   overallScore       Float
-  amountScore        Float    @default(0)
-  frequencyScore     Float    @default(0)
-  vendorScore        Float    @default(0)
-  duplicateScore     Float    @default(0)
-  toleranceScore     Float    @default(0)
+  tier               RiskTier?                      // LOW / MEDIUM / HIGH derived from overallScore
+  amountScore        Float     @default(0)
+  frequencyScore     Float     @default(0)
+  vendorScore        Float     @default(0)
+  duplicateScore     Float     @default(0)
+  toleranceScore     Float     @default(0)
   weights            Json
-  flags              Json     @default("[]")
+  flags              Json      @default("[]")
   explanation        Json
-  withinTolerance    Boolean  @default(true)
-  deviation          Float    @default(0)
-  deviationPct       Float    @default(0)
-  effectiveTolerance Float    @default(0)
-  evaluatedAt        DateTime @default(now())
+  withinTolerance    Boolean   @default(true)
+  deviation          Float     @default(0)
+  deviationPct       Float     @default(0)
+  effectiveTolerance Float     @default(0)
+  evaluatedAt        DateTime  @default(now())
 
-  invoice            Invoice  @relation(fields: [invoiceId], references: [id])
+  invoice            Invoice     @relation(fields: [invoiceId], references: [id])
+  signals            RiskSignal[]
 
   @@map("risk_evaluations")
 }
@@ -1600,4 +1666,279 @@ model EntityStockPrice {
   @@index([entityId, priceDate])
   @@index([ticker, priceDate])
   @@map("entity_stock_prices")
+}
+
+// ============================================================
+// Invoice Ingestion — Phase 6
+// ============================================================
+
+// Raw inbound event record. Created before the invoice is parsed so we have a
+// complete audit trail of every webhook/upload attempt regardless of outcome.
+model InvoiceIngestionEvent {
+  id               String        @id @default(cuid())
+  orgId            String
+  // Linked after parsing succeeds; null if processing failed.
+  invoiceId        String?       @unique
+  source           InvoiceSource
+  receivedAt       DateTime      @default(now())
+
+  // Email inbound (Resend webhook)
+  emailMessageId   String?       @unique
+  fromEmail        String?
+  fromName         String?
+  subject          String?
+  // [{filename, storageRef, mimeType, sizeBytes}]
+  attachmentRefs   Json?
+
+  // File upload (Supabase Storage)
+  storageRef       String?
+  uploadedBy       String?
+
+  processingStatus String        @default("PENDING") // PENDING | PARSED | FAILED
+  errorDetails     String?
+  // Full webhook payload stored for replay/debugging. Secrets must be stripped before storage.
+  rawPayload       Json?
+
+  createdAt        DateTime      @default(now())
+
+  org              Organisation  @relation(fields: [orgId], references: [id])
+  invoice          Invoice?      @relation(fields: [invoiceId], references: [id])
+
+  @@index([orgId, receivedAt])
+  @@index([processingStatus])
+  @@map("invoice_ingestion_events")
+}
+
+// Per-field AI extraction result with confidence score. Supersedes the opaque
+// rawExtraction Json on Invoice for any field that needs human review routing.
+model InvoiceExtractedField {
+  id              String   @id @default(cuid())
+  invoiceId       String
+  // Canonical field names: invoiceNo | vendorName | amount | currency |
+  //   invoiceDate | dueDate | poNumber | lineItems | taxAmount | subtotal
+  fieldName       String
+  rawValue        String?
+  normalizedValue String?
+  confidence      Float              // 0.0 – 1.0
+  modelVersion    String?
+  // True when confidence is below the org threshold; queued for human correction.
+  needsReview     Boolean  @default(false)
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  reviewedValue   String?            // human-corrected value, if changed
+
+  invoice         Invoice  @relation(fields: [invoiceId], references: [id])
+
+  @@unique([invoiceId, fieldName])
+  @@index([invoiceId])
+  @@index([needsReview])
+  @@map("invoice_extracted_fields")
+}
+
+// Individual scored signal contributing to a RiskEvaluation.
+// Replaces opaque flags Json with queryable, weighted rows.
+model RiskSignal {
+  id               String         @id @default(cuid())
+  riskEvaluationId String
+  signalType       RiskSignalType
+  triggered        Boolean
+  value            Float?         // raw measurement (e.g. variance amount, days to expiry)
+  weight           Float?         // contribution weight used in overallScore
+  detail           String?        // human-readable explanation
+
+  riskEvaluation   RiskEvaluation @relation(fields: [riskEvaluationId], references: [id])
+
+  @@index([riskEvaluationId])
+  @@map("risk_signals")
+}
+
+// First-class financial control for duplicate detection.
+// Suspects are QUARANTINED (blocked from the queue) until reviewed.
+// Any override requires a written justification that is stored here permanently.
+model InvoiceDuplicateFlag {
+  id                    String              @id @default(cuid())
+  orgId                 String
+  invoiceId             String              // the suspect invoice
+  duplicateOfInvoiceId  String?             // the original, if identified
+
+  // Signal breakdown — at least one will be true on a QUARANTINED record
+  matchedOnInvoiceNo    Boolean             @default(false)
+  matchedOnVendorAmount Boolean             @default(false) // same vendor + amount + date proximity
+  matchedOnPdfHash      Boolean             @default(false)
+  matchedOnEmailMsgId   Boolean             @default(false)
+  // Structured metadata per signal (proximity window, hash values, etc.)
+  signalDetails         Json?
+
+  status                DuplicateFlagStatus @default(QUARANTINED)
+  detectedAt            DateTime            @default(now())
+  detectedBy            String              // "system" or userId
+
+  // Override path — overrideJustification is required (enforced at API layer and audit trail)
+  overriddenBy          String?
+  overriddenAt          DateTime?
+  overrideJustification String?
+
+  // False-positive resolution
+  resolvedBy            String?
+  resolvedAt            DateTime?
+  resolutionNotes       String?
+
+  invoice               Invoice             @relation("DuplicateSuspect",  fields: [invoiceId],          references: [id])
+  duplicateOf           Invoice?            @relation("DuplicateOriginal", fields: [duplicateOfInvoiceId], references: [id])
+
+  @@index([orgId, status])
+  @@index([invoiceId])
+  @@index([duplicateOfInvoiceId])
+  @@map("invoice_duplicate_flags")
+}
+
+// Configurable auto-approval policy. Scoped to org (entityId = null) or
+// overridden per entity. ALL conditions must be satisfied for auto-approval.
+model AutoApprovePolicy {
+  id                    String     @id @default(cuid())
+  orgId                 String
+  // null = org-wide default; set = per-entity override
+  entityId              String?
+  name                  String
+  isActive              Boolean    @default(true)
+
+  maxAmount             Decimal?   @db.Decimal(18, 4)
+  currency              String     @default("USD")
+  requireContractMatch  Boolean    @default(true)
+  // If true, a matched recurring schedule satisfies requireContractMatch
+  requireRecurringMatch Boolean    @default(false)
+  allowedRiskTiers      RiskTier[]
+  noDuplicateFlag       Boolean    @default(true)
+  noAnomalyFlag         Boolean    @default(true)
+  // Require all extracted fields to have confidence >= org threshold
+  allFieldsExtracted    Boolean    @default(false)
+
+  createdBy             String
+  updatedBy             String?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+
+  org                   Organisation @relation(fields: [orgId], references: [id])
+
+  // One policy per org/entity combination (null entityId = org default)
+  @@unique([orgId, entityId])
+  @@index([orgId, isActive])
+  @@map("auto_approve_policies")
+}
+
+// Approver assignment and decision record for an invoice.
+// This is the source of truth for approver state; Invoice holds only a
+// convenience back-relation (Invoice.approvals).
+model InvoiceApproval {
+  id          String                @id @default(cuid())
+  invoiceId   String
+  orgId       String
+  assignedTo  String                // userId
+  assignedBy  String                // userId or "system"
+  assignedAt  DateTime              @default(now())
+  role        OrgRole               // role at time of assignment
+  status      InvoiceApprovalStatus @default(PENDING)
+  decidedAt   DateTime?
+  decision    String?               // APPROVED | REJECTED
+  notes       String?
+  delegatedTo String?               // userId if status = DELEGATED
+  // Set when a pending reminder email was last sent
+  lastReminderAt DateTime?
+
+  invoice     Invoice               @relation(fields: [invoiceId], references: [id])
+  org         Organisation          @relation(fields: [orgId], references: [id])
+  assignee    User                  @relation("InvoiceAssignee", fields: [assignedTo], references: [id])
+
+  @@index([invoiceId])
+  @@index([assignedTo, status])
+  @@index([orgId, status])
+  @@map("invoice_approvals")
+}
+
+// Per-user notification preferences for invoice routing.
+// emailOnInvoiceRouted defaults to true (Resend email sent on assignment).
+// reminderAfterDays controls the fallback reminder cadence for pending invoices.
+model NotificationPreference {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  orgId                String
+
+  emailOnInvoiceRouted Boolean  @default(true)
+  reminderEnabled      Boolean  @default(true)
+  reminderAfterDays    Int      @default(3)
+
+  updatedAt            DateTime @updatedAt
+
+  user                 User         @relation(fields: [userId], references: [id])
+  org                  Organisation @relation(fields: [orgId], references: [id])
+
+  @@index([orgId])
+  @@map("notification_preferences")
+}
+
+// Parent record for a consolidated invoice authorization (batch approval + payment).
+// Each member invoice retains its own record and full audit trail.
+// netAmount = totalAmount - creditAmount (vendor credits offset charges).
+model MergedAuthorization {
+  id            String           @id @default(cuid())
+  orgId         String
+  reference     String           // human-readable batch reference
+  name          String?
+  totalAmount   Decimal          @db.Decimal(18, 4)
+  creditAmount  Decimal          @default(0) @db.Decimal(18, 4)
+  netAmount     Decimal          @db.Decimal(18, 4)
+  currency      String
+  status        MergedAuthStatus @default(DRAFT)
+  createdBy     String
+  approvedBy    String?
+  approvedAt    DateTime?
+  notes         String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  org           Organisation     @relation(fields: [orgId], references: [id])
+  items         MergedAuthItem[]
+
+  @@unique([orgId, reference])
+  @@index([orgId, status])
+  @@map("merged_authorizations")
+}
+
+// Junction between a MergedAuthorization and its member invoices.
+// isCredit = true for vendor credit notes being netted against charges.
+model MergedAuthItem {
+  id             String              @id @default(cuid())
+  mergedAuthId   String
+  invoiceId      String              @unique // each invoice belongs to at most one merge
+  isCredit       Boolean             @default(false)
+  amount         Decimal             @db.Decimal(18, 4)
+  notes          String?
+
+  mergedAuth     MergedAuthorization @relation(fields: [mergedAuthId], references: [id])
+  invoice        Invoice             @relation(fields: [invoiceId], references: [id])
+
+  @@index([mergedAuthId])
+  @@map("merged_auth_items")
+}
+
+// Monthly spend snapshot per vendor/org pair for fast history queries.
+// Computed periodically (nightly or on-demand); do not use as a billing ledger.
+model VendorSpendSnapshot {
+  id           String   @id @default(cuid())
+  entityId     String
+  orgId        String
+  period       String   // "YYYY-MM"
+  invoiceCount Int
+  totalAmount  Decimal  @db.Decimal(18, 4)
+  avgAmount    Decimal  @db.Decimal(18, 4)
+  minAmount    Decimal  @db.Decimal(18, 4)
+  maxAmount    Decimal  @db.Decimal(18, 4)
+  currency     String
+  computedAt   DateTime @default(now())
+
+  entity       Entity   @relation(fields: [entityId], references: [id])
+
+  @@unique([entityId, orgId, period, currency])
+  @@index([entityId, orgId, period])
+  @@map("vendor_spend_snapshots")
 }
