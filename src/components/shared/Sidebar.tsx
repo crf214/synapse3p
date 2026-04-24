@@ -29,7 +29,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard/service-engagements',   label: 'Service Engagements',icon: '◉', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'] },
   { href: '/dashboard/documents',              label: 'Documents',          icon: '◫', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'] },
   { href: '/dashboard/settings',                    label: 'Settings',           icon: '◌', roles: ['ADMIN'] },
-  { href: '/dashboard/settings/processing-rules',   label: 'Processing Rules',   icon: '◧', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
+  { href: '/dashboard/settings/processing-rules',      label: 'Processing Rules',   icon: '◧', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
+  { href: '/dashboard/settings/auto-approve-policies', label: 'Auto-Approve',       icon: '◎', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/portal',                           label: 'My Portal',          icon: '◐', roles: ['VENDOR', 'CLIENT'] },
 ]
 
