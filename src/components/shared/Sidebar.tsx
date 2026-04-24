@@ -23,6 +23,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard/purchase-orders',        label: 'Purchase Orders',    icon: '◻', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/contracts',              label: 'Contracts',          icon: '◧', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'AUDITOR'] },
   { href: '/dashboard/payments',               label: 'Payments',           icon: '◈', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'] },
+  { href: '/dashboard/merged-authorizations', label: 'Merged Auth',        icon: '◫', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'] },
   { href: '/dashboard/approvals',              label: 'Approvals',          icon: '✓', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'] },
   { href: '/dashboard/vendors',                label: 'Vendors',            icon: '◑', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'] },
   { href: '/dashboard/documents',              label: 'Documents',          icon: '◫', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'] },
