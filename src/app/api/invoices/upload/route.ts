@@ -11,7 +11,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { computeFingerprint, checkPreExtractionDuplicates, runInvoicePipeline } from '@/lib/invoice-pipeline'
 
 const ALLOWED_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
-const INVOICE_BUCKET = process.env.INVOICES_BUCKET ?? 'invoices'
+const INVOICE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? process.env.INVOICES_BUCKET ?? 'synapse3p-files'
 const MAX_SIZE_BYTES = 20 * 1024 * 1024   // 20 MB
 
 export async function POST(req: NextRequest): Promise<NextResponse> {

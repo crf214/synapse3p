@@ -194,7 +194,7 @@ export default function InvoicesPage() {
             style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
             Quarantine
           </Link>
-          <Link href="/api/invoices/upload"
+          <Link href="/dashboard/invoices/upload"
             className="px-3 py-2 text-sm rounded-lg font-medium"
             style={{ background: '#2563eb', color: '#fff' }}>
             Upload PDF
