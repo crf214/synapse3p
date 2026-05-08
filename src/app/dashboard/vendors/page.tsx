@@ -8,7 +8,7 @@ import { useUser } from '@/context/UserContext'
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'])
 
 // Vendor-adjacent entity types
-const VENDOR_TYPES = ['VENDOR','CONTRACTOR','SERVICE_PROVIDER','BROKER','PLATFORM','FUND_SERVICE','PARTNER','COUNTERPARTY','OTHER']
+const VENDOR_TYPES = ['VENDOR','CONTRACTOR','BROKER','PLATFORM','FUND_SVC_PROVIDER','OTHER']
 
 interface VendorRow {
   id:              string

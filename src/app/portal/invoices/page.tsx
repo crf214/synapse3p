@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 
 interface InvoiceRow {
   id: string; invoiceNo: string; amount: number; currency: string
@@ -33,6 +34,7 @@ function daysUntil(iso: string | null) {
 }
 
 export default function PortalInvoicesPage() {
+  const router = useRouter()
   const [rows,    setRows]    = useState<InvoiceRow[]>([])
   const [total,   setTotal]   = useState(0)
   const [loading, setLoading] = useState(true)
@@ -119,6 +121,8 @@ export default function PortalInvoicesPage() {
                   const dueSoon = days !== null && days >= 0 && days <= 5 && !['PAID','REJECTED'].includes(inv.status)
                   return (
                     <tr key={inv.id}
+                      onClick={() => router.push(`/portal/invoices/${inv.id}`)}
+                      className="cursor-pointer transition-colors hover:bg-gray-50"
                       style={{ borderBottom: i < rows.length - 1 ? '1px solid var(--border)' : undefined }}>
                       <td className="px-4 py-3 font-mono text-xs font-medium" style={{ color: '#2563eb' }}>
                         {inv.invoiceNo}

@@ -8,6 +8,8 @@ import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 const ALLOWED_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const ROUTING_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const APPROVER_ROLES = ['FINANCE_MANAGER', 'CONTROLLER', 'CFO']
+const APPROVE_ROLES  = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const OVERRIDE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,11 +54,32 @@ interface InvoiceDetail {
     signals:     RiskSignal[]
   }>
   decision:     { decision: string } | null
-  approvals:    Array<{ status: string; assignee: { name: string | null; email: string } }>
+  approvals:    Array<{ status: string; assignee: { id: string; name: string | null; email: string } }>
+  disputes: Array<{
+    id: string; title: string; description: string | null; occurredAt: string; disputeType: string; status: string
+  }>
+  duplicateFlags: Array<{
+    id:          string
+    status:      string
+    detectedAt:  string
+    matchedOnInvoiceNo:    boolean
+    matchedOnVendorAmount: boolean
+    matchedOnPdfHash:      boolean
+    matchedOnEmailMsgId:   boolean
+    duplicateOf: { id: string; invoiceNo: string; amount: number; currency: string; invoiceDate: string } | null
+  }>
   vendorContext: {
     spendHistory: Array<{ period: string; totalAmount: number; avgAmount: number; invoiceCount: number }>
     recentInvoices: Array<{ id: string; invoiceNo: string; amount: number; currency: string; invoiceDate: string; status: string }>
   }
+}
+
+interface LineItem {
+  description?: string
+  qty?:         number | string
+  unitPrice?:   number | string
+  total?:       number | string
+  [key: string]: unknown
 }
 
 // ---------------------------------------------------------------------------
@@ -102,12 +125,67 @@ const SIGNAL_LABELS: Record<string, string> = {
   SANCTION_FLAG:          'Sanctions flag',
 }
 
+function tryParseLineItems(raw: string | null): LineItem[] | null {
+  if (!raw) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed as LineItem[]
+  } catch { /* fall through */ }
+  return null
+}
+
+function LineItemsTable({ items }: { items: LineItem[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs" style={{ borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ borderBottom: '1px solid var(--border)' }}>
+            <th className="text-left pb-1 pr-3 font-medium" style={{ color: 'var(--muted)' }}>Description</th>
+            <th className="text-right pb-1 pr-3 font-medium" style={{ color: 'var(--muted)' }}>Qty</th>
+            <th className="text-right pb-1 pr-3 font-medium" style={{ color: 'var(--muted)' }}>Unit Price</th>
+            <th className="text-right pb-1 font-medium" style={{ color: 'var(--muted)' }}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, i) => (
+            <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+              <td className="py-1 pr-3" style={{ color: 'var(--ink)' }}>{String(item.description ?? '—')}</td>
+              <td className="py-1 pr-3 text-right" style={{ color: 'var(--ink)' }}>{String(item.qty ?? '—')}</td>
+              <td className="py-1 pr-3 text-right" style={{ color: 'var(--ink)' }}>{String(item.unitPrice ?? '—')}</td>
+              <td className="py-1 text-right" style={{ color: 'var(--ink)' }}>{String(item.total ?? '—')}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
+// Fetch a remote PDF and return a local blob URL so X-Frame-Options is bypassed.
+function usePdfBlobUrl(signedUrl: string | null): string | null {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!signedUrl) return
+    let objectUrl: string
+    fetch(signedUrl)
+      .then(r => r.blob())
+      .then(blob => {
+        objectUrl = URL.createObjectURL(blob)
+        setBlobUrl(objectUrl)
+      })
+      .catch(() => {/* leave null — fallback message shown */})
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [signedUrl])
+  return blobUrl
+}
+
 export default function InvoiceReviewPage() {
-  const { role } = useUser()
+  const user   = useUser()
+  const { role } = user
   const params = useParams()
   const router = useRouter()
   const invoiceId = params.id as string
@@ -118,10 +196,30 @@ export default function InvoiceReviewPage() {
   const [approvers,  setApprovers]  = useState<Approver[]>([])
   const [corrections, setCorrections] = useState<Record<string, string>>({})
   const [saving,     setSaving]     = useState(false)
+
+  // Routing state (AP_CLERK → assigns to approver)
   const [selectedApprover, setSelectedApprover] = useState('')
   const [routeNotes,       setRouteNotes]       = useState('')
   const [routing,          setRouting]          = useState(false)
   const [routeError,       setRouteError]       = useState<string | null>(null)
+
+  // Decision state (approver → approve / reject / escalate)
+  const [decision,          setDecision]          = useState<'APPROVED' | 'REJECTED' | 'ESCALATED' | null>(null)
+  const [decisionNotes,     setDecisionNotes]     = useState('')
+  const [escalateTo,        setEscalateTo]        = useState('')
+  const [submittingDecision, setSubmittingDecision] = useState(false)
+  const [decisionError,     setDecisionError]     = useState<string | null>(null)
+
+  // Override state (OVERRIDE_ROLES → release duplicate quarantine)
+  const [overrideJustification, setOverrideJustification] = useState('')
+  const [submittingOverride,    setSubmittingOverride]    = useState(false)
+  const [overrideError,         setOverrideError]         = useState<string | null>(null)
+
+  // Vendor disputes
+  const [disputes, setDisputes] = useState<InvoiceDetail['disputes']>([])
+
+  // PDF blob URL — must be called before any early returns (Rules of Hooks)
+  const pdfBlobUrl = usePdfBlobUrl(invoice?.pdfSignedUrl ?? null)
 
   const fetchInvoice = useCallback(async () => {
     setLoading(true); setError(null)
@@ -143,6 +241,13 @@ export default function InvoiceReviewPage() {
       .then((j: { users: Approver[] }) => setApprovers(j.users))
       .catch(() => {})
   }, [role])
+
+  useEffect(() => {
+    fetch(`/api/invoices/${invoiceId}/disputes`)
+      .then(r => r.json())
+      .then((j: { disputes: InvoiceDetail['disputes'] }) => setDisputes(j.disputes ?? []))
+      .catch(() => {})
+  }, [invoiceId])
 
   if (!role || !ALLOWED_ROLES.has(role)) {
     return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Access denied.</div>
@@ -179,6 +284,50 @@ export default function InvoiceReviewPage() {
     finally { setRouting(false) }
   }
 
+  async function submitDecision() {
+    if (!decision) return
+    if (decision === 'ESCALATED' && !escalateTo) {
+      setDecisionError('Please select who to escalate to.')
+      return
+    }
+    setSubmittingDecision(true); setDecisionError(null)
+    try {
+      const res = await fetch(`/api/invoices/${invoiceId}/approve`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          decision,
+          notes:      decisionNotes || undefined,
+          escalateTo: decision === 'ESCALATED' ? escalateTo : undefined,
+        }),
+      })
+      const json = await res.json() as { error?: { message: string } }
+      if (!res.ok) throw new Error(json.error?.message ?? 'Decision failed')
+      router.push('/dashboard/approvals')
+    } catch (e) { setDecisionError(e instanceof Error ? e.message : 'Failed') }
+    finally { setSubmittingDecision(false) }
+  }
+
+  async function submitOverride(flagId: string) {
+    if (overrideJustification.trim().length < 10) {
+      setOverrideError('Justification must be at least 10 characters.')
+      return
+    }
+    setSubmittingOverride(true); setOverrideError(null)
+    try {
+      const res = await fetch(`/api/invoices/${invoiceId}/override-duplicate`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ flagId, justification: overrideJustification.trim() }),
+      })
+      const json = await res.json() as { error?: { message: string } }
+      if (!res.ok) throw new Error(json.error?.message ?? 'Override failed')
+      await fetchInvoice()
+      setOverrideJustification('')
+    } catch (e) { setOverrideError(e instanceof Error ? e.message : 'Override failed') }
+    finally { setSubmittingOverride(false) }
+  }
+
   if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading invoice…</div>
   if (error)   return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>{error}</div>
   if (!invoice) return null
@@ -188,6 +337,11 @@ export default function InvoiceReviewPage() {
 
   const tierColor = latestRisk?.tier === 'HIGH' ? '#dc2626' : latestRisk?.tier === 'MEDIUM' ? '#d97706' : '#16a34a'
   const tierBg    = latestRisk?.tier === 'HIGH' ? '#fef2f2' : latestRisk?.tier === 'MEDIUM' ? '#fffbeb' : '#f0fdf4'
+
+  // Is the current user the assigned approver with a pending decision?
+  const myPendingApproval = APPROVE_ROLES.has(role)
+    ? invoice.approvals.find(a => a.status === 'PENDING' && a.assignee.id === user.id)
+    : null
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: 'var(--bg)' }}>
@@ -207,8 +361,13 @@ export default function InvoiceReviewPage() {
           </span>
         </div>
 
-        {invoice.pdfSignedUrl ? (
-          <iframe src={invoice.pdfSignedUrl} className="flex-1 w-full" title="Invoice PDF" />
+        {pdfBlobUrl ? (
+          <iframe src={pdfBlobUrl} className="flex-1 w-full" title="Invoice PDF" />
+        ) : invoice.pdfSignedUrl ? (
+          <div className="flex-1 flex items-center justify-center text-sm"
+            style={{ color: 'var(--muted)' }}>
+            Loading PDF…
+          </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm"
             style={{ color: 'var(--muted)' }}>
@@ -220,6 +379,187 @@ export default function InvoiceReviewPage() {
       {/* RIGHT: structured panel */}
       <div className="w-1/2 overflow-y-auto">
         <div className="p-6 space-y-6">
+
+          {/* --- DUPLICATE QUARANTINE PANEL --- */}
+          {invoice.status === 'DUPLICATE' && (invoice.duplicateFlags ?? []).length > 0 && (
+            <section className="p-4 rounded-xl"
+              style={{ background: '#fef2f2', border: '1px solid #dc262633' }}>
+              <h2 className="text-base font-semibold mb-1" style={{ color: '#991b1b' }}>
+                Quarantined — Suspected Duplicate
+              </h2>
+              <p className="text-xs mb-4" style={{ color: '#dc2626' }}>
+                This invoice was flagged by the pipeline and held. Review the match details below before deciding to override.
+              </p>
+
+              {(invoice.duplicateFlags ?? []).filter(f => f.status === 'QUARANTINED').map(flag => {
+                const matchSignals: string[] = []
+                if (flag.matchedOnPdfHash)      matchSignals.push('Identical PDF')
+                if (flag.matchedOnEmailMsgId)   matchSignals.push('Same email')
+                if (flag.matchedOnInvoiceNo)    matchSignals.push('Invoice #')
+                if (flag.matchedOnVendorAmount) matchSignals.push('Vendor + amount')
+
+                return (
+                  <div key={flag.id} className="mb-4 space-y-3">
+                    {/* Match signals */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-medium" style={{ color: '#991b1b' }}>Matched on:</span>
+                      {matchSignals.map(s => (
+                        <span key={s} className="text-xs px-2 py-0.5 rounded-full font-medium"
+                          style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #dc262222' }}>
+                          {s}
+                        </span>
+                      ))}
+                    </div>
+
+                    {/* Original invoice */}
+                    {flag.duplicateOf && (
+                      <div className="p-2 rounded-lg text-xs"
+                        style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                        <span style={{ color: 'var(--muted)' }}>Original: </span>
+                        <a href={`/dashboard/invoices/${flag.duplicateOf.id}`}
+                          className="font-medium underline" style={{ color: '#2563eb' }}>
+                          {flag.duplicateOf.invoiceNo}
+                        </a>
+                        <span style={{ color: 'var(--muted)' }}>
+                          {' · '}{new Intl.NumberFormat('en-US', { style: 'currency', currency: flag.duplicateOf.currency }).format(flag.duplicateOf.amount)}
+                          {' · '}{new Date(flag.duplicateOf.invoiceDate).toLocaleDateString()}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Override panel for eligible roles */}
+                    {OVERRIDE_ROLES.has(role) && (
+                      <div className="space-y-2">
+                        <div className="p-2 rounded-lg text-xs"
+                          style={{ background: '#fffbeb', border: '1px solid #fde68a' }}>
+                          <strong style={{ color: '#92400e' }}>Financial control: </strong>
+                          <span style={{ color: '#78350f' }}>Override is permanently recorded in the audit trail.</span>
+                        </div>
+                        <textarea
+                          value={overrideJustification}
+                          onChange={e => setOverrideJustification(e.target.value)}
+                          rows={3}
+                          placeholder="Justification for override (min 10 characters)…"
+                          className="w-full text-sm px-3 py-2 rounded-lg border resize-none"
+                          style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--ink)' }}
+                        />
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs" style={{ color: overrideJustification.length < 10 ? '#dc2626' : 'var(--muted)' }}>
+                            {overrideJustification.length} / 10 min
+                          </span>
+                          <button
+                            onClick={() => submitOverride(flag.id)}
+                            disabled={submittingOverride || overrideJustification.trim().length < 10}
+                            className="text-xs px-4 py-1.5 rounded-lg font-medium disabled:opacity-40"
+                            style={{ background: '#d97706', color: '#fff' }}>
+                            {submittingOverride ? 'Overriding…' : 'Override & Release'}
+                          </button>
+                        </div>
+                        {overrideError && (
+                          <p className="text-xs" style={{ color: '#dc2626' }}>{overrideError}</p>
+                        )}
+                      </div>
+                    )}
+
+                    {!OVERRIDE_ROLES.has(role) && (
+                      <p className="text-xs" style={{ color: '#dc2626' }}>
+                        Only Finance Manager, Controller, or CFO can override this flag.
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </section>
+          )}
+
+          {/* --- DECISION PANEL (shown only to the assigned approver) --- */}
+          {myPendingApproval && (
+            <section className="p-4 rounded-xl"
+              style={{ background: '#eff6ff', border: '1px solid #2563eb33' }}>
+              <h2 className="text-base font-semibold mb-1" style={{ color: '#1e40af' }}>
+                Your Approval Required
+              </h2>
+              <p className="text-xs mb-4" style={{ color: '#3b82f6' }}>
+                This invoice has been routed to you for a decision.
+              </p>
+
+              {/* Decision buttons */}
+              <div className="flex gap-2 mb-3">
+                {(['APPROVED', 'REJECTED', 'ESCALATED'] as const).map(d => {
+                  const colors = {
+                    APPROVED:  { active: '#16a34a', bg: '#f0fdf4', border: '#16a34a' },
+                    REJECTED:  { active: '#dc2626', bg: '#fef2f2', border: '#dc2626' },
+                    ESCALATED: { active: '#d97706', bg: '#fffbeb', border: '#d97706' },
+                  }[d]
+                  const isSelected = decision === d
+                  return (
+                    <button key={d} onClick={() => setDecision(isSelected ? null : d)}
+                      className="flex-1 py-2 rounded-lg text-xs font-medium border transition-all"
+                      style={{
+                        background:   isSelected ? colors.bg    : 'var(--bg)',
+                        borderColor:  isSelected ? colors.border : 'var(--border)',
+                        color:        isSelected ? colors.active : 'var(--muted)',
+                      }}>
+                      {d === 'APPROVED' ? 'Approve' : d === 'REJECTED' ? 'Reject' : 'Escalate'}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Escalation target picker */}
+              {decision === 'ESCALATED' && (
+                <div className="mb-3">
+                  <label className="block text-xs font-medium mb-1" style={{ color: 'var(--muted)' }}>
+                    Escalate to
+                  </label>
+                  <select value={escalateTo} onChange={e => setEscalateTo(e.target.value)}
+                    className="w-full text-sm px-3 py-2 rounded-lg border"
+                    style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--ink)' }}>
+                    <option value="">Select approver…</option>
+                    {approvers.filter(a => a.id !== user.id).map(a => (
+                      <option key={a.id} value={a.id}>
+                        {a.name ?? a.email} ({a.role.replace('_', ' ')})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Notes */}
+              <div className="mb-3">
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--muted)' }}>
+                  Notes (optional)
+                </label>
+                <textarea
+                  value={decisionNotes}
+                  onChange={e => setDecisionNotes(e.target.value)}
+                  rows={2}
+                  placeholder="Reason for decision…"
+                  className="w-full text-sm px-3 py-2 rounded-lg border resize-none"
+                  style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--ink)' }}
+                />
+              </div>
+
+              {decisionError && (
+                <p className="text-xs mb-2" style={{ color: '#dc2626' }}>{decisionError}</p>
+              )}
+
+              <button onClick={submitDecision}
+                disabled={!decision || submittingDecision}
+                className="w-full py-2 rounded-lg text-sm font-medium disabled:opacity-40 transition-opacity"
+                style={{
+                  background: decision === 'APPROVED' ? '#16a34a' : decision === 'REJECTED' ? '#dc2626' : decision === 'ESCALATED' ? '#d97706' : '#6b7280',
+                  color: '#fff',
+                }}>
+                {submittingDecision
+                  ? 'Submitting…'
+                  : decision === 'APPROVED' ? 'Confirm Approval'
+                  : decision === 'REJECTED' ? 'Confirm Rejection'
+                  : decision === 'ESCALATED' ? 'Confirm Escalation'
+                  : 'Select a decision above'}
+              </button>
+            </section>
+          )}
 
           {/* --- A: Extracted Fields --- */}
           <section>
@@ -237,10 +577,42 @@ export default function InvoiceReviewPage() {
             </div>
             <div className="space-y-2">
               {invoice.extractedFields.map(f => {
-                const corrected = corrections[f.fieldName]
-                const display   = corrected ?? f.reviewedValue ?? f.normalizedValue ?? ''
-                const isChanged = corrected !== undefined
-                const needsFlag = f.needsReview && !f.reviewedValue
+                const corrected  = corrections[f.fieldName]
+                const display    = corrected ?? f.reviewedValue ?? f.normalizedValue ?? ''
+                const isChanged  = corrected !== undefined
+                const isVerified = corrected !== undefined || f.reviewedValue !== null
+                const needsFlag  = f.needsReview && !isVerified
+
+                const confidenceBadge = isVerified
+                  ? <span className="text-xs font-medium px-1.5 py-0.5 rounded"
+                      style={{ background: '#f0fdf4', color: '#16a34a' }}>✓ Verified</span>
+                  : <ConfBadge confidence={f.confidence} />
+
+                // Line items get a table instead of a text input
+                if (f.fieldName === 'lineItems') {
+                  const items = tryParseLineItems(display || f.rawValue)
+                  return (
+                    <div key={f.fieldName}
+                      className="px-3 py-2 rounded-lg"
+                      style={{
+                        background: needsFlag ? '#fffbeb' : 'var(--surface)',
+                        border: `1px solid ${needsFlag ? '#fde68a' : 'var(--border)'}`,
+                      }}>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs" style={{ color: 'var(--muted)' }}>Line Items</span>
+                        <div className="flex items-center gap-2">
+                          {confidenceBadge}
+                          {needsFlag && <span className="text-xs" style={{ color: '#d97706' }}>⚠ Review</span>}
+                        </div>
+                      </div>
+                      {items ? (
+                        <LineItemsTable items={items} />
+                      ) : (
+                        <span className="text-xs" style={{ color: 'var(--muted)' }}>No line items extracted.</span>
+                      )}
+                    </div>
+                  )
+                }
 
                 return (
                   <div key={f.fieldName}
@@ -261,7 +633,7 @@ export default function InvoiceReviewPage() {
                       />
                     </div>
                     <div className="flex-shrink-0 flex items-center gap-2">
-                      <ConfBadge confidence={f.confidence} />
+                      {confidenceBadge}
                       {needsFlag && (
                         <span className="text-xs" style={{ color: '#d97706' }}>⚠ Review</span>
                       )}
@@ -329,7 +701,6 @@ export default function InvoiceReviewPage() {
                   </LineChart>
                 </ResponsiveContainer>
 
-                {/* Current invoice vs avg */}
                 {invoice.vendorContext.spendHistory.length > 0 && (() => {
                   const last = invoice.vendorContext.spendHistory[invoice.vendorContext.spendHistory.length - 1]
                   const avg  = Number(last.avgAmount)
@@ -392,8 +763,8 @@ export default function InvoiceReviewPage() {
             )}
           </section>
 
-          {/* --- C: Action Panel --- */}
-          {ROUTING_ROLES.has(role) && (
+          {/* --- C: Route for Approval (routing roles only, when not already pending) --- */}
+          {ROUTING_ROLES.has(role) && invoice.status !== 'PENDING_REVIEW' && invoice.status !== 'APPROVED' && invoice.status !== 'REJECTED' && (
             <section className="p-4 rounded-xl"
               style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
               <h2 className="text-base font-semibold mb-4" style={{ color: 'var(--ink)' }}>Route for Approval</h2>
@@ -460,6 +831,45 @@ export default function InvoiceReviewPage() {
                       }}>
                       {a.status}
                     </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Vendor disputes */}
+          {disputes.length > 0 && (
+            <section>
+              <h2 className="text-sm font-medium mb-2 flex items-center gap-2" style={{ color: 'var(--muted)' }}>
+                Vendor Disputes
+                {disputes.filter(d => d.status === 'OPEN').length > 0 && (
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                    style={{ background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a' }}>
+                    {disputes.filter(d => d.status === 'OPEN').length} open
+                  </span>
+                )}
+              </h2>
+              <div className="space-y-2">
+                {disputes.map(d => (
+                  <div key={d.id} className="px-3 py-2 rounded-lg text-xs space-y-1"
+                    style={{ background: '#fffbeb', border: '1px solid #fde68a' }}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium" style={{ color: 'var(--ink)' }}>{d.title}</span>
+                      <span className="px-2 py-0.5 rounded-full flex-shrink-0"
+                        style={{
+                          background: d.status === 'OPEN' ? '#fffbeb' : '#f0fdf4',
+                          color:      d.status === 'OPEN' ? '#d97706' : '#16a34a',
+                          border:     `1px solid ${d.status === 'OPEN' ? '#fde68a' : '#bbf7d0'}`,
+                        }}>
+                        {d.status}
+                      </span>
+                    </div>
+                    {d.description && (
+                      <p style={{ color: 'var(--muted)' }}>{d.description}</p>
+                    )}
+                    <p style={{ color: 'var(--muted)' }}>
+                      {new Date(d.occurredAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
                   </div>
                 ))}
               </div>

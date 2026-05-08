@@ -76,13 +76,15 @@ function getAttachmentName(a: ResendInboundAttachment): string {
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Verify shared secret
+  // Verify shared secret — required; reject all requests if not configured
   const secret = process.env.RESEND_WEBHOOK_SECRET
-  if (secret) {
-    const provided = req.headers.get('x-webhook-secret')
-    if (!provided || provided !== secret) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+  if (!secret) {
+    console.error('[email-inbound] RESEND_WEBHOOK_SECRET is not configured — rejecting all webhook requests')
+    return NextResponse.json({ error: 'Service misconfigured' }, { status: 503 })
+  }
+  const provided = req.headers.get('x-webhook-secret')
+  if (!provided || provided !== secret) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   let payload: ResendInboundPayload

@@ -8,17 +8,20 @@ import { sanitiseString } from '@/lib/security/sanitise'
 
 const READ_ROLES  = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'])
+const VALID_STATUSES = new Set(['SCHEDULED','IN_PROGRESS','COMPLETED','OVERDUE','CANCELLED'])
 
-type Params = { params: { id: string } }
+type RouteParams = { params: Promise<{ id: string }> }
 
-export async function GET(_req: NextRequest, { params }: Params) {
+export async function GET(_req: NextRequest, { params }: RouteParams) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
     if (!READ_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
+    const { id } = await params
+
     const review = await prisma.thirdPartyReview.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         entity: {
           select: {
@@ -49,45 +52,88 @@ export async function GET(_req: NextRequest, { params }: Params) {
       approver:  review.approvedBy ? userMap[review.approvedBy] ?? null : null,
     })
   } catch (err) {
-    return handleApiError(err, "")
+    return handleApiError(err, 'GET /api/reviews/[id]')
   }
 }
 
-export async function PUT(req: NextRequest, { params }: Params) {
+export async function PUT(req: NextRequest, { params }: RouteParams) {
   try {
     const session = await getSession()
-    if (!session.userId) throw new UnauthorizedError()
+    if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const review = await prisma.thirdPartyReview.findUnique({ where: { id: params.id } })
+    const { id } = await params
+
+    const review = await prisma.thirdPartyReview.findUnique({ where: { id } })
     if (!review || review.orgId !== session.orgId) throw new NotFoundError('Review not found')
 
     const body = await req.json()
 
-    const VALID_STATUSES = ['SCHEDULED','IN_PROGRESS','COMPLETED','OVERDUE','CANCELLED']
-    if (body.status && !VALID_STATUSES.includes(body.status)) throw new ValidationError('Invalid status')
+    if (body.status && !VALID_STATUSES.has(body.status)) throw new ValidationError('Invalid status')
 
     const data: Record<string, unknown> = {}
+    const changedParts: string[] = []
 
-    if (body.status !== undefined)         data.status         = body.status
-    if (body.cyberScore !== undefined)     data.cyberScore     = body.cyberScore !== '' ? Number(body.cyberScore) : null
-    if (body.legalScore !== undefined)     data.legalScore     = body.legalScore !== '' ? Number(body.legalScore) : null
-    if (body.privacyScore !== undefined)   data.privacyScore   = body.privacyScore !== '' ? Number(body.privacyScore) : null
-    if (body.overallScore !== undefined)   data.overallScore   = body.overallScore !== '' ? Number(body.overallScore) : null
-    if (body.cyberFindings !== undefined)  data.cyberFindings  = body.cyberFindings
-    if (body.legalFindings !== undefined)  data.legalFindings  = body.legalFindings
-    if (body.privacyFindings !== undefined)data.privacyFindings= body.privacyFindings
-    if (body.notes !== undefined)          data.notes          = body.notes ? sanitiseString(body.notes) : null
-    if (body.nextReviewDate !== undefined) data.nextReviewDate = body.nextReviewDate ? new Date(body.nextReviewDate) : null
-    if (body.scheduledAt !== undefined)    data.scheduledAt    = body.scheduledAt    ? new Date(body.scheduledAt)    : null
+    if (body.status !== undefined && body.status !== review.status) {
+      data.status = body.status
+      changedParts.push(`status → ${String(body.status).replace(/_/g,' ')}`)
+    }
+    if (body.cyberScore !== undefined) {
+      data.cyberScore = body.cyberScore !== null && body.cyberScore !== '' ? Number(body.cyberScore) : null
+    }
+    if (body.legalScore !== undefined) {
+      data.legalScore = body.legalScore !== null && body.legalScore !== '' ? Number(body.legalScore) : null
+    }
+    if (body.privacyScore !== undefined) {
+      data.privacyScore = body.privacyScore !== null && body.privacyScore !== '' ? Number(body.privacyScore) : null
+    }
+    if (body.overallScore !== undefined) {
+      data.overallScore = body.overallScore !== null && body.overallScore !== '' ? Number(body.overallScore) : null
+    }
+    if (body.cyberFindings !== undefined)   data.cyberFindings   = body.cyberFindings
+    if (body.legalFindings !== undefined)   data.legalFindings   = body.legalFindings
+    if (body.privacyFindings !== undefined) data.privacyFindings = body.privacyFindings
+    if (body.notes !== undefined)           data.notes           = body.notes ? sanitiseString(body.notes) : null
+    if (body.nextReviewDate !== undefined)  data.nextReviewDate  = body.nextReviewDate ? new Date(body.nextReviewDate) : null
+    if (body.scheduledAt !== undefined)     data.scheduledAt     = body.scheduledAt    ? new Date(body.scheduledAt)    : null
 
-    // Mark completedAt when transitioning to COMPLETED
+    // Mark completedAt / approvedBy when transitioning to COMPLETED
     if (body.status === 'COMPLETED' && review.status !== 'COMPLETED') {
       data.completedAt = new Date()
       data.approvedBy  = session.userId
     }
 
-    const updated = await prisma.thirdPartyReview.update({ where: { id: params.id }, data })
+    // Build score summary for activity log
+    const scores = ['overall','cyber','legal','privacy']
+      .filter(d => body[`${d}Score`] !== undefined && body[`${d}Score`] !== null && body[`${d}Score`] !== '')
+      .map(d => `${d[0].toUpperCase() + d.slice(1)} ${Number(body[`${d}Score`]).toFixed(1)}`)
+    if (scores.length > 0) changedParts.push(`scores: ${scores.join(', ')}`)
+
+    const findingDomains = ['cyber','legal','privacy']
+      .filter(d => body[`${d}Findings`] !== undefined && Object.keys(body[`${d}Findings`] ?? {}).length > 0)
+      .map(d => d)
+    if (findingDomains.length > 0) changedParts.push(`findings updated: ${findingDomains.join(', ')}`)
+
+    if (body.notes !== undefined) changedParts.push('notes')
+    if (body.nextReviewDate !== undefined) changedParts.push('next review date')
+    if (body.scheduledAt !== undefined) changedParts.push('scheduled date')
+
+    const updated = await prisma.thirdPartyReview.update({ where: { id }, data })
+
+    // Write activity log
+    await prisma.entityActivityLog.create({
+      data: {
+        entityId:      review.entityId,
+        orgId:         session.orgId,
+        activityType:  'REVIEW',
+        title:         `Review updated`,
+        description:   changedParts.length > 0 ? changedParts.join('; ') : 'Review details updated',
+        referenceId:   id,
+        referenceType: 'ThirdPartyReview',
+        performedBy:   session.name ?? session.email ?? session.userId,
+        occurredAt:    new Date(),
+      },
+    })
 
     return NextResponse.json({
       ...updated,
@@ -98,6 +144,6 @@ export async function PUT(req: NextRequest, { params }: Params) {
       updatedAt:      updated.updatedAt.toISOString(),
     })
   } catch (err) {
-    return handleApiError(err, "")
+    return handleApiError(err, 'PUT /api/reviews/[id]')
   }
 }

@@ -1,23 +1,23 @@
 /**
  * Synapse3P — External Signals Nightly Batch
  *
- * Monitors news and stock price signals for all active entity configs and
- * stores results as ExternalSignal records. Sends Resend alert emails to
- * configured recipients. Never throws — errors are caught per-entity.
+ * Monitors stock price signals for every entity that has a stockTicker set.
+ * No separate config table is required — simply set Entity.stockTicker and
+ * signals will be picked up automatically on the next run.
  *
  * Usage:
  *   npx tsx scripts/external-signals.ts
  *
  * Required env vars:
- *   DATABASE_URL, NEWS_API_KEY, RESEND_API_KEY
+ *   DATABASE_URL, RESEND_API_KEY (optional — only needed for email alerts)
  */
 
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 import { prisma } from '@/lib/prisma'
-import type { SignalSeverity, SignalType } from '@prisma/client'
+import type { SignalSeverity } from '@prisma/client'
 import { safeExternalFetch } from '@/lib/security/outbound'
-import { sanitiseNewsArticle, sanitiseStockData } from '@/lib/security/sanitise'
+import { sanitiseStockData } from '@/lib/security/sanitise'
 import { fetchAndStorePrices, backfillHistory, getLatestPrice } from '@/lib/stocks/StockPriceService'
 
 // ---------------------------------------------------------------------------
@@ -47,18 +47,6 @@ function meetsThreshold(severity: SignalSeverity, threshold: SignalSeverity): bo
   return SEVERITY_ORDER[severity] >= SEVERITY_ORDER[threshold]
 }
 
-const CRITICAL_WORDS = ['bankruptcy', 'fraud', 'criminal', 'arrest', 'sanction', 'collapse', 'breach', 'hack']
-const HIGH_WORDS     = ['lawsuit', 'investigation', 'regulatory', 'fine', 'penalty', 'warning', 'downgrade']
-const MEDIUM_WORDS   = ['concern', 'risk', 'decline', 'loss', 'cut', 'delay']
-
-function detectNewsSeverity(title: string, description: string): SignalSeverity {
-  const text = `${title} ${description}`.toLowerCase()
-  if (CRITICAL_WORDS.some(w => text.includes(w))) return 'CRITICAL'
-  if (HIGH_WORDS.some(w => text.includes(w)))     return 'HIGH'
-  if (MEDIUM_WORDS.some(w => text.includes(w)))   return 'MEDIUM'
-  return 'LOW'
-}
-
 function stockSeverity(dropPct: number): SignalSeverity {
   if (dropPct > 15) return 'CRITICAL'
   if (dropPct > 8)  return 'HIGH'
@@ -67,22 +55,9 @@ function stockSeverity(dropPct: number): SignalSeverity {
 }
 
 // ---------------------------------------------------------------------------
-// Date helpers
-// ---------------------------------------------------------------------------
-function yesterday(): string {
-  const d = new Date()
-  d.setUTCDate(d.getUTCDate() - 1)
-  return d.toISOString().slice(0, 10) // YYYY-MM-DD
-}
-
-// ---------------------------------------------------------------------------
 // Resend alert
 // ---------------------------------------------------------------------------
-async function sendResendAlert(
-  toEmail: string,
-  subject: string,
-  body: string,
-): Promise<void> {
+async function sendResendAlert(toEmail: string, subject: string, body: string): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) return
 
@@ -104,103 +79,6 @@ async function sendResendAlert(
 }
 
 // ---------------------------------------------------------------------------
-// News monitoring
-// ---------------------------------------------------------------------------
-interface NewsArticle {
-  title: string
-  description: string | null
-  url: string
-  source: { name: string }
-  publishedAt: string
-}
-
-async function processNews(
-  config: {
-    entityId: string
-    orgId: string
-    companyName: string
-    newsKeywords: string[]
-    severityThreshold: SignalSeverity
-  },
-  entityName: string,
-): Promise<number> {
-  const apiKey = process.env.NEWS_API_KEY
-  if (!apiKey) {
-    console.log('    [news] NEWS_API_KEY not set — skipping')
-    return 0
-  }
-
-  const terms = [config.companyName, ...config.newsKeywords].join(' OR ')
-  const url = new URL('https://newsapi.org/v2/everything')
-  url.searchParams.set('q', terms)
-  url.searchParams.set('sortBy', 'publishedAt')
-  url.searchParams.set('pageSize', '5')
-  url.searchParams.set('from', yesterday())
-  url.searchParams.set('apiKey', apiKey)
-
-  const res = await safeExternalFetch(url.toString(), {}, 'external-signals:news')
-  if (!res.ok) throw new Error(`NewsAPI ${res.status}: ${await res.text()}`)
-
-  const data = await res.json() as { articles?: unknown[] }
-  const articles = data.articles ?? []
-  let stored = 0
-
-  for (const rawArticle of articles) {
-    // Sanitise all third-party data before touching the database
-    const article = sanitiseNewsArticle(rawArticle)
-    if (!article) continue
-
-    const severity = detectNewsSeverity(article.title, article.description)
-    if (!meetsThreshold(severity, config.severityThreshold)) continue
-
-    // Deduplication: skip if same sourceUrl already exists for this entity
-    if (article.url) {
-      const existing = await prisma.externalSignal.findFirst({
-        where: { entityId: config.entityId, sourceUrl: article.url },
-        select: { id: true },
-      })
-      if (existing) continue
-    }
-
-    await prisma.externalSignal.create({
-      data: {
-        entityId:   config.entityId,
-        orgId:      config.orgId,
-        signalType: 'NEWS',
-        severity,
-        title:      article.title,
-        summary:    article.description || article.title,
-        sourceUrl:  article.url,
-        sourceName: article.sourceName,
-        rawData:    rawArticle as object,
-        publishedAt: article.publishedAt ? new Date(article.publishedAt) : null,
-      },
-    })
-
-    await prisma.entityActivityLog.create({
-      data: {
-        entityId:      config.entityId,
-        orgId:         config.orgId,
-        activityType:  'EXTERNAL_SIGNAL',
-        title:         `News signal (${severity}): ${article.title}`,
-        description:   article.description || undefined,
-        referenceType: 'ExternalSignal',
-        performedBy:   'system',
-        metadata:      { signalType: 'NEWS', severity, sourceUrl: article.url },
-      },
-    })
-
-    stored++
-    console.log(`    [news] ${severity}: ${article.title.slice(0, 80)}`)
-
-    // Alert recipients
-    await sendSignalAlerts(config, entityName, 'NEWS', severity, article.title, article.description, article.url ?? undefined, article.sourceName)
-  }
-
-  return stored
-}
-
-// ---------------------------------------------------------------------------
 // Stock price monitoring
 // ---------------------------------------------------------------------------
 interface YahooChartResponse {
@@ -213,24 +91,23 @@ interface YahooChartResponse {
 }
 
 async function processStock(
-  config: {
-    entityId: string
-    orgId: string
-    stockTicker: string
-    severityThreshold: SignalSeverity
-  },
+  entityId: string,
+  orgId: string,
+  ticker: string,
   entityName: string,
+  severityThreshold: SignalSeverity = 'LOW',
+  alertRecipientIds: string[] = [],
 ): Promise<number> {
-  // Store price history — backfill 18 months on first run, otherwise just today
-  const existing = await getLatestPrice(config.entityId, config.stockTicker)
+  // Store price history — backfill 18 months on first run, otherwise just recent days
+  const existing = await getLatestPrice(entityId, ticker)
   if (!existing) {
-    const stored = await backfillHistory(config.entityId, config.stockTicker)
-    console.log(`    [stock] Backfilled ${stored} days of history for ${config.stockTicker}`)
+    const stored = await backfillHistory(entityId, ticker)
+    console.log(`    [stock] Backfilled ${stored} days of history for ${ticker}`)
   } else {
-    await fetchAndStorePrices(config.entityId, config.stockTicker, 5)
+    await fetchAndStorePrices(entityId, ticker, 5)
   }
 
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(config.stockTicker)}?interval=1d&range=5d`
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`
   const res = await safeExternalFetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, 'external-signals:stock')
   if (!res.ok) throw new Error(`Yahoo Finance ${res.status}`)
 
@@ -254,138 +131,106 @@ async function processStock(
   const dropPct  = Math.abs(changePct)
   const severity = stockSeverity(dropPct)
 
-  if (!meetsThreshold(severity, config.severityThreshold)) return 0
+  if (!meetsThreshold(severity, severityThreshold)) return 0
 
-  const title   = `${config.stockTicker} dropped ${dropPct.toFixed(2)}%`
-  const summary = `${config.stockTicker} closed at ${latest.toFixed(2)}, down ${dropPct.toFixed(2)}% from previous close of ${prev.toFixed(2)}.`
+  const title   = `${ticker} dropped ${dropPct.toFixed(2)}%`
+  const summary = `${ticker} closed at ${latest.toFixed(2)}, down ${dropPct.toFixed(2)}% from previous close of ${prev.toFixed(2)}.`
 
   await prisma.externalSignal.create({
     data: {
-      entityId:   config.entityId,
-      orgId:      config.orgId,
+      entityId,
+      orgId,
       signalType: 'STOCK_PRICE',
       severity,
       title,
       summary,
       sourceName: 'Yahoo Finance',
-      rawData:    { ticker: config.stockTicker, prev, latest, changePct },
+      rawData:    { ticker, prev, latest, changePct },
       affectedRiskScore: severity === 'HIGH' || severity === 'CRITICAL',
     },
   })
 
   await prisma.entityActivityLog.create({
     data: {
-      entityId:      config.entityId,
-      orgId:         config.orgId,
+      entityId,
+      orgId,
       activityType:  'EXTERNAL_SIGNAL',
       title:         `Stock signal (${severity}): ${title}`,
       description:   summary,
       referenceType: 'ExternalSignal',
       performedBy:   'system',
-      metadata:      { signalType: 'STOCK_PRICE', severity, ticker: config.stockTicker, changePct },
+      metadata:      { signalType: 'STOCK_PRICE', severity, ticker, changePct },
     },
   })
 
   console.log(`    [stock] ${severity}: ${title}`)
-  await sendSignalAlerts(config, entityName, 'STOCK_PRICE', severity, title, summary, undefined, 'Yahoo Finance')
+
+  // Send email alerts to configured recipients (if any)
+  if (alertRecipientIds.length > 0) {
+    const users = await prisma.user.findMany({
+      where: { id: { in: alertRecipientIds } },
+      select: { email: true },
+    })
+    const subject = `Stock signal: ${entityName} — ${severity}`
+    const body = [
+      `Entity: ${entityName}`,
+      `Ticker: ${ticker}`,
+      `Severity: ${severity}`,
+      ``,
+      title,
+      summary,
+      `Source: Yahoo Finance`,
+      ``,
+      `Detected at: ${new Date().toISOString()}`,
+    ].join('\n')
+    for (const user of users) {
+      await sendResendAlert(user.email, subject, body)
+    }
+  }
 
   return 1
 }
 
 // ---------------------------------------------------------------------------
-// Send alerts to configured recipients
-// ---------------------------------------------------------------------------
-async function sendSignalAlerts(
-  config: { entityId: string; alertRecipients?: string[] },
-  entityName: string,
-  signalType: SignalType,
-  severity: SignalSeverity,
-  title: string,
-  summary: string,
-  sourceUrl?: string,
-  sourceName?: string,
-): Promise<void> {
-  const recipients = (config as { alertRecipients?: string[] }).alertRecipients ?? []
-  if (recipients.length === 0) return
-
-  const users = await prisma.user.findMany({
-    where: { id: { in: recipients } },
-    select: { id: true, email: true },
-  })
-
-  const subject = `External signal detected: ${entityName} — ${severity}`
-  const body = [
-    `Entity: ${entityName}`,
-    `Signal type: ${signalType}`,
-    `Severity: ${severity}`,
-    ``,
-    title,
-    summary,
-    sourceName ? `Source: ${sourceName}` : '',
-    sourceUrl  ? `URL: ${sourceUrl}` : '',
-    ``,
-    `Detected at: ${new Date().toISOString()}`,
-  ].filter(l => l !== undefined).join('\n')
-
-  for (const user of users) {
-    await sendResendAlert(user.email, subject, body)
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Main
+// Main — driven entirely by Entity.stockTicker
 // ---------------------------------------------------------------------------
 async function main() {
-  console.log('Synapse3P External Signals Batch\n')
+  console.log('Synapse3P External Signals Batch — Stock Price Monitoring\n')
 
-  const configs = await prisma.externalSignalConfig.findMany({
-    where: { isActive: true },
-    include: { entity: { select: { name: true } } },
+  // Find all entities that have a stock ticker set; no separate config required
+  const entities = await prisma.entity.findMany({
+    where:  { stockTicker: { not: null } },
+    select: { id: true, name: true, masterOrgId: true, stockTicker: true },
   })
 
-  console.log(`Loaded ${configs.length} active signal config(s)\n`)
+  if (entities.length === 0) {
+    console.log('No entities have a stock ticker set. Add a ticker to an entity to enable monitoring.')
+    return
+  }
 
-  let entitiesChecked = 0
+  console.log(`Found ${entities.length} entity/entities with stock ticker(s)\n`)
+
   let signalsDetected = 0
 
-  for (const config of configs) {
-    const entityName = config.entity.name
-    console.log(`Checking: ${entityName} (${config.entityId})`)
-    entitiesChecked++
-
+  for (const entity of entities) {
+    const ticker = entity.stockTicker!
+    console.log(`Checking: ${entity.name} [${ticker}]`)
     try {
-      if ((config.signalTypes as SignalType[]).includes('NEWS')) {
-        const count = await processNews(
-          {
-            entityId:          config.entityId,
-            orgId:             config.orgId,
-            companyName:       config.companyName,
-            newsKeywords:      config.newsKeywords as string[],
-            severityThreshold: config.severityThreshold as SignalSeverity,
-          },
-          entityName,
-        )
-        signalsDetected += count
-      }
-
-      if ((config.signalTypes as SignalType[]).includes('STOCK_PRICE') && config.stockTicker) {
-        const count = await processStock(
-          {
-            entityId:          config.entityId,
-            orgId:             config.orgId,
-            stockTicker:       config.stockTicker,
-            severityThreshold: config.severityThreshold as SignalSeverity,
-          },
-          entityName,
-        )
-        signalsDetected += count
-      }
+      const count = await processStock(
+        entity.id,
+        entity.masterOrgId,
+        ticker,
+        entity.name,
+        'LOW',  // capture all drops (no config-level threshold)
+        [],     // no alert recipients without a config; set up via ExternalSignalConfig if needed
+      )
+      signalsDetected += count
     } catch (err) {
-      console.error(`  ERROR processing ${entityName}:`, err instanceof Error ? err.message : err)
+      console.error(`  ERROR processing ${entity.name}:`, err instanceof Error ? err.message : err)
     }
   }
 
-  console.log(`\nDone. ${entitiesChecked} entities checked, ${signalsDetected} signals detected.`)
+  console.log(`\nDone. ${entities.length} entity/entities checked, ${signalsDetected} signal(s) detected.`)
 }
 
 main()

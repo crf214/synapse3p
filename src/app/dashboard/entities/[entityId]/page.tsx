@@ -1,18 +1,19 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
 
-const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
-const WRITE_ROLES      = new Set(['ADMIN', 'FINANCE_MANAGER'])
+const ALLOWED_ROLES    = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
+const WRITE_ROLES      = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const ONBOARDING_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'LEGAL', 'CISO', 'CFO', 'CONTROLLER'])
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+type LegalStructure   = 'INDIVIDUAL' | 'COMPANY' | 'FUND' | 'TRUST' | 'GOVERNMENT' | 'OTHER'
 type EntityStatus     = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'PENDING_REVIEW' | 'OFFBOARDED'
-type EntityType       = 'VENDOR' | 'CONTRACTOR' | 'PARTNER' | 'COUNTERPARTY' | 'SERVICE_PROVIDER' | 'BROKER' | 'PLATFORM' | 'FUND_SERVICE' | 'OTHER'
+type EntityType       = 'VENDOR' | 'CONTRACTOR' | 'BROKER' | 'PLATFORM' | 'FUND_SVC_PROVIDER' | 'OTHER'
 type KycStatus        = 'NOT_REQUIRED' | 'PENDING' | 'IN_REVIEW' | 'APPROVED' | 'FAILED' | 'EXPIRED'
 type KybStatus        = 'NOT_REQUIRED' | 'PENDING' | 'IN_REVIEW' | 'APPROVED' | 'FAILED' | 'EXPIRED'
 type SanctionsStatus  = 'CLEAR' | 'FLAGGED' | 'UNDER_REVIEW' | 'BLOCKED'
@@ -20,21 +21,25 @@ type SlaStatus        = 'ON_TRACK' | 'AT_RISK' | 'BREACHED' | 'NOT_APPLICABLE'
 type ActivityType     = 'ONBOARDING' | 'REVIEW' | 'PAYMENT' | 'STATUS_CHANGE' | 'INCIDENT' | 'DOCUMENT' | 'NOTE' | 'EXTERNAL_SIGNAL' | 'RISK_SCORE_CHANGE'
 type PaymentRail      = 'ACH' | 'BACS' | 'SWIFT' | 'SEPA' | 'WIRE' | 'STRIPE' | 'ERP' | 'OTHER'
 
-interface Classification { id: string; type: EntityType; isPrimary: boolean; startDate: string | null; notes: string | null }
-interface BankAccount    { id: string; label: string; accountName: string; accountNo: string; routingNo: string | null; swiftBic: string | null; iban: string | null; currency: string; paymentRail: PaymentRail; isPrimary: boolean; status: string }
-interface DueDiligence   { ddLevel: number; kycStatus: KycStatus; kybStatus: KybStatus; sanctionsStatus: SanctionsStatus; pepStatus: boolean; nextReviewDate: string | null; reviewedAt: string | null; internalFactors: Record<string, unknown>; externalFactors: Record<string, unknown> }
-interface RiskScore      { computedScore: number; ddScore: number; behaviorScore: number; sanctionsScore: number; paymentHistoryScore: number; weights: Record<string, number>; scoredAt: string; notes: string | null }
-interface OrgRelationship { onboardingStatus: string; activeForBillPay: boolean; portalAccess: boolean; approvedSpendLimit: number | null; contractStart: string | null; contractEnd: string | null }
-interface ServiceEngagement { id: string; status: string; contractStart: string | null; contractEnd: string | null; slaStatus: SlaStatus; serviceCatalogue: { name: string; category: string } }
-interface ActivityLog    { id: string; activityType: ActivityType; title: string; description: string | null; performedBy: string | null; occurredAt: string }
+interface EntityRef         { id: string; name: string; slug: string }
+interface Classification    { id: string; type: EntityType; isPrimary: boolean; startDate: string | null; notes: string | null }
+interface BankAccount       { id: string; label: string; accountName: string; accountNo: string; routingNo: string | null; swiftBic: string | null; iban: string | null; currency: string; paymentRail: PaymentRail; isPrimary: boolean; status: string }
+interface DueDiligence      { ddLevel: number; kycStatus: KycStatus; kybStatus: KybStatus; sanctionsStatus: SanctionsStatus; pepStatus: boolean; nextReviewDate: string | null; reviewedAt: string | null; internalFactors: Record<string, unknown>; externalFactors: Record<string, unknown> }
+interface RiskScore         { computedScore: number; ddScore: number; behaviorScore: number; sanctionsScore: number; paymentHistoryScore: number; weights: Record<string, number>; scoredAt: string; notes: string | null }
+interface OrgRelationship   { onboardingStatus: string; activeForBillPay: boolean; portalAccess: boolean; approvedSpendLimit: number | null; contractStart: string | null; contractEnd: string | null }
+interface ServiceEngagement { id: string; status: string; contractStart: string | null; contractEnd: string | null; slaStatus: SlaStatus; serviceCatalogue: { name: string; parentId: string | null } }
+interface ActivityLog       { id: string; activityType: ActivityType; title: string; description: string | null; performedBy: string | null; occurredAt: string }
+
 interface EntityDetail {
-  id: string; name: string; slug: string; status: EntityStatus; legalStructure: string
+  id: string; name: string; slug: string; status: EntityStatus; legalStructure: LegalStructure
   jurisdiction: string | null; registrationNo: string | null; incorporationDate: string | null
   primaryCurrency: string; riskScore: number; riskOverride: boolean
-  parent: { id: string; name: string; slug: string } | null
+  stockTicker: string | null
+  parent:         EntityRef | null
   classifications:    Classification[]
   bankAccounts:       BankAccount[]
   dueDiligence:       DueDiligence | null
+  financial:          { paymentTermsDays: number | null; taxId: string | null; vatNumber: string | null; glCode: string | null; costCentre: string | null } | null
   riskScores:         RiskScore[]
   orgRelationships:   OrgRelationship[]
   serviceEngagements: ServiceEngagement[]
@@ -59,10 +64,11 @@ function relativeTime(iso: string): string {
   if (mins  < 1)  return 'just now'
   if (mins  < 60) return `${mins}m ago`
   if (hours < 24) return `${hours}h ago`
-  return `${days}d ago`
+  if (days  < 30) return `${days}d ago`
+  return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
-function riskColor(score: number): { bg: string; color: string; border: string } {
+function riskColor(score: number) {
   if (score >= 7) return { bg: '#fef2f2', color: '#dc2626', border: '#dc262622' }
   if (score >= 4) return { bg: '#fffbeb', color: '#d97706', border: '#d9770622' }
   return              { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22' }
@@ -77,85 +83,293 @@ function Badge({ label, bg, color, border }: { label: string; bg: string; color:
   )
 }
 
-const KYC_COLOR: Record<KycStatus | KybStatus, { bg: string; color: string; border: string; label: string }> = {
-  NOT_REQUIRED: { bg: '#f9fafb', color: '#6b7280', border: '#6b728022', label: 'Not required' },
-  PENDING:      { bg: '#eff6ff', color: '#2563eb', border: '#2563eb22', label: 'Pending'      },
-  IN_REVIEW:    { bg: '#fffbeb', color: '#d97706', border: '#d9770622', label: 'In review'    },
-  APPROVED:     { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22', label: 'Approved'     },
-  FAILED:       { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Failed'       },
-  EXPIRED:      { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Expired'      },
-}
-
-const SANCTIONS_COLOR: Record<SanctionsStatus, { bg: string; color: string; border: string; label: string }> = {
-  CLEAR:        { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22', label: 'Clear'        },
-  FLAGGED:      { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Flagged'      },
-  UNDER_REVIEW: { bg: '#fffbeb', color: '#d97706', border: '#d9770622', label: 'Under review' },
-  BLOCKED:      { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Blocked'      },
-}
-
-const SLA_COLOR: Record<SlaStatus, { bg: string; color: string; border: string; label: string }> = {
-  ON_TRACK:       { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22', label: 'On track'       },
-  AT_RISK:        { bg: '#fffbeb', color: '#d97706', border: '#d9770622', label: 'At risk'         },
-  BREACHED:       { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Breached'        },
-  NOT_APPLICABLE: { bg: '#f9fafb', color: '#6b7280', border: '#6b728022', label: 'N/A'             },
-}
-
-const TYPE_LABEL: Record<EntityType, string> = {
-  VENDOR: 'Vendor', CONTRACTOR: 'Contractor', PARTNER: 'Partner', COUNTERPARTY: 'Counterparty',
-  SERVICE_PROVIDER: 'Service Provider', BROKER: 'Broker', PLATFORM: 'Platform',
-  FUND_SERVICE: 'Fund Service', OTHER: 'Other',
-}
-
-const ALL_TYPES: EntityType[] = ['VENDOR', 'CONTRACTOR', 'PARTNER', 'COUNTERPARTY', 'SERVICE_PROVIDER', 'BROKER', 'PLATFORM', 'FUND_SERVICE', 'OTHER']
-const ALL_RAILS: PaymentRail[] = ['ACH', 'BACS', 'SWIFT', 'SEPA', 'WIRE', 'STRIPE', 'ERP', 'OTHER']
+const inputCls  = 'w-full text-sm px-3 py-2 rounded-lg outline-none'
+const inputStyle = { background: '#fff', border: '1px solid var(--border)', color: 'var(--ink)' }
+const labelStyle = { color: 'var(--muted)', fontSize: 12, fontWeight: 500, marginBottom: 4, display: 'block' as const }
 
 // ---------------------------------------------------------------------------
-// Overview Tab
+// Entity search picker (for parent / ultimate parent)
 // ---------------------------------------------------------------------------
-function OverviewTab({ entity }: { entity: EntityDetail }) {
-  const rc = riskColor(entity.riskScore)
-  const latestRisk = entity.riskScores[0] ?? null
+function EntityPicker({
+  label, value, entityId, onChange,
+}: {
+  label: string
+  value: EntityRef | null
+  entityId: string
+  onChange: (e: EntityRef | null) => void
+}) {
+  const [query,   setQuery]   = useState('')
+  const [results, setResults] = useState<EntityRef[]>([])
+  const [open,    setOpen]    = useState(false)
+  const [loading, setLoading] = useState(false)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  function Row({ label, value }: { label: string; value: React.ReactNode }) {
-    return (
-      <div className="flex items-start justify-between py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-        <span className="text-sm" style={{ color: 'var(--muted)' }}>{label}</span>
-        <span className="text-sm font-medium text-right max-w-[60%]" style={{ color: 'var(--ink)' }}>{value}</span>
-      </div>
-    )
+  function search(q: string) {
+    setQuery(q)
+    if (!q.trim()) { setResults([]); setOpen(false); return }
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(async () => {
+      setLoading(true)
+      try {
+        const res = await fetch(`/api/entities?search=${encodeURIComponent(q)}&limit=8`)
+        const d   = await res.json() as { entities: EntityRef[] }
+        setResults((d.entities ?? []).filter(e => e.id !== entityId))
+        setOpen(true)
+      } finally {
+        setLoading(false)
+      }
+    }, 300)
+  }
+
+  function select(e: EntityRef) {
+    onChange(e)
+    setQuery('')
+    setResults([])
+    setOpen(false)
   }
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl p-5 space-y-0" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
-        <Row label="Legal name"          value={entity.name} />
-        <Row label="Legal structure"     value={entity.legalStructure.charAt(0) + entity.legalStructure.slice(1).toLowerCase()} />
-        <Row label="Jurisdiction"        value={entity.jurisdiction ?? '—'} />
-        <Row label="Registration No."    value={entity.registrationNo ?? '—'} />
-        <Row label="Incorporation date"  value={fmt(entity.incorporationDate)} />
-        <Row label="Primary currency"    value={entity.primaryCurrency} />
-        <Row label="Status"              value={entity.status} />
-        {entity.parent && (
-          <Row label="Parent entity" value={entity.parent.name} />
-        )}
-      </div>
+    <div className="relative">
+      <span style={labelStyle}>{label}</span>
+      {value ? (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
+          style={{ background: '#eff6ff', border: '1px solid #2563eb22' }}>
+          <span className="flex-1 font-medium" style={{ color: '#2563eb' }}>{value.name}</span>
+          <button type="button" onClick={() => onChange(null)}
+            className="text-xs" style={{ color: '#2563eb' }}>
+            ✕ Remove
+          </button>
+        </div>
+      ) : (
+        <div className="relative">
+          <input
+            value={query}
+            onChange={e => search(e.target.value)}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            placeholder="Search entities…"
+            className={inputCls}
+            style={inputStyle}
+          />
+          {loading && (
+            <span className="absolute right-3 top-2.5 text-xs" style={{ color: 'var(--muted)' }}>…</span>
+          )}
+          {open && results.length > 0 && (
+            <div className="absolute z-10 w-full mt-1 rounded-xl shadow-lg overflow-hidden"
+              style={{ background: '#fff', border: '1px solid var(--border)' }}>
+              {results.map(e => (
+                <button key={e.id} type="button"
+                  onMouseDown={() => select(e)}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50"
+                  style={{ color: 'var(--ink)' }}>
+                  {e.name}
+                  <span className="ml-2 text-xs" style={{ color: 'var(--muted)' }}>{e.slug}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
-      {/* Risk score card */}
+// ---------------------------------------------------------------------------
+// Overview Tab — full editable form
+// ---------------------------------------------------------------------------
+function OverviewTab({
+  entity, canWrite, onRefresh,
+}: {
+  entity: EntityDetail
+  canWrite: boolean
+  onRefresh: () => void
+}) {
+  const [form, setForm] = useState({
+    name:             entity.name,
+    legalStructure:   entity.legalStructure,
+    jurisdiction:     entity.jurisdiction     ?? '',
+    registrationNo:   entity.registrationNo   ?? '',
+    incorporationDate: entity.incorporationDate ? entity.incorporationDate.slice(0, 10) : '',
+    primaryCurrency:  entity.primaryCurrency,
+    status:           entity.status,
+    stockTicker:      entity.stockTicker       ?? '',
+    parent:           entity.parent            as EntityRef | null,
+  })
+  const [saving, setSaving] = useState(false)
+  const [saved,  setSaved]  = useState(false)
+  const [error,  setError]  = useState<string | null>(null)
+
+  const rc          = riskColor(entity.riskScore)
+  const latestRisk  = entity.riskScores[0] ?? null
+
+  function setF(k: keyof typeof form) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setSaved(false)
+      setForm(f => ({ ...f, [k]: e.target.value }))
+    }
+  }
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true); setError(null)
+    try {
+      const res = await fetch(`/api/entities/${entity.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          name:             form.name,
+          legalStructure:   form.legalStructure,
+          jurisdiction:     form.jurisdiction     || null,
+          registrationNo:   form.registrationNo   || null,
+          incorporationDate: form.incorporationDate || null,
+          primaryCurrency:  form.primaryCurrency,
+          status:           form.status,
+          stockTicker:      form.stockTicker       || null,
+          parentId:         form.parent?.id        ?? null,
+        }),
+      })
+      const d = await res.json() as { error?: { message: string } }
+      if (!res.ok) throw new Error(d.error?.message ?? 'Save failed')
+      setSaved(true)
+      onRefresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const CURRENCIES = ['USD', 'GBP', 'EUR', 'CHF', 'JPY', 'CAD', 'AUD', 'SGD', 'HKD', 'NZD']
+
+  return (
+    <div className="space-y-6">
+      {/* ── Editable fields ─────────────────────────────────────────────── */}
+      <form onSubmit={save}>
+        <div className="rounded-2xl p-5 space-y-4" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>Entity details</h3>
+            {canWrite && (
+              <div className="flex items-center gap-2">
+                {saved && <span className="text-xs" style={{ color: '#16a34a' }}>✓ Saved</span>}
+                {error && <span className="text-xs" style={{ color: '#dc2626' }}>{error}</span>}
+                <button type="submit" disabled={saving}
+                  className="text-sm font-medium px-4 py-1.5 rounded-lg disabled:opacity-50"
+                  style={{ background: '#2563eb', color: '#fff' }}>
+                  {saving ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label style={labelStyle}>Legal name</label>
+              <input value={form.name} onChange={setF('name')} required
+                disabled={!canWrite} className={inputCls}
+                style={{ ...inputStyle, opacity: canWrite ? 1 : 0.7 }} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Legal structure</label>
+              <select value={form.legalStructure} onChange={setF('legalStructure')}
+                disabled={!canWrite} className={inputCls}
+                style={{ ...inputStyle, opacity: canWrite ? 1 : 0.7 }}>
+                {(['INDIVIDUAL', 'COMPANY', 'FUND', 'TRUST', 'GOVERNMENT', 'OTHER'] as LegalStructure[]).map(s => (
+                  <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Status</label>
+              <select value={form.status} onChange={setF('status')}
+                disabled={!canWrite} className={inputCls}
+                style={{ ...inputStyle, opacity: canWrite ? 1 : 0.7 }}>
+                {(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_REVIEW', 'OFFBOARDED'] as EntityStatus[]).map(s => (
+                  <option key={s} value={s}>{s.replace('_', ' ')}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Jurisdiction</label>
+              <input value={form.jurisdiction} onChange={setF('jurisdiction')}
+                disabled={!canWrite} placeholder="e.g. Delaware, US" className={inputCls}
+                style={{ ...inputStyle, opacity: canWrite ? 1 : 0.7 }} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Registration No.</label>
+              <input value={form.registrationNo} onChange={setF('registrationNo')}
+                disabled={!canWrite} className={inputCls}
+                style={{ ...inputStyle, opacity: canWrite ? 1 : 0.7 }} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Incorporation date</label>
+              <input type="date" value={form.incorporationDate} onChange={setF('incorporationDate')}
+                disabled={!canWrite} className={inputCls}
+                style={{ ...inputStyle, opacity: canWrite ? 1 : 0.7 }} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Primary currency</label>
+              <select value={form.primaryCurrency} onChange={setF('primaryCurrency')}
+                disabled={!canWrite} className={inputCls}
+                style={{ ...inputStyle, opacity: canWrite ? 1 : 0.7 }}>
+                {CURRENCIES.map(c => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Stock ticker</label>
+              <input value={form.stockTicker} onChange={setF('stockTicker')}
+                disabled={!canWrite} placeholder="e.g. AAPL, MSFT" className={inputCls}
+                style={{ ...inputStyle, opacity: canWrite ? 1 : 0.7 }}
+                maxLength={12} />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Internal slug</label>
+              <input value={entity.slug} disabled className={inputCls}
+                style={{ ...inputStyle, opacity: 0.5 }} />
+            </div>
+          </div>
+
+          {/* Parent entity picker */}
+          <div className="pt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+            {canWrite ? (
+              <EntityPicker
+                label="Parent entity"
+                value={form.parent}
+                entityId={entity.id}
+                onChange={v => { setSaved(false); setForm(f => ({ ...f, parent: v })) }}
+              />
+            ) : (
+              <div>
+                <span style={labelStyle}>Parent entity</span>
+                <div className="text-sm" style={{ color: 'var(--ink)' }}>{entity.parent?.name ?? '—'}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </form>
+
+      {/* ── Risk score ──────────────────────────────────────────────────── */}
       <div className="rounded-2xl p-5 space-y-4" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium" style={{ color: 'var(--ink)' }}>Risk score</h3>
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>Risk score</h3>
           <span className="text-2xl font-display tabular-nums px-3 py-1 rounded-xl"
             style={{ background: rc.bg, color: rc.color, border: `1px solid ${rc.border}` }}>
             {entity.riskScore.toFixed(1)}
           </span>
         </div>
-        {latestRisk && (
+        {latestRisk ? (
           <div className="space-y-2">
             {[
-              { label: 'Due diligence',    score: latestRisk.ddScore,           weight: latestRisk.weights['dd']        },
-              { label: 'Behavior',         score: latestRisk.behaviorScore,     weight: latestRisk.weights['behavior']  },
-              { label: 'Sanctions',        score: latestRisk.sanctionsScore,    weight: latestRisk.weights['sanctions'] },
-              { label: 'Payment history',  score: latestRisk.paymentHistoryScore, weight: null                         },
+              { label: 'Due diligence',   score: latestRisk.ddScore,              weight: latestRisk.weights['dd']       },
+              { label: 'Behavior',        score: latestRisk.behaviorScore,        weight: latestRisk.weights['behavior'] },
+              { label: 'Sanctions',       score: latestRisk.sanctionsScore,       weight: latestRisk.weights['sanctions']},
+              { label: 'Payment history', score: latestRisk.paymentHistoryScore,  weight: null                           },
             ].map(({ label, score, weight }) => (
               <div key={label} className="flex items-center gap-3">
                 <span className="text-xs w-28" style={{ color: 'var(--muted)' }}>{label}</span>
@@ -170,8 +384,34 @@ function OverviewTab({ entity }: { entity: EntityDetail }) {
             ))}
             <p className="text-xs pt-1" style={{ color: 'var(--muted)' }}>Scored {relativeTime(latestRisk.scoredAt)}</p>
           </div>
+        ) : (
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>No risk score computed yet.</p>
         )}
       </div>
+
+      {/* ── Org relationship ─────────────────────────────────────────────── */}
+      {entity.orgRelationships[0] && (() => {
+        const rel = entity.orgRelationships[0]
+        return (
+          <div className="rounded-2xl p-5 space-y-0" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+            <h3 className="text-sm font-semibold mb-3" style={{ color: 'var(--ink)' }}>Relationship</h3>
+            {[
+              { label: 'Onboarding status', value: rel.onboardingStatus.replace('_', ' ') },
+              { label: 'Bill-pay active',   value: rel.activeForBillPay ? 'Yes' : 'No' },
+              { label: 'Portal access',     value: rel.portalAccess ? 'Enabled' : 'Disabled' },
+              { label: 'Approved spend limit', value: rel.approvedSpendLimit != null ? `$${rel.approvedSpendLimit.toLocaleString()}` : '—' },
+              { label: 'Contract start',    value: fmt(rel.contractStart) },
+              { label: 'Contract end',      value: fmt(rel.contractEnd) },
+            ].map(({ label, value }) => (
+              <div key={label} className="flex justify-between py-2.5"
+                style={{ borderBottom: '1px solid var(--border)' }}>
+                <span className="text-sm" style={{ color: 'var(--muted)' }}>{label}</span>
+                <span className="text-sm font-medium" style={{ color: 'var(--ink)' }}>{value}</span>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
     </div>
   )
 }
@@ -179,32 +419,34 @@ function OverviewTab({ entity }: { entity: EntityDetail }) {
 // ---------------------------------------------------------------------------
 // Classifications Tab
 // ---------------------------------------------------------------------------
+const TYPE_LABEL: Record<EntityType, string> = {
+  VENDOR: 'Vendor', CONTRACTOR: 'Contractor', BROKER: 'Broker',
+  PLATFORM: 'Platform', FUND_SVC_PROVIDER: 'Fund Svc Provider', OTHER: 'Other',
+}
+const ALL_TYPES: EntityType[] = ['VENDOR', 'CONTRACTOR', 'BROKER', 'PLATFORM', 'FUND_SVC_PROVIDER', 'OTHER']
+
 function ClassificationsTab({ entity, canWrite, onRefresh }: { entity: EntityDetail; canWrite: boolean; onRefresh: () => void }) {
   const [adding,  setAdding]  = useState(false)
-  const [newType, setNewType] = useState<EntityType>('SERVICE_PROVIDER')
+  const [newType, setNewType] = useState<EntityType>('VENDOR')
   const [saving,  setSaving]  = useState(false)
   const [error,   setError]   = useState<string | null>(null)
-
   const existing = new Set(entity.classifications.map(c => c.type))
 
   async function addClassification() {
     setSaving(true); setError(null)
     try {
       const res = await fetch(`/api/entities/${entity.id}/classifications`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: newType }),
       })
       if (!res.ok) {
-        const d = await res.json() as { error?: { message: string; code: string } }
+        const d = await res.json() as { error?: { message: string } }
         throw new Error(d.error?.message ?? `HTTP ${res.status}`)
       }
       setAdding(false); onRefresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed')
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   async function removeClassification(id: string) {
@@ -272,7 +514,11 @@ function ClassificationsTab({ entity, canWrite, onRefresh }: { entity: EntityDet
 // ---------------------------------------------------------------------------
 // Bank Accounts Tab
 // ---------------------------------------------------------------------------
-interface BankForm { label: string; accountName: string; accountNo: string; routingNo: string; swiftBic: string; iban: string; currency: string; paymentRail: PaymentRail }
+type BankForm = { label: string; accountName: string; accountNo: string; routingNo: string; swiftBic: string; iban: string; currency: string; paymentRail: PaymentRail }
+const ALL_RAILS: PaymentRail[] = ['ACH', 'BACS', 'SWIFT', 'SEPA', 'WIRE', 'STRIPE', 'ERP', 'OTHER']
+const RAIL_COLOR: Record<PaymentRail, string> = {
+  ACH: '#2563eb', BACS: '#7c3aed', SWIFT: '#0891b2', SEPA: '#16a34a', WIRE: '#d97706', STRIPE: '#7c3aed', ERP: '#6b7280', OTHER: '#6b7280',
+}
 
 function BankAccountsTab({ entity, canWrite, onRefresh }: { entity: EntityDetail; canWrite: boolean; onRefresh: () => void }) {
   const [showForm, setShowForm] = useState(false)
@@ -281,36 +527,24 @@ function BankAccountsTab({ entity, canWrite, onRefresh }: { entity: EntityDetail
   const [error,  setError]      = useState<string | null>(null)
 
   function setF(k: keyof BankForm) {
-    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-      setForm(f => ({ ...f, [k]: e.target.value }))
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm(f => ({ ...f, [k]: e.target.value }))
   }
 
   async function save(ev: React.FormEvent) {
     ev.preventDefault(); setSaving(true); setError(null)
     try {
       const res = await fetch(`/api/entities/${entity.id}/bank-accounts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
       if (!res.ok) {
-        const d = await res.json() as { error?: { message: string; code: string } }
+        const d = await res.json() as { error?: { message: string } }
         throw new Error(d.error?.message ?? `HTTP ${res.status}`)
       }
       setShowForm(false); onRefresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const inputCls = 'w-full text-sm px-3 py-2 rounded-lg outline-none'
-  const inputStyle = { background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }
-  const labelCls = 'block text-xs font-medium mb-1'
-
-  const RAIL_COLOR: Record<PaymentRail, string> = {
-    ACH: '#2563eb', BACS: '#7c3aed', SWIFT: '#0891b2', SEPA: '#16a34a', WIRE: '#d97706', STRIPE: '#7c3aed', ERP: '#6b7280', OTHER: '#6b7280',
+    } finally { setSaving(false) }
   }
 
   return (
@@ -335,7 +569,7 @@ function BankAccountsTab({ entity, canWrite, onRefresh }: { entity: EntityDetail
             <div className="text-xs space-y-0.5" style={{ color: 'var(--muted)' }}>
               <div>{ba.accountName} · {ba.currency}</div>
               <div className="font-mono">{ba.accountNo}{ba.routingNo ? ` / ${ba.routingNo}` : ''}</div>
-              {ba.iban && <div className="font-mono">IBAN: {ba.iban}</div>}
+              {ba.iban    && <div className="font-mono">IBAN: {ba.iban}</div>}
               {ba.swiftBic && <div className="font-mono">BIC: {ba.swiftBic}</div>}
             </div>
           </div>
@@ -355,38 +589,28 @@ function BankAccountsTab({ entity, canWrite, onRefresh }: { entity: EntityDetail
           style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
           <h4 className="text-sm font-medium" style={{ color: 'var(--ink)' }}>New bank account</h4>
           <div className="grid grid-cols-2 gap-3">
+            {([
+              { k: 'label',       label: 'Label *',             required: true  },
+              { k: 'accountName', label: 'Account name *',      required: true  },
+              { k: 'accountNo',   label: 'Account number *',    required: true  },
+              { k: 'routingNo',   label: 'Routing / Sort code', required: false },
+              { k: 'swiftBic',    label: 'SWIFT / BIC',         required: false },
+              { k: 'iban',        label: 'IBAN',                required: false },
+            ] as { k: keyof BankForm; label: string; required: boolean }[]).map(({ k, label, required }) => (
+              <div key={k}>
+                <label style={labelStyle}>{label}</label>
+                <input className={inputCls} style={inputStyle} required={required}
+                  value={form[k]} onChange={setF(k)} />
+              </div>
+            ))}
             <div>
-              <label className={labelCls} style={{ color: 'var(--muted)' }}>Label *</label>
-              <input className={inputCls} style={inputStyle} required value={form.label} onChange={setF('label')} placeholder="e.g. Primary USD" />
-            </div>
-            <div>
-              <label className={labelCls} style={{ color: 'var(--muted)' }}>Account name *</label>
-              <input className={inputCls} style={inputStyle} required value={form.accountName} onChange={setF('accountName')} />
-            </div>
-            <div>
-              <label className={labelCls} style={{ color: 'var(--muted)' }}>Account number *</label>
-              <input className={inputCls} style={inputStyle} required value={form.accountNo} onChange={setF('accountNo')} />
-            </div>
-            <div>
-              <label className={labelCls} style={{ color: 'var(--muted)' }}>Routing / Sort code</label>
-              <input className={inputCls} style={inputStyle} value={form.routingNo} onChange={setF('routingNo')} />
-            </div>
-            <div>
-              <label className={labelCls} style={{ color: 'var(--muted)' }}>SWIFT / BIC</label>
-              <input className={inputCls} style={inputStyle} value={form.swiftBic} onChange={setF('swiftBic')} />
-            </div>
-            <div>
-              <label className={labelCls} style={{ color: 'var(--muted)' }}>IBAN</label>
-              <input className={inputCls} style={inputStyle} value={form.iban} onChange={setF('iban')} />
-            </div>
-            <div>
-              <label className={labelCls} style={{ color: 'var(--muted)' }}>Currency</label>
+              <label style={labelStyle}>Currency</label>
               <select className={inputCls} style={inputStyle} value={form.currency} onChange={setF('currency')}>
                 {['USD','GBP','EUR','CHF','JPY','CAD','AUD','SGD'].map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
             <div>
-              <label className={labelCls} style={{ color: 'var(--muted)' }}>Payment rail</label>
+              <label style={labelStyle}>Payment rail</label>
               <select className={inputCls} style={inputStyle} value={form.paymentRail} onChange={setF('paymentRail')}>
                 {ALL_RAILS.map(r => <option key={r}>{r}</option>)}
               </select>
@@ -414,15 +638,24 @@ function BankAccountsTab({ entity, canWrite, onRefresh }: { entity: EntityDetail
 // ---------------------------------------------------------------------------
 // Due Diligence Tab
 // ---------------------------------------------------------------------------
+const KYC_COLOR: Record<KycStatus | KybStatus, { bg: string; color: string; border: string; label: string }> = {
+  NOT_REQUIRED: { bg: '#f9fafb', color: '#6b7280', border: '#6b728022', label: 'Not required' },
+  PENDING:      { bg: '#eff6ff', color: '#2563eb', border: '#2563eb22', label: 'Pending'      },
+  IN_REVIEW:    { bg: '#fffbeb', color: '#d97706', border: '#d9770622', label: 'In review'    },
+  APPROVED:     { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22', label: 'Approved'     },
+  FAILED:       { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Failed'       },
+  EXPIRED:      { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Expired'      },
+}
+const SANCTIONS_COLOR: Record<SanctionsStatus, { bg: string; color: string; border: string; label: string }> = {
+  CLEAR:        { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22', label: 'Clear'        },
+  FLAGGED:      { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Flagged'      },
+  UNDER_REVIEW: { bg: '#fffbeb', color: '#d97706', border: '#d9770622', label: 'Under review' },
+  BLOCKED:      { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Blocked'      },
+}
+
 function DueDiligenceTab({ entity }: { entity: EntityDetail }) {
   const dd = entity.dueDiligence
-  if (!dd) {
-    return <div className="py-10 text-sm text-center" style={{ color: 'var(--muted)' }}>No due diligence record found.</div>
-  }
-
-  const kyc = KYC_COLOR[dd.kycStatus]
-  const kyb = KYC_COLOR[dd.kybStatus]
-  const sanc = SANCTIONS_COLOR[dd.sanctionsStatus]
+  if (!dd) return <div className="py-10 text-sm text-center" style={{ color: 'var(--muted)' }}>No due diligence record found.</div>
 
   function Row({ label, value }: { label: string; value: React.ReactNode }) {
     return (
@@ -433,24 +666,21 @@ function DueDiligenceTab({ entity }: { entity: EntityDetail }) {
     )
   }
 
-  const factorKeys = (obj: Record<string, unknown>) => Object.entries(obj)
-
   return (
     <div className="space-y-5">
       <div className="rounded-2xl p-4 space-y-0" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
         <Row label="DD level"        value={`Level ${dd.ddLevel}`} />
-        <Row label="KYC status"      value={<Badge {...kyc} />} />
-        <Row label="KYB status"      value={<Badge {...kyb} />} />
-        <Row label="Sanctions"       value={<Badge {...sanc} />} />
+        <Row label="KYC status"      value={<Badge {...KYC_COLOR[dd.kycStatus]} />} />
+        <Row label="KYB status"      value={<Badge {...KYC_COLOR[dd.kybStatus]} />} />
+        <Row label="Sanctions"       value={<Badge {...SANCTIONS_COLOR[dd.sanctionsStatus]} />} />
         <Row label="PEP flag"        value={dd.pepStatus ? <Badge label="PEP flagged" bg="#fef2f2" color="#dc2626" border="#dc262622" /> : <span style={{ color: 'var(--muted)' }}>None</span>} />
         <Row label="Last reviewed"   value={fmt(dd.reviewedAt)} />
         <Row label="Next review due" value={fmt(dd.nextReviewDate)} />
       </div>
-
-      {factorKeys(dd.internalFactors).length > 0 && (
+      {Object.entries(dd.internalFactors).length > 0 && (
         <div className="rounded-2xl p-4 space-y-2" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
           <h4 className="text-sm font-medium mb-3" style={{ color: 'var(--ink)' }}>Internal factors</h4>
-          {factorKeys(dd.internalFactors).map(([k, v]) => (
+          {Object.entries(dd.internalFactors).map(([k, v]) => (
             <div key={k} className="flex justify-between text-sm">
               <span style={{ color: 'var(--muted)' }}>{k}</span>
               <span style={{ color: 'var(--ink)' }}>{String(v)}</span>
@@ -458,11 +688,10 @@ function DueDiligenceTab({ entity }: { entity: EntityDetail }) {
           ))}
         </div>
       )}
-
-      {factorKeys(dd.externalFactors).length > 0 && (
+      {Object.entries(dd.externalFactors).length > 0 && (
         <div className="rounded-2xl p-4 space-y-2" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
           <h4 className="text-sm font-medium mb-3" style={{ color: 'var(--ink)' }}>External factors</h4>
-          {factorKeys(dd.externalFactors).map(([k, v]) => (
+          {Object.entries(dd.externalFactors).map(([k, v]) => (
             <div key={k} className="flex justify-between text-sm">
               <span style={{ color: 'var(--muted)' }}>{k}</span>
               <span style={{ color: 'var(--ink)' }}>{String(v)}</span>
@@ -477,70 +706,94 @@ function DueDiligenceTab({ entity }: { entity: EntityDetail }) {
 // ---------------------------------------------------------------------------
 // Services Tab
 // ---------------------------------------------------------------------------
+const SLA_COLOR: Record<SlaStatus, { bg: string; color: string; border: string; label: string }> = {
+  ON_TRACK:       { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22', label: 'On track'  },
+  AT_RISK:        { bg: '#fffbeb', color: '#d97706', border: '#d9770622', label: 'At risk'    },
+  BREACHED:       { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Breached'   },
+  NOT_APPLICABLE: { bg: '#f9fafb', color: '#6b7280', border: '#6b728022', label: 'N/A'        },
+}
+
 function ServicesTab({ entity }: { entity: EntityDetail }) {
-  if (entity.serviceEngagements.length === 0) {
+  if (entity.serviceEngagements.length === 0)
     return <div className="py-10 text-sm text-center" style={{ color: 'var(--muted)' }}>No service engagements.</div>
-  }
   return (
     <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-      {entity.serviceEngagements.map((se, i) => {
-        const sla = SLA_COLOR[se.slaStatus]
-        return (
-          <div key={se.id} className="px-4 py-3"
-            style={{ borderBottom: i < entity.serviceEngagements.length - 1 ? '1px solid var(--border)' : undefined, background: 'var(--surface)' }}>
-            <div className="flex items-center justify-between mb-1">
-              <div>
-                <span className="text-sm font-medium" style={{ color: 'var(--ink)' }}>{se.serviceCatalogue.name}</span>
-                <span className="text-xs ml-2 px-1.5 py-0.5 rounded font-mono"
-                  style={{ background: 'var(--border)', color: 'var(--muted)' }}>
-                  {se.serviceCatalogue.category}
-                </span>
-              </div>
-              <Badge {...sla} />
+      {entity.serviceEngagements.map((se, i) => (
+        <div key={se.id} className="px-4 py-3"
+          style={{ borderBottom: i < entity.serviceEngagements.length - 1 ? '1px solid var(--border)' : undefined, background: 'var(--surface)' }}>
+          <div className="flex items-center justify-between mb-1">
+            <div>
+              <span className="text-sm font-medium" style={{ color: 'var(--ink)' }}>{se.serviceCatalogue.name}</span>
             </div>
-            <div className="text-xs" style={{ color: 'var(--muted)' }}>
-              {fmt(se.contractStart)} → {fmt(se.contractEnd)} · Status: {se.status}
-            </div>
+            <Badge {...SLA_COLOR[se.slaStatus]} />
           </div>
-        )
-      })}
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>
+            {fmt(se.contractStart)} → {fmt(se.contractEnd)} · Status: {se.status}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }
 
 // ---------------------------------------------------------------------------
-// Activity Tab
+// Activity Tab — full history
 // ---------------------------------------------------------------------------
-function ActivityTab({ entity }: { entity: EntityDetail }) {
-  const TYPE_ICON: Record<ActivityType, string> = {
-    ONBOARDING: '◎', REVIEW: '◈', PAYMENT: '◉', STATUS_CHANGE: '◆',
-    INCIDENT: '!', DOCUMENT: '◧', NOTE: '◌', EXTERNAL_SIGNAL: '◑', RISK_SCORE_CHANGE: '▲',
-  }
+const ACTIVITY_ICON: Record<ActivityType, string> = {
+  ONBOARDING: '◎', REVIEW: '◈', PAYMENT: '◉', STATUS_CHANGE: '◆',
+  INCIDENT: '!', DOCUMENT: '◧', NOTE: '◌', EXTERNAL_SIGNAL: '◑', RISK_SCORE_CHANGE: '▲',
+}
+const ACTIVITY_COLOR: Record<ActivityType, string> = {
+  ONBOARDING: '#2563eb', REVIEW: '#7c3aed', PAYMENT: '#16a34a', STATUS_CHANGE: '#d97706',
+  INCIDENT: '#dc2626', DOCUMENT: '#0891b2', NOTE: '#6b7280', EXTERNAL_SIGNAL: '#ea580c', RISK_SCORE_CHANGE: '#7c3aed',
+}
 
-  if (entity.entityActivityLogs.length === 0) {
-    return <div className="py-10 text-sm text-center" style={{ color: 'var(--muted)' }}>No activity recorded.</div>
+function ActivityTab({ entity }: { entity: EntityDetail }) {
+  if (entity.entityActivityLogs.length === 0)
+    return <div className="py-10 text-sm text-center" style={{ color: 'var(--muted)' }}>No activity recorded yet.</div>
+
+  // Group by date
+  const groups: Record<string, ActivityLog[]> = {}
+  for (const log of entity.entityActivityLogs) {
+    const day = new Date(log.occurredAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+    if (!groups[day]) groups[day] = []
+    groups[day].push(log)
   }
 
   return (
-    <div className="space-y-2">
-      {entity.entityActivityLogs.map(log => (
-        <div key={log.id} className="flex gap-3 px-4 py-3 rounded-xl"
-          style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-          <span className="text-base mt-0.5 flex-shrink-0" style={{ color: 'var(--muted)' }}>
-            {TYPE_ICON[log.activityType] ?? '·'}
-          </span>
-          <div className="min-w-0">
-            <div className="text-sm font-medium" style={{ color: 'var(--ink)' }}>{log.title}</div>
-            {log.description && (
-              <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{log.description}</div>
-            )}
-            <div className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-              {relativeTime(log.occurredAt)}
-              {log.performedBy && ` · by ${log.performedBy}`}
-            </div>
+    <div className="space-y-6">
+      {Object.entries(groups).map(([day, logs]) => (
+        <div key={day}>
+          <div className="text-xs font-semibold mb-3 px-1" style={{ color: 'var(--muted)' }}>{day}</div>
+          <div className="space-y-2">
+            {logs.map(log => (
+              <div key={log.id} className="flex gap-3 px-4 py-3 rounded-xl"
+                style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                <span className="text-sm mt-0.5 flex-shrink-0" style={{ color: ACTIVITY_COLOR[log.activityType] ?? '#6b7280' }}>
+                  {ACTIVITY_ICON[log.activityType] ?? '·'}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium" style={{ color: 'var(--ink)' }}>{log.title}</span>
+                    <span className="text-xs flex-shrink-0" style={{ color: 'var(--muted)' }}>
+                      {new Date(log.occurredAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    </span>
+                  </div>
+                  {log.description && (
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{log.description}</div>
+                  )}
+                  {log.performedBy && (
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>by {log.performedBy}</div>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       ))}
+      <p className="text-xs text-center" style={{ color: 'var(--muted)' }}>
+        Showing {entity.entityActivityLogs.length} most recent events
+      </p>
     </div>
   )
 }
@@ -554,7 +807,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'bank-accounts',   label: 'Bank Accounts'   },
   { key: 'due-diligence',   label: 'Due Diligence'   },
   { key: 'services',        label: 'Services'        },
-  { key: 'activity',        label: 'Activity'        },
+  { key: 'activity',        label: 'History'         },
 ]
 
 export default function EntityDetailPage() {
@@ -574,7 +827,7 @@ export default function EntityDetailPage() {
     setLoading(true)
     fetch(`/api/entities/${entityId}`)
       .then(r => r.json())
-      .then((d: { entity: EntityDetail; error?: { message: string; code: string } }) => {
+      .then((d: { entity: EntityDetail; error?: { message: string } }) => {
         if (d.error) throw new Error(d.error.message)
         setEntity(d.entity)
       })
@@ -608,13 +861,18 @@ export default function EntityDetailPage() {
           <div>
             <h1 className="font-display text-3xl" style={{ color: 'var(--ink)' }}>{entity.name}</h1>
             <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-              {entity.jurisdiction ?? ''} · {entity.legalStructure.charAt(0) + entity.legalStructure.slice(1).toLowerCase()}
+              {entity.jurisdiction ?? ''}{entity.jurisdiction ? ' · ' : ''}{entity.legalStructure.charAt(0) + entity.legalStructure.slice(1).toLowerCase()}
+              {entity.stockTicker && (
+                <span className="ml-2 px-2 py-0.5 rounded font-mono text-xs"
+                  style={{ background: '#f1f5f9', color: '#475569' }}>
+                  {entity.stockTicker}
+                </span>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2">
             {ONBOARDING_ROLES.has(role ?? '') && (
-              <button
-                onClick={() => router.push(`/dashboard/entities/${entityId}/onboarding`)}
+              <button onClick={() => router.push(`/dashboard/entities/${entityId}/onboarding`)}
                 className="text-sm font-medium px-4 py-2 rounded-xl"
                 style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #2563eb22' }}>
                 Onboarding
@@ -632,6 +890,7 @@ export default function EntityDetailPage() {
       <div className="flex flex-wrap gap-1">
         {TABS.map(t => {
           const active = tab === t.key
+          const isHistory = t.key === 'activity' && entity.entityActivityLogs.length > 0
           return (
             <button key={t.key} onClick={() => setTab(t.key)}
               className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
@@ -641,18 +900,24 @@ export default function EntityDetailPage() {
                 border:     active ? '1px solid #2563eb' : '1px solid var(--border)',
               }}>
               {t.label}
+              {isHistory && !active && (
+                <span className="ml-1.5 text-xs px-1.5 py-0.5 rounded-full"
+                  style={{ background: '#f1f5f9', color: '#475569' }}>
+                  {entity.entityActivityLogs.length}
+                </span>
+              )}
             </button>
           )
         })}
       </div>
 
       {/* Tab content */}
-      {tab === 'overview'        && <OverviewTab        entity={entity} />}
+      {tab === 'overview'        && <OverviewTab        entity={entity} canWrite={canWrite} onRefresh={fetchEntity} />}
       {tab === 'classifications' && <ClassificationsTab entity={entity} canWrite={canWrite} onRefresh={fetchEntity} />}
       {tab === 'bank-accounts'   && <BankAccountsTab    entity={entity} canWrite={canWrite} onRefresh={fetchEntity} />}
       {tab === 'due-diligence'   && <DueDiligenceTab    entity={entity} />}
-      {tab === 'services'        && <ServicesTab         entity={entity} />}
-      {tab === 'activity'        && <ActivityTab         entity={entity} />}
+      {tab === 'services'        && <ServicesTab        entity={entity} />}
+      {tab === 'activity'        && <ActivityTab        entity={entity} />}
     </div>
   )
 }

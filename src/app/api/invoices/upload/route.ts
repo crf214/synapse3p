@@ -45,6 +45,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Read bytes and compute fingerprint
     const arrayBuffer   = await file.arrayBuffer()
     const buffer        = Buffer.from(arrayBuffer)
+
+    // Validate PDF magic bytes (%PDF) — prevents MIME-type spoofing.
+    // The PDF spec allows the header to appear within the first 1024 bytes.
+    const pdfHeader = Buffer.from('%PDF')
+    const searchWindow = buffer.slice(0, 1024)
+    if (!searchWindow.includes(pdfHeader)) {
+      throw new ValidationError('File content does not match a valid PDF')
+    }
     const pdfFingerprint = computeFingerprint(buffer)
     const pdfBase64      = buffer.toString('base64')
 

@@ -9,7 +9,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
-const INVOICE_BUCKET = process.env.INVOICES_BUCKET ?? 'invoices'
+const INVOICE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? process.env.INVOICES_BUCKET ?? 'synapse3p-files'
 
 // ---------------------------------------------------------------------------
 // GET — full invoice detail

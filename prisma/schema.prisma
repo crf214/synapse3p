@@ -104,12 +104,16 @@ enum LegalStructure {
 enum EntityType {
   VENDOR
   CONTRACTOR
-  PARTNER
-  COUNTERPARTY
-  SERVICE_PROVIDER
   BROKER
   PLATFORM
-  FUND_SERVICE
+  FUND_SVC_PROVIDER
+  OTHER
+}
+
+enum WorkflowType {
+  ENTITY
+  INVOICE
+  PURCHASE_ORDER
   OTHER
 }
 
@@ -172,17 +176,7 @@ enum SlaStatus {
   NOT_APPLICABLE
 }
 
-enum ServiceCategory {
-  BANKING
-  CUSTODY
-  FUND_ADMIN
-  OUTSOURCING
-  LEGAL
-  AUDIT
-  TECHNOLOGY
-  COMPLIANCE
-  OTHER
-}
+
 
 model Entity {
   id                 String        @id @default(cuid())
@@ -198,15 +192,13 @@ model Entity {
   riskScore          Float         @default(0)
   riskOverride       Boolean       @default(false)
   parentId           String?
-  ultimateParentId   String?
+  stockTicker        String?
   metadata           Json          @default("{}")
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
-  parent             Entity?                  @relation("EntityParent",        fields: [parentId],         references: [id])
+  parent             Entity?                  @relation("EntityParent", fields: [parentId], references: [id])
   children           Entity[]                 @relation("EntityParent")
-  ultimateParent     Entity?                  @relation("EntityUltimateParent", fields: [ultimateParentId], references: [id])
-  ultimateChildren   Entity[]                 @relation("EntityUltimateParent")
 
   classifications           EntityClassification[]
   bankAccounts              EntityBankAccount[]
@@ -352,14 +344,17 @@ model EntityOrgRelationship {
 }
 
 model ServiceCatalogue {
-  id          String            @id @default(cuid())
-  name        String            @unique
-  category    ServiceCategory
+  id          String   @id @default(cuid())
+  name        String
+  parentId    String?
   description String?
-  isActive    Boolean           @default(true)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
+  parent      ServiceCatalogue?  @relation("ServiceTree", fields: [parentId], references: [id])
+  children    ServiceCatalogue[] @relation("ServiceTree")
   engagements ServiceEngagement[]
 
   @@map("service_catalogue")
@@ -750,6 +745,8 @@ enum OnboardingStepType {
   APPROVAL
   EXTERNAL_CHECK
   INFORMATION
+  PROCESSING_RULE  // auto-evaluated decision point; routes to different next steps based on entity data
+  SUB_WORKFLOW     // triggers execution of another workflow as a child instance
 }
 
 enum OnboardingInstanceStatus {
@@ -757,6 +754,7 @@ enum OnboardingInstanceStatus {
   IN_PROGRESS
   BLOCKED
   PENDING_APPROVAL
+  PENDING_SUB_WORKFLOW  // parent instance waiting for a sub-workflow instance to complete
   COMPLETED
   REJECTED
 }
@@ -897,16 +895,17 @@ enum SignalSeverity {
 }
 
 model OnboardingWorkflow {
-  id          String      @id @default(cuid())
-  orgId       String
-  name        String
-  description String?
-  entityTypes EntityType[]
-  steps       Json
-  isActive    Boolean     @default(true)
-  createdBy   String
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  id           String       @id @default(cuid())
+  orgId        String
+  name         String
+  description  String?
+  workflowType WorkflowType @default(ENTITY)
+  entityTypes  EntityType[]
+  steps        Json
+  isActive     Boolean      @default(true)
+  createdBy    String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   org         Organisation        @relation(fields: [orgId], references: [id])
   instances   OnboardingInstance[]
@@ -915,23 +914,27 @@ model OnboardingWorkflow {
 }
 
 model OnboardingInstance {
-  id              String                   @id @default(cuid())
-  entityId        String
-  orgId           String
-  workflowId      String
-  status          OnboardingInstanceStatus @default(NOT_STARTED)
-  currentStep     Int                      @default(1)
-  completedSteps  Json                     @default("[]")
-  startedAt       DateTime?
-  completedAt     DateTime?
-  blockedReason   String?
-  assignedTo      String?
-  createdAt       DateTime                 @default(now())
-  updatedAt       DateTime                 @updatedAt
+  id               String                   @id @default(cuid())
+  entityId         String
+  orgId            String
+  workflowId       String
+  status           OnboardingInstanceStatus @default(NOT_STARTED)
+  currentStep      Int                      @default(1)
+  completedSteps   Json                     @default("[]")
+  skippedSteps     Json                     @default("[]")  // step numbers skipped by PROCESSING_RULE routing
+  parentInstanceId String?                                  // set when this is a sub-workflow spawned by another instance
+  startedAt        DateTime?
+  completedAt      DateTime?
+  blockedReason    String?
+  assignedTo       String?
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
 
-  entity          Entity             @relation(fields: [entityId], references: [id])
-  org             Organisation       @relation(fields: [orgId], references: [id])
-  workflow        OnboardingWorkflow @relation(fields: [workflowId], references: [id])
+  entity          Entity              @relation(fields: [entityId], references: [id])
+  org             Organisation        @relation(fields: [orgId], references: [id])
+  workflow        OnboardingWorkflow  @relation(fields: [workflowId], references: [id])
+  parentInstance  OnboardingInstance? @relation("SubWorkflowInstances", fields: [parentInstanceId], references: [id])
+  subInstances    OnboardingInstance[] @relation("SubWorkflowInstances")
 
   @@unique([entityId, orgId, workflowId])
   @@map("onboarding_instances")

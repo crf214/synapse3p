@@ -114,6 +114,11 @@ export default function PaymentsPage() {
             {amendmentCount > 0 && ` · ${amendmentCount} amendment${amendmentCount !== 1 ? 's' : ''} pending`}
           </p>
         </div>
+        <Link href="/dashboard/payments/executions"
+          className="text-sm px-4 py-2 rounded-lg border"
+          style={{ borderColor: 'var(--border)', color: 'var(--ink)', background: 'var(--surface)' }}>
+          Execution Monitor →
+        </Link>
       </div>
 
       {/* Status filter tabs */}

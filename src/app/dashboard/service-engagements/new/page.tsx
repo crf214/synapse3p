@@ -7,10 +7,8 @@ import { useUser } from '@/context/UserContext'
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL'])
 
 interface EntityOption { id: string; name: string }
-interface CatalogueEntry { id: string; name: string; category: string; description: string | null }
+interface CatalogueEntry { id: string; name: string; parentId: string | null; description: string | null }
 interface UserOption { id: string; name: string | null; email: string }
-
-const CATEGORIES = ['BANKING','CUSTODY','FUND_ADMIN','OUTSOURCING','LEGAL','AUDIT','TECHNOLOGY','COMPLIANCE','OTHER']
 
 export default function NewServiceEngagementPage() {
   const user   = useUser()
@@ -33,7 +31,7 @@ export default function NewServiceEngagementPage() {
   const [contractStart,     setContractStart]      = useState('')
   const [contractEnd,       setContractEnd]        = useState('')
   const [notes,             setNotes]              = useState('')
-  const [catFilter,         setCatFilter]          = useState('')
+  const [search,            setSearch]             = useState('')
 
   const loadRef = useCallback(async () => {
     try {
@@ -67,8 +65,8 @@ export default function NewServiceEngagementPage() {
     return <div className="p-8"><p style={{ color: 'var(--muted)' }}>Access denied.</p></div>
   }
 
-  const filteredCatalogue = catFilter
-    ? catalogue.filter(c => c.category === catFilter)
+  const filteredCatalogue = search.trim()
+    ? catalogue.filter(c => c.name.toLowerCase().includes(search.trim().toLowerCase()))
     : catalogue
 
   async function handleSubmit(e: React.FormEvent) {
@@ -145,17 +143,15 @@ export default function NewServiceEngagementPage() {
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
                 <label className="text-xs font-medium block mb-1" style={{ color: 'var(--muted)' }}>
-                  Category filter
+                  Search services
                 </label>
-                <select value={catFilter} onChange={e => { setCatFilter(e.target.value); setServiceCatalogueId('') }}
+                <input type="text" value={search} onChange={e => { setSearch(e.target.value); setServiceCatalogueId('') }}
+                  placeholder="Filter by name…"
                   className="w-full px-3 py-2 rounded-xl text-sm outline-none"
-                  style={{ border: '1px solid var(--border)', color: 'var(--muted)', background: 'var(--surface)' }}>
-                  <option value="">All categories</option>
-                  {CATEGORIES.map(c => <option key={c} value={c}>{c.replace('_', ' ')}</option>)}
-                </select>
+                  style={{ border: '1px solid var(--border)', color: 'var(--ink)', background: 'var(--surface)' }} />
               </div>
               <div>
                 <label className="text-xs font-medium block mb-1" style={{ color: 'var(--muted)' }}>

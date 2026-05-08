@@ -7,6 +7,24 @@ import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, Valid
 const BUCKET = process.env.ENTITY_DOCS_BUCKET ?? 'contracts'
 
 const ALLOWED_ROLES  = new Set(['ADMIN', 'LEGAL', 'CISO', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+
+function validateMagicBytes(buf: Uint8Array, mimeType: string): boolean {
+  if (buf.length < 4) return false
+  switch (mimeType) {
+    case 'application/pdf':
+      return buf[0] === 0x25 && buf[1] === 0x50 && buf[2] === 0x44 && buf[3] === 0x46 // %PDF
+    case 'image/png':
+      return buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47 // \x89PNG
+    case 'image/jpeg':
+      return buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF                    // JFIF/EXIF
+    case 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+      return buf[0] === 0x50 && buf[1] === 0x4B                                        // PK (ZIP)
+    case 'application/msword':
+      return buf[0] === 0xD0 && buf[1] === 0xCF && buf[2] === 0x11 && buf[3] === 0xE0 // OLE2
+    default:
+      return false
+  }
+}
 const ALLOWED_MIME   = new Set(['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/png', 'image/jpeg'])
 const MAX_BYTES      = 20 * 1024 * 1024 // 20 MB
 
@@ -96,6 +114,11 @@ export async function POST(
 
     const arrayBuffer = await file.arrayBuffer()
     const buffer = new Uint8Array(arrayBuffer)
+
+    // Validate magic bytes — prevents MIME-type spoofing
+    if (!validateMagicBytes(buffer, file.type)) {
+      throw new ValidationError('File content does not match the declared file type')
+    }
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from(BUCKET)

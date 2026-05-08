@@ -15,7 +15,7 @@ export async function GET() {
 
     // ── PO approvals ──────────────────────────────────────────────────────────
     const poApprovals = await prisma.pOApproval.findMany({
-      where: { approverId: userId, status: 'PENDING' },
+      where: { approverId: userId, status: 'PENDING', po: { orgId } },
       include: {
         po: {
           select: {

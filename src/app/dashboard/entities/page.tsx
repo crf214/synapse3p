@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
 
@@ -13,7 +13,7 @@ const PAGE_LIMIT = 50
 // Types
 // ---------------------------------------------------------------------------
 type EntityStatus      = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'PENDING_REVIEW' | 'OFFBOARDED'
-type EntityType        = 'VENDOR' | 'CONTRACTOR' | 'PARTNER' | 'COUNTERPARTY' | 'SERVICE_PROVIDER' | 'BROKER' | 'PLATFORM' | 'FUND_SERVICE' | 'OTHER'
+type EntityType        = 'VENDOR' | 'CONTRACTOR' | 'BROKER' | 'PLATFORM' | 'FUND_SVC_PROVIDER' | 'OTHER'
 type OnboardingStatus  = 'NOT_STARTED' | 'IN_PROGRESS' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED'
 type LegalStructure    = 'INDIVIDUAL' | 'COMPANY' | 'FUND' | 'TRUST' | 'GOVERNMENT' | 'OTHER'
 
@@ -69,15 +69,12 @@ const ONBOARDING_COLOR: Record<OnboardingStatus, { bg: string; color: string; bo
 }
 
 const TYPE_LABEL: Record<EntityType, string> = {
-  VENDOR:           'Vendor',
-  CONTRACTOR:       'Contractor',
-  PARTNER:          'Partner',
-  COUNTERPARTY:     'Counterparty',
-  SERVICE_PROVIDER: 'Service Provider',
-  BROKER:           'Broker',
-  PLATFORM:         'Platform',
-  FUND_SERVICE:     'Fund Service',
-  OTHER:            'Other',
+  VENDOR:            'Vendor',
+  CONTRACTOR:        'Contractor',
+  BROKER:            'Broker',
+  PLATFORM:          'Platform',
+  FUND_SVC_PROVIDER: 'Fund Svc Provider',
+  OTHER:             'Other',
 }
 
 const LEGAL_STRUCTURES = ['INDIVIDUAL', 'COMPANY', 'FUND', 'TRUST', 'GOVERNMENT', 'OTHER']
@@ -202,21 +199,26 @@ export default function EntitiesPage() {
   const { role } = useUser()
   const router   = useRouter()
 
-  const [entities,   setEntities]   = useState<EntityRow[]>([])
-  const [pagination, setPagination] = useState<Pagination | null>(null)
-  const [loading,    setLoading]    = useState(true)
-  const [error,      setError]      = useState<string | null>(null)
-  const [search,     setSearch]     = useState('')
-  const [filter,     setFilter]     = useState<FilterKey>('ALL')
-  const [page,       setPage]       = useState(1)
-  const [showAdd,    setShowAdd]    = useState(false)
+  const [entities,        setEntities]        = useState<EntityRow[]>([])
+  const [pagination,      setPagination]      = useState<Pagination | null>(null)
+  const [loading,         setLoading]         = useState(true)
+  const [fetching,        setFetching]        = useState(false)
+  const [error,           setError]           = useState<string | null>(null)
+  const [search,          setSearch]          = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [filter,          setFilter]          = useState<FilterKey>('ALL')
+  const [page,            setPage]            = useState(1)
+  const [showAdd,         setShowAdd]         = useState(false)
+  const debounceTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasFetched     = useRef(false)
 
   const canWrite = WRITE_ROLES.has(role ?? '')
 
   const fetchEntities = useCallback((p: number, q: string, f: FilterKey) => {
-    setLoading(true)
+    // First fetch shows full loading state; subsequent fetches (search/filter/page) just dim the table
+    if (!hasFetched.current) { setLoading(true) } else { setFetching(true) }
     const params = new URLSearchParams({ page: String(p), limit: String(PAGE_LIMIT) })
-    if (q)               params.set('search', q)
+    if (q)                      params.set('search', q)
     if (f === 'ACTIVE')         params.set('status', 'ACTIVE')
     if (f === 'PENDING_REVIEW') params.set('status', 'PENDING_REVIEW')
     if (f === 'HIGH_RISK')      params.set('highRisk', 'true')
@@ -226,20 +228,27 @@ export default function EntitiesPage() {
       .then((d: { entities: EntityRow[]; pagination: Pagination }) => {
         setEntities(d.entities ?? [])
         setPagination(d.pagination ?? null)
+        hasFetched.current = true
       })
       .catch(e => setError((e as Error).message))
-      .finally(() => setLoading(false))
+      .finally(() => { setLoading(false); setFetching(false) })
   }, [])
 
+  // Only run once role is known and allowed
   useEffect(() => {
-    if (!ALLOWED_ROLES.has(role ?? '')) { router.replace('/dashboard'); return }
-    fetchEntities(page, search, filter)
-  }, [role, router, fetchEntities, page, search, filter])
+    if (!role) return  // wait for user context to resolve
+    if (!ALLOWED_ROLES.has(role)) { router.replace('/dashboard'); return }
+    fetchEntities(page, debouncedSearch, filter)
+  }, [role, router, fetchEntities, page, debouncedSearch, filter])
 
-  // Reset to page 1 when search or filter changes
+  // Debounce search — update debouncedSearch 300ms after last keystroke
   function handleSearch(val: string) {
     setSearch(val)
-    setPage(1)
+    if (debounceTimer.current) clearTimeout(debounceTimer.current)
+    debounceTimer.current = setTimeout(() => {
+      setDebouncedSearch(val)
+      setPage(1)
+    }, 300)
   }
 
   function handleFilter(f: FilterKey) {
@@ -247,7 +256,7 @@ export default function EntitiesPage() {
     setPage(1)
   }
 
-  if (!ALLOWED_ROLES.has(role ?? '')) return null
+  if (!role || !ALLOWED_ROLES.has(role)) return null
   if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
   if (error)   return <div className="p-8 text-sm text-red-600">{error}</div>
 
@@ -306,18 +315,19 @@ export default function EntitiesPage() {
           })}
         </div>
         {pagination && (
-          <span className="text-xs ml-auto" style={{ color: 'var(--muted)' }}>
+          <span className="text-xs ml-auto flex items-center gap-2" style={{ color: 'var(--muted)' }}>
+            {fetching && <span className="text-xs" style={{ color: '#2563eb' }}>Searching…</span>}
             {pagination.total} total · page {pagination.page} of {pagination.totalPages}
           </span>
         )}
       </div>
 
       {/* Table */}
-      <div className="rounded-2xl overflow-x-auto" style={{ border: '1px solid var(--border)' }}>
+      <div className="rounded-2xl overflow-x-auto" style={{ border: '1px solid var(--border)', opacity: fetching ? 0.6 : 1, transition: 'opacity 0.15s' }}>
         <table className="w-full min-w-[900px]">
           <thead style={{ background: 'var(--surface)' }}>
             <tr>
-              {['Name', 'Type', 'Jurisdiction', 'Risk Score', 'Status', 'Onboarding', ''].map(h => (
+              {['Name', 'Type', 'Jurisdiction', 'Risk Score', 'Review Status', 'Onboarding'].map(h => (
                 <th key={h} className={th}
                   style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
                   {h}
@@ -328,7 +338,7 @@ export default function EntitiesPage() {
           <tbody>
             {entities.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-10 text-sm text-center" style={{ color: 'var(--muted)' }}>
+                <td colSpan={6} className="px-4 py-10 text-sm text-center" style={{ color: 'var(--muted)' }}>
                   No entities found.
                 </td>
               </tr>
@@ -338,7 +348,11 @@ export default function EntitiesPage() {
               const sc = STATUS_COLOR[e.status] ?? STATUS_COLOR.ACTIVE
               const oc = e.orgRelationship ? ONBOARDING_COLOR[e.orgRelationship.onboardingStatus] : ONBOARDING_COLOR.NOT_STARTED
               return (
-                <tr key={e.id} style={{ borderTop: i > 0 ? '1px solid var(--border)' : undefined }}>
+                <tr key={e.id}
+                  onClick={() => router.push(`/dashboard/entities/${e.id}`)}
+                  style={{ borderTop: i > 0 ? '1px solid var(--border)' : undefined, cursor: 'pointer' }}
+                  onMouseEnter={e2 => (e2.currentTarget.style.background = 'var(--surface)')}
+                  onMouseLeave={e2 => (e2.currentTarget.style.background = 'transparent')}>
 
                   {/* Name */}
                   <td className={td}>
@@ -382,15 +396,6 @@ export default function EntitiesPage() {
                     <Badge {...oc} />
                   </td>
 
-                  {/* Actions */}
-                  <td className={td}>
-                    <button
-                      onClick={() => router.push(`/dashboard/entities/${e.id}`)}
-                      className="text-xs font-medium px-2.5 py-1 rounded-lg"
-                      style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #2563eb22' }}>
-                      View
-                    </button>
-                  </td>
                 </tr>
               )
             })}
@@ -424,7 +429,7 @@ export default function EntitiesPage() {
       {showAdd && (
         <AddEntityModal
           onClose={() => setShowAdd(false)}
-          onSaved={() => { setShowAdd(false); fetchEntities(1, search, filter); setPage(1) }}
+          onSaved={() => { setShowAdd(false); setPage(1); fetchEntities(1, debouncedSearch, filter) }}
         />
       )}
     </div>

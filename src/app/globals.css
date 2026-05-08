@@ -23,7 +23,19 @@
   --red-text:   #991B1B;
   --blue-soft:  #EFF6FF;
   --blue-text:  #1E40AF;
+
+  /* ── App accent variables (overridden by data-app context) ── */
+  --app-accent:  #2563eb;
+  --app-soft:    #eff6ff;
+  --app-border:  rgba(37,99,235,0.13);
+  --app-text:    #1d4ed8;
 }
+
+/* App-specific accent bars */
+[data-app="entity"]   { --app-accent: #2563eb; --app-soft: #eff6ff; --app-border: rgba(37,99,235,0.13);   --app-text: #1d4ed8; }
+[data-app="invoice"]  { --app-accent: #7c3aed; --app-soft: #f5f3ff; --app-border: rgba(124,58,237,0.13);  --app-text: #6d28d9; }
+[data-app="payment"]  { --app-accent: #059669; --app-soft: #ecfdf5; --app-border: rgba(5,150,105,0.13);   --app-text: #047857; }
+[data-app="settings"] { --app-accent: #64748b; --app-soft: #f1f5f9; --app-border: rgba(100,116,139,0.13); --app-text: #475569; }
 
 * { box-sizing: border-box; }
 

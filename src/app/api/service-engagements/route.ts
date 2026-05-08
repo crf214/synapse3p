@@ -22,13 +22,11 @@ export async function GET(req: NextRequest) {
     const pageSize  = 50
     const status    = searchParams.get('status') ?? ''
     const slaStatus = searchParams.get('slaStatus') ?? ''
-    const category  = searchParams.get('category') ?? ''
 
     const where = {
       orgId: session.orgId!,
       ...(status    ? { status:    status    as never } : {}),
       ...(slaStatus ? { slaStatus: slaStatus as never } : {}),
-      ...(category  ? { serviceCatalogue: { category: category as never } } : {}),
     }
 
     const [total, rows] = await Promise.all([
@@ -40,7 +38,7 @@ export async function GET(req: NextRequest) {
         take: pageSize,
         include: {
           entity:          { select: { id: true, name: true } },
-          serviceCatalogue: { select: { id: true, name: true, category: true } },
+          serviceCatalogue: { select: { id: true, name: true, parentId: true } },
         },
       }),
     ])
@@ -84,13 +82,14 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json()
     const {
-      entityId, serviceCatalogueId, internalOwner, department,
+      entityId, serviceCatalogueId, contractId, internalOwner, department,
       status, slaTarget, slaStatus, contractStart, contractEnd,
       notes,
     } = body
 
     if (!entityId)           throw new ValidationError('entityId is required')
     if (!serviceCatalogueId) throw new ValidationError('serviceCatalogueId is required')
+    if (!contractId)         throw new ValidationError('contractId is required — every service engagement must be backed by a contract')
 
     // Verify entity belongs to org
     const entity = await prisma.entity.findFirst({
@@ -98,9 +97,15 @@ export async function POST(req: NextRequest) {
     })
     if (!entity) throw new ValidationError('Entity not found')
 
-    // Verify catalogue entry exists
+    // Verify catalogue entry exists and is active
     const catalogue = await prisma.serviceCatalogue.findUnique({ where: { id: serviceCatalogueId } })
-    if (!catalogue) throw new ValidationError('Service catalogue entry not found')
+    if (!catalogue || !catalogue.isActive) throw new ValidationError('Service catalogue entry not found or inactive')
+
+    // Verify contract belongs to this org and entity
+    const contract = await prisma.contract.findFirst({
+      where: { id: contractId, orgId: session.orgId!, entityId },
+    })
+    if (!contract) throw new ValidationError('Contract not found for this entity')
 
     // Enforce unique constraint gracefully
     const existing = await prisma.serviceEngagement.findFirst({
@@ -113,6 +118,7 @@ export async function POST(req: NextRequest) {
         entityId,
         serviceCatalogueId,
         orgId:          session.orgId!,
+        contractId:     contractId,
         internalOwner:  internalOwner ?? null,
         department:     department    ? sanitiseString(department)  : null,
         status:         status        ?? 'ACTIVE',

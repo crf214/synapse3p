@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  devIndicators: false,
   webpack: (config) => {
     // pdf-parse loads test files at module init — tell webpack to ignore them
     config.resolve.alias['canvas'] = false

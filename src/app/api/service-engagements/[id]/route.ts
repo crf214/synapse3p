@@ -24,7 +24,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       where:   { id: params.id },
       include: {
         entity:           { select: { id: true, name: true } },
-        serviceCatalogue: { select: { id: true, name: true, category: true, description: true } },
+        serviceCatalogue: { select: { id: true, name: true, parentId: true, description: true } },
       },
     })
     if (!eng || eng.orgId !== session.orgId) throw new NotFoundError('Service engagement not found')

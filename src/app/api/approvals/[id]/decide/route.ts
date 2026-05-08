@@ -27,7 +27,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     // ── PO approval ───────────────────────────────────────────────────────────
     if (type === 'PO') {
-      const approval = await prisma.pOApproval.findUnique({ where: { id } })
+      const approval = await prisma.pOApproval.findFirst({ where: { id, po: { orgId: session.orgId } } })
       if (!approval) throw new NotFoundError('Approval not found')
       if (approval.approverId !== session.userId) throw new ForbiddenError()
       if (approval.status !== 'PENDING') throw new ValidationError('Approval is no longer pending')
@@ -75,7 +75,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     // ── Invoice approval ──────────────────────────────────────────────────────
     if (type === 'INVOICE') {
-      const approval = await prisma.invoiceApproval.findUnique({ where: { id } })
+      const approval = await prisma.invoiceApproval.findFirst({ where: { id, orgId: session.orgId } })
       if (!approval) throw new NotFoundError('Approval not found')
       if (approval.assignedTo !== session.userId) throw new ForbiddenError()
       if (approval.status !== 'PENDING') throw new ValidationError('Approval is no longer pending')
