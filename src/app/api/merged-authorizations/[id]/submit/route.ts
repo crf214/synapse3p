@@ -8,7 +8,7 @@ import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, Valid
 
 const SUBMIT_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function POST(_req: NextRequest, { params }: Params) {
   try {
@@ -16,8 +16,9 @@ export async function POST(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!SUBMIT_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
+    const { id } = await params
     const ma = await prisma.mergedAuthorization.findUnique({
-      where:   { id: params.id },
+      where:   { id },
       include: { items: { select: { id: true } } },
     })
     if (!ma || ma.orgId !== session.orgId) throw new NotFoundError('Merged authorization not found')
@@ -29,7 +30,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     }
 
     await prisma.mergedAuthorization.update({
-      where: { id: params.id },
+      where: { id },
       data:  { status: 'PENDING_APPROVAL' },
     })
 

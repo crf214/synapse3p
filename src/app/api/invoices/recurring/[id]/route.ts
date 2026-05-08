@@ -11,15 +11,16 @@ const VALID_FREQUENCIES = new Set(['DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY', 'QU
 
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
+    const { id } = await params
     const sched = await prisma.recurringSchedule.findFirst({
-      where: { id: params.id, orgId: session.orgId },
+      where: { id, orgId: session.orgId },
     })
     if (!sched) throw new NotFoundError('Recurring schedule not found')
 
@@ -62,21 +63,22 @@ export async function PUT(
 
     return NextResponse.json({ schedule: updated })
   } catch (err) {
-    return handleApiError(err, `PUT /api/invoices/recurring/${params.id}`)
+    return handleApiError(err, 'PUT /api/invoices/recurring/[id]')
   }
 }
 
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
+    const { id } = await params
     const sched = await prisma.recurringSchedule.findFirst({
-      where: { id: params.id, orgId: session.orgId },
+      where: { id, orgId: session.orgId },
     })
     if (!sched) throw new NotFoundError('Recurring schedule not found')
 
@@ -88,6 +90,6 @@ export async function DELETE(
 
     return NextResponse.json({ ok: true })
   } catch (err) {
-    return handleApiError(err, `DELETE /api/invoices/recurring/${params.id}`)
+    return handleApiError(err, 'DELETE /api/invoices/recurring/[id]')
   }
 }

@@ -7,15 +7,16 @@ const ALLOWED_ROLES = new Set(['ADMIN'])
 
 export async function POST(
   _req: Request,
-  { params }: { params: { periodId: string } },
+  { params }: { params: Promise<{ periodId: string }> },
 ) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !ALLOWED_ROLES.has(session.role)) throw new ForbiddenError()
 
+    const { periodId } = await params
     const period = await prisma.auditPeriod.findFirst({
-      where: { id: params.periodId, orgId: session.orgId },
+      where: { id: periodId, orgId: session.orgId },
     })
     if (!period) throw new NotFoundError('Audit period not found')
 
@@ -33,7 +34,7 @@ export async function POST(
     // Enforcement is at the application layer — routes that write ControlTestResult or
     // ControlEvidence must check the period status before inserting.
     const updated = await prisma.auditPeriod.update({
-      where: { id: params.periodId },
+      where: { id: periodId },
       data: {
         status:   'LOCKED',
         lockedBy: session.userId,
@@ -43,6 +44,6 @@ export async function POST(
 
     return NextResponse.json({ period: updated })
   } catch (err) {
-    return handleApiError(err, `POST /api/audit-periods/${params.periodId}/lock`)
+    return handleApiError(err, 'POST /api/audit-periods/[periodId]/lock')
   }
 }

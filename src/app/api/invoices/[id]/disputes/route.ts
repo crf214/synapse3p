@@ -8,7 +8,7 @@ import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from
 
 const READ_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function GET(_req: NextRequest, { params }: Params): Promise<NextResponse> {
   try {
@@ -16,15 +16,16 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<NextRe
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!READ_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
+    const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where: { id: params.id, orgId: session.orgId },
+      where: { id, orgId: session.orgId },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
 
     const disputes = await prisma.entityActivityLog.findMany({
       where: {
         orgId:         session.orgId,
-        referenceId:   params.id,
+        referenceId:   id,
         referenceType: 'Invoice',
         activityType:  'NOTE',
         metadata:      { path: ['type'], equals: 'VENDOR_DISPUTE' },
@@ -43,6 +44,6 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<NextRe
       })),
     })
   } catch (err) {
-    return handleApiError(err, `GET /api/invoices/${params.id}/disputes`)
+    return handleApiError(err, 'GET /api/invoices/[id]/disputes')
   }
 }

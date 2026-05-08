@@ -9,7 +9,7 @@ import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, Valid
 
 const APPROVER_ROLES = new Set(['ADMIN', 'CONTROLLER', 'CFO'])
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function POST(req: NextRequest, { params }: Params) {
   try {
@@ -17,7 +17,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!APPROVER_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const pi = await prisma.paymentInstruction.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const pi = await prisma.paymentInstruction.findUnique({ where: { id } })
     if (!pi || pi.orgId !== session.orgId) throw new NotFoundError('Payment instruction not found')
     if (pi.status !== 'PENDING_APPROVAL') {
       throw new ValidationError(`Cannot approve/reject — current status is ${pi.status}`)
@@ -35,7 +36,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     const newStatus = decision === 'APPROVED' ? 'APPROVED' : 'DRAFT'
 
     await prisma.paymentInstruction.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         status:     newStatus,
         approvedBy: decision === 'APPROVED' ? session.userId : null,

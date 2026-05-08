@@ -13,7 +13,7 @@ const APPROVE_ROLES = new Set(['ADMIN', 'CONTROLLER', 'CFO'])
 
 const VALID_FIELDS = ['AMOUNT', 'ENTITY', 'BANK_ACCOUNT']
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function POST(req: NextRequest, { params }: Params) {
   try {
@@ -21,7 +21,8 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!AMEND_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const pi = await prisma.paymentInstruction.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const pi = await prisma.paymentInstruction.findUnique({ where: { id } })
     if (!pi || pi.orgId !== session.orgId) throw new NotFoundError('Payment instruction not found')
 
     const AMENDABLE = ['APPROVED', 'SENT_TO_ERP', 'AMENDMENT_PENDING']
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     // Check no open amendment for same field
     const openAmendment = await prisma.paymentInstructionAmendment.findFirst({
-      where: { paymentInstructionId: params.id, field: field as never, status: 'PENDING' },
+      where: { paymentInstructionId: id, field: field as never, status: 'PENDING' },
     })
     if (openAmendment) throw new ValidationError(`An open amendment for ${field} already exists`)
 
@@ -52,7 +53,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     const amendment = await prisma.$transaction(async tx => {
       const a = await tx.paymentInstructionAmendment.create({
         data: {
-          paymentInstructionId: params.id,
+          paymentInstructionId: id,
           field:         field as never,
           previousValue,
           proposedValue,
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       })
 
       await tx.paymentInstruction.update({
-        where: { id: params.id },
+        where: { id },
         data:  { status: 'AMENDMENT_PENDING' },
       })
 
@@ -84,7 +85,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!APPROVE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const pi = await prisma.paymentInstruction.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const pi = await prisma.paymentInstruction.findUnique({ where: { id } })
     if (!pi || pi.orgId !== session.orgId) throw new NotFoundError('Payment instruction not found')
 
     const body = await req.json()
@@ -93,7 +95,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!['APPROVED', 'REJECTED'].includes(decision)) throw new ValidationError('decision must be APPROVED or REJECTED')
 
     const amendment = await prisma.paymentInstructionAmendment.findUnique({ where: { id: amendmentId } })
-    if (!amendment || amendment.paymentInstructionId !== params.id) throw new NotFoundError('Amendment not found')
+    if (!amendment || amendment.paymentInstructionId !== id) throw new NotFoundError('Amendment not found')
     if (amendment.status !== 'PENDING') throw new ValidationError('Amendment is no longer pending')
 
     await prisma.$transaction(async tx => {
@@ -116,12 +118,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
         if (amendment.field === 'ENTITY')       fieldData.entityId     = amendment.proposedValue
         if (amendment.field === 'BANK_ACCOUNT') fieldData.bankAccountId= amendment.proposedValue
 
-        await tx.paymentInstruction.update({ where: { id: params.id }, data: fieldData })
+        await tx.paymentInstruction.update({ where: { id }, data: fieldData })
 
         // Snapshot the amendment-applied version
         await tx.paymentInstructionVersion.create({
           data: {
-            paymentInstructionId: params.id,
+            paymentInstructionId: id,
             version:      newVersion,
             entityId:     amendment.field === 'ENTITY'       ? amendment.proposedValue : pi.entityId,
             bankAccountId:amendment.field === 'BANK_ACCOUNT' ? amendment.proposedValue : pi.bankAccountId,
@@ -138,12 +140,12 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
       // Check if any other PENDING amendments remain
       const remaining = await tx.paymentInstructionAmendment.count({
-        where: { paymentInstructionId: params.id, status: 'PENDING' },
+        where: { paymentInstructionId: id, status: 'PENDING' },
       })
       if (remaining === 0) {
         // Restore previous status
         await tx.paymentInstruction.update({
-          where: { id: params.id },
+          where: { id },
           data:  { status: pi.status === 'AMENDMENT_PENDING' ? 'APPROVED' : pi.status },
         })
       }

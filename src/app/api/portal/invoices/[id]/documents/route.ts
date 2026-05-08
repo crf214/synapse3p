@@ -23,7 +23,7 @@ const ALLOWED_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ])
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function POST(req: NextRequest, { params }: Params): Promise<NextResponse> {
   try {
@@ -36,8 +36,9 @@ export async function POST(req: NextRequest, { params }: Params): Promise<NextRe
     })
     if (!rel) throw new NotFoundError('No entity linked to this portal account')
 
+    const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where: { id: params.id, entityId: rel.entityId, orgId: rel.orgId },
+      where: { id, entityId: rel.entityId, orgId: rel.orgId },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
 
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest, { params }: Params): Promise<NextRe
 
     const buffer      = Buffer.from(await file.arrayBuffer())
     const safeName    = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-    const storagePath = `${rel.orgId}/portal-uploads/${params.id}/${Date.now()}-${safeName}`
+    const storagePath = `${rel.orgId}/portal-uploads/${id}/${Date.now()}-${safeName}`
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from(STORAGE_BUCKET)
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest, { params }: Params): Promise<NextRe
         uploadedBy:    session.userId,
         status:        'active',
         metadata: {
-          invoiceId:        params.id,
+          invoiceId:        id,
           invoiceNo:        invoice.invoiceNo,
           uploadedViaPortal: true,
         },
@@ -96,6 +97,6 @@ export async function POST(req: NextRequest, { params }: Params): Promise<NextRe
       },
     }, { status: 201 })
   } catch (err) {
-    return handleApiError(err, `POST /api/portal/invoices/${params.id}/documents`)
+    return handleApiError(err, 'POST /api/portal/invoices/[id]/documents')
   }
 }

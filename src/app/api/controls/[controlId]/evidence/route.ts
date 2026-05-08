@@ -12,15 +12,16 @@ const MAX_LIMIT     = 50
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: { controlId: string } },
+  { params }: { params: Promise<{ controlId: string }> },
 ) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
+    const { controlId } = await params
     const control = await prisma.control.findFirst({
-      where: { id: params.controlId, orgId: session.orgId },
+      where: { id: controlId, orgId: session.orgId },
     })
     if (!control) throw new NotFoundError('Control not found')
 
@@ -28,7 +29,7 @@ export async function GET(
     const page  = Math.max(1, parseInt(searchParams.get('page')  ?? '1',  10) || 1)
     const limit = Math.min(MAX_LIMIT, Math.max(1, parseInt(searchParams.get('limit') ?? String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT))
 
-    const where = { controlId: params.controlId, orgId: session.orgId }
+    const where = { controlId, orgId: session.orgId }
 
     const [total, evidence] = await Promise.all([
       prisma.controlEvidence.count({ where }),
@@ -54,21 +55,22 @@ export async function GET(
       },
     })
   } catch (err) {
-    return handleApiError(err, `GET /api/controls/${params.controlId}/evidence`)
+    return handleApiError(err, 'GET /api/controls/[controlId]/evidence')
   }
 }
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { controlId: string } },
+  { params }: { params: Promise<{ controlId: string }> },
 ) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
+    const { controlId } = await params
     const control = await prisma.control.findFirst({
-      where: { id: params.controlId, orgId: session.orgId },
+      where: { id: controlId, orgId: session.orgId },
     })
     if (!control) throw new NotFoundError('Control not found')
 
@@ -91,7 +93,7 @@ export async function POST(
 
     const record = await prisma.controlEvidence.create({
       data: {
-        controlId:    params.controlId,
+        controlId,
         orgId:        session.orgId,
         auditPeriodId: auditPeriodId ?? null,
         evidenceType: evidenceType as Parameters<typeof prisma.controlEvidence.create>[0]['data']['evidenceType'],
@@ -106,6 +108,6 @@ export async function POST(
 
     return NextResponse.json({ evidence: record }, { status: 201 })
   } catch (err) {
-    return handleApiError(err, `POST /api/controls/${params.controlId}/evidence`)
+    return handleApiError(err, 'POST /api/controls/[controlId]/evidence')
   }
 }

@@ -22,7 +22,7 @@ const VALID_DISPUTE_TYPES = new Set([
 // Invoices in terminal states cannot be disputed
 const NON_DISPUTABLE = new Set(['PAID', 'CANCELLED', 'REJECTED'])
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 // ---------------------------------------------------------------------------
 // GET — list disputes for this invoice
@@ -39,8 +39,9 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<NextRe
     })
     if (!rel) throw new NotFoundError('No entity linked to this portal account')
 
+    const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where: { id: params.id, entityId: rel.entityId, orgId: rel.orgId },
+      where: { id, entityId: rel.entityId, orgId: rel.orgId },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
 
@@ -48,7 +49,7 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<NextRe
       where: {
         orgId:         rel.orgId,
         entityId:      rel.entityId,
-        referenceId:   params.id,
+        referenceId:   id,
         referenceType: 'Invoice',
         activityType:  'NOTE',
         metadata:      { path: ['type'], equals: 'VENDOR_DISPUTE' },
@@ -67,7 +68,7 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<NextRe
       })),
     })
   } catch (err) {
-    return handleApiError(err, `GET /api/portal/invoices/${params.id}/dispute`)
+    return handleApiError(err, 'GET /api/portal/invoices/[id]/dispute')
   }
 }
 
@@ -86,8 +87,9 @@ export async function POST(req: NextRequest, { params }: Params): Promise<NextRe
     })
     if (!rel) throw new NotFoundError('No entity linked to this portal account')
 
+    const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where: { id: params.id, entityId: rel.entityId, orgId: rel.orgId },
+      where: { id, entityId: rel.entityId, orgId: rel.orgId },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
 
@@ -123,13 +125,13 @@ export async function POST(req: NextRequest, { params }: Params): Promise<NextRe
         activityType:  'NOTE',
         title:         `Vendor dispute — ${DISPUTE_LABELS[disputeType] ?? disputeType}`,
         description:   reason,
-        referenceId:   params.id,
+        referenceId:   id,
         referenceType: 'Invoice',
         performedBy:   session.userId,
         metadata: {
           type:        'VENDOR_DISPUTE',
           disputeType,
-          invoiceId:   params.id,
+          invoiceId:   id,
           status:      'OPEN',
           portalRole:  session.role,
         },
@@ -146,6 +148,6 @@ export async function POST(req: NextRequest, { params }: Params): Promise<NextRe
       },
     }, { status: 201 })
   } catch (err) {
-    return handleApiError(err, `POST /api/portal/invoices/${params.id}/dispute`)
+    return handleApiError(err, 'POST /api/portal/invoices/[id]/dispute')
   }
 }

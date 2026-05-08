@@ -11,7 +11,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const INVOICE_BUCKET = process.env.INVOICES_BUCKET ?? 'invoices'
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function POST(req: NextRequest, { params }: Params) {
   try {
@@ -22,8 +22,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     const body = await req.json().catch(() => ({}))
     const action = body.action as string | undefined
 
+    const { id } = await params
     const event = await prisma.invoiceIngestionEvent.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: { invoice: true },
     })
 

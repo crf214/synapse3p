@@ -8,7 +8,7 @@ import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'CISO', 'CONTROLLER', 'CFO'])
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function PUT(req: NextRequest, { params }: Params) {
   try {
@@ -16,7 +16,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!ALLOWED_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const signal = await prisma.externalSignal.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const signal = await prisma.externalSignal.findUnique({ where: { id } })
     if (!signal || signal.orgId !== session.orgId) throw new NotFoundError('Signal not found')
 
     const body = await req.json()
@@ -28,7 +29,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       data.reviewedAt = new Date()
     }
 
-    await prisma.externalSignal.update({ where: { id: params.id }, data })
+    await prisma.externalSignal.update({ where: { id }, data })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, 'PUT /api/external-signals/[id]')

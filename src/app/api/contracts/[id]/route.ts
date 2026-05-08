@@ -9,7 +9,7 @@ import { sanitiseString } from '@/lib/security/sanitise'
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL'])
 const READ_ROLES  = new Set([...WRITE_ROLES, 'AP_CLERK', 'AUDITOR'])
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
@@ -17,8 +17,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!READ_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
+    const { id } = await params
     const contract = await prisma.contract.findUnique({
-      where: { id: params.id },
+      where: { id },
     })
     if (!contract || contract.orgId !== session.orgId) throw new NotFoundError('Contract not found')
 
@@ -68,7 +69,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const contract = await prisma.contract.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const contract = await prisma.contract.findUnique({ where: { id } })
     if (!contract || contract.orgId !== session.orgId) throw new NotFoundError('Contract not found')
 
     const body = await req.json()
@@ -80,7 +82,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (body.status && !VALID_STATUSES.includes(body.status)) throw new ValidationError('Invalid status')
 
     const updated = await prisma.contract.update({
-      where: { id: params.id },
+      where: { id },
       data: {
         ...(body.type            && { type: body.type }),
         ...(body.status          && { status: body.status }),
@@ -109,13 +111,14 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!['ADMIN', 'CFO'].includes(session.role ?? '')) throw new ForbiddenError()
 
-    const contract = await prisma.contract.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const contract = await prisma.contract.findUnique({ where: { id } })
     if (!contract || contract.orgId !== session.orgId) throw new NotFoundError('Contract not found')
 
     // Only allow deleting DRAFT contracts
     if (contract.status !== 'DRAFT') throw new ValidationError('Only DRAFT contracts can be deleted')
 
-    await prisma.contract.delete({ where: { id: params.id } })
+    await prisma.contract.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, "")

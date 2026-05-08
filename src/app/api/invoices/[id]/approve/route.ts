@@ -19,7 +19,7 @@ const VALID_DECISIONS = new Set(['APPROVED', 'REJECTED', 'ESCALATED'])
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const session = await getSession()
@@ -29,8 +29,9 @@ export async function POST(
     const body = await req.json() as { assignedTo: string; notes?: string }
     if (!body.assignedTo) throw new ValidationError('assignedTo is required')
 
+    const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where:   { id: params.id, orgId: session.orgId },
+      where:   { id, orgId: session.orgId },
       include: { entity: true },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
@@ -86,7 +87,7 @@ export async function POST(
 
     return NextResponse.json({ approval: { id: approval.id, status: approval.status } }, { status: 201 })
   } catch (err) {
-    return handleApiError(err, `POST /api/invoices/${params.id}/approve`)
+    return handleApiError(err, 'POST /api/invoices/[id]/approve')
   }
 }
 
@@ -96,7 +97,7 @@ export async function POST(
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const session = await getSession()
@@ -116,8 +117,9 @@ export async function PATCH(
       throw new ValidationError('escalateTo is required when decision is ESCALATED')
     }
 
+    const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where:   { id: params.id, orgId: session.orgId },
+      where:   { id, orgId: session.orgId },
       include: { entity: true },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
@@ -242,6 +244,6 @@ export async function PATCH(
 
     return NextResponse.json({ ok: true })
   } catch (err) {
-    return handleApiError(err, `PATCH /api/invoices/${params.id}/approve`)
+    return handleApiError(err, 'PATCH /api/invoices/[id]/approve')
   }
 }

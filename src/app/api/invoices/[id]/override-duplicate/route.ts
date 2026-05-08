@@ -14,7 +14,7 @@ const OVERRIDE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO']
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const session = await getSession()
@@ -30,8 +30,9 @@ export async function POST(
       throw new ValidationError('A written justification of at least 10 characters is required to override a duplicate flag')
     }
 
+    const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where: { id: params.id, orgId: session.orgId },
+      where: { id, orgId: session.orgId },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
 
@@ -63,6 +64,6 @@ export async function POST(
 
     return NextResponse.json({ ok: true, flagId: flag.id, newStatus: 'OVERRIDE_APPROVED' })
   } catch (err) {
-    return handleApiError(err, `POST /api/invoices/${params.id}/override-duplicate`)
+    return handleApiError(err, 'POST /api/invoices/[id]/override-duplicate')
   }
 }

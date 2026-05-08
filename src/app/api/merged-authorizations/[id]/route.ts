@@ -12,7 +12,7 @@ import { sanitiseString } from '@/lib/security/sanitise'
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const EDIT_ROLES    = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
@@ -20,8 +20,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!ALLOWED_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
+    const { id } = await params
     const ma = await prisma.mergedAuthorization.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         items: {
           include: {
@@ -95,7 +96,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!EDIT_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const ma = await prisma.mergedAuthorization.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const ma = await prisma.mergedAuthorization.findUnique({ where: { id } })
     if (!ma || ma.orgId !== session.orgId) throw new NotFoundError('Merged authorization not found')
     if (ma.status !== 'DRAFT') throw new ValidationError('Only DRAFT merged authorizations can be edited')
 
@@ -105,7 +107,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (body.notes !== undefined) data.notes = body.notes ? sanitiseString(body.notes) : null
 
     const updated = await prisma.mergedAuthorization.update({
-      where: { id: params.id },
+      where: { id },
       data,
     })
 
@@ -121,13 +123,14 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!EDIT_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const ma = await prisma.mergedAuthorization.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const ma = await prisma.mergedAuthorization.findUnique({ where: { id } })
     if (!ma || ma.orgId !== session.orgId) throw new NotFoundError('Merged authorization not found')
     if (ma.status !== 'DRAFT') throw new ValidationError('Only DRAFT merged authorizations can be deleted')
 
     await prisma.$transaction(async tx => {
-      await tx.mergedAuthItem.deleteMany({ where: { mergedAuthId: params.id } })
-      await tx.mergedAuthorization.delete({ where: { id: params.id } })
+      await tx.mergedAuthItem.deleteMany({ where: { mergedAuthId: id } })
+      await tx.mergedAuthorization.delete({ where: { id } })
     }, { timeout: 15000 })
 
     return NextResponse.json({ ok: true })

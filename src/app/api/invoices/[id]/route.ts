@@ -17,15 +17,16 @@ const INVOICE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? process.env.INVOIC
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
+    const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where: { id: params.id, orgId: session.orgId },
+      where: { id, orgId: session.orgId },
       include: {
         entity: {
           include: {
@@ -96,7 +97,7 @@ export async function GET(
       },
     })
   } catch (err) {
-    return handleApiError(err, `GET /api/invoices/${params.id}`)
+    return handleApiError(err, 'GET /api/invoices/[id]')
   }
 }
 
@@ -106,15 +107,16 @@ export async function GET(
 
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } },
+  { params }: { params: Promise<{ id: string }> },
 ): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
+    const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where: { id: params.id, orgId: session.orgId },
+      where: { id, orgId: session.orgId },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
 
@@ -154,6 +156,6 @@ export async function PUT(
 
     return NextResponse.json({ ok: true })
   } catch (err) {
-    return handleApiError(err, `PUT /api/invoices/${params.id}`)
+    return handleApiError(err, 'PUT /api/invoices/[id]')
   }
 }

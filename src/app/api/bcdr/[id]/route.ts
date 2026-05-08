@@ -13,7 +13,7 @@ const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 
 const WRITE_ROLES   = new Set(['ADMIN', 'CISO', 'CONTROLLER'])
 const VALID_RESULTS = ['PASS', 'FAIL', 'WARNING', 'NOT_RUN', 'ERROR'] as const
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
@@ -21,7 +21,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!ALLOWED_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const record = await prisma.bcDrRecord.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const record = await prisma.bcDrRecord.findUnique({ where: { id } })
     if (!record || record.orgId !== session.orgId) throw new NotFoundError('BC/DR record not found')
 
     const tester = await prisma.user.findUnique({
@@ -54,7 +55,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const record = await prisma.bcDrRecord.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const record = await prisma.bcDrRecord.findUnique({ where: { id } })
     if (!record || record.orgId !== session.orgId) throw new NotFoundError('BC/DR record not found')
 
     const body = await req.json()
@@ -76,7 +78,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       data.evidence = body.evidence
     }
 
-    await prisma.bcDrRecord.update({ where: { id: params.id }, data })
+    await prisma.bcDrRecord.update({ where: { id }, data })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, 'PUT /api/bcdr/[id]')
@@ -89,10 +91,11 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!new Set(['ADMIN', 'CISO']).has(session.role ?? '')) throw new ForbiddenError()
 
-    const record = await prisma.bcDrRecord.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const record = await prisma.bcDrRecord.findUnique({ where: { id } })
     if (!record || record.orgId !== session.orgId) throw new NotFoundError('BC/DR record not found')
 
-    await prisma.bcDrRecord.delete({ where: { id: params.id } })
+    await prisma.bcDrRecord.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, 'DELETE /api/bcdr/[id]')

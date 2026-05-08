@@ -6,7 +6,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function POST(_req: NextRequest, { params }: Params) {
   try {
@@ -16,7 +16,8 @@ export async function POST(_req: NextRequest, { params }: Params) {
     const allowed = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
     if (!allowed.has(session.role ?? '')) throw new ForbiddenError()
 
-    const pi = await prisma.paymentInstruction.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const pi = await prisma.paymentInstruction.findUnique({ where: { id } })
     if (!pi || pi.orgId !== session.orgId) throw new NotFoundError('Payment instruction not found')
     if (pi.status !== 'DRAFT') throw new ValidationError(`Only DRAFT instructions can be submitted (current: ${pi.status})`)
     if (pi.createdBy !== session.userId && !['ADMIN'].includes(session.role ?? '')) {
@@ -24,7 +25,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
     }
 
     await prisma.paymentInstruction.update({
-      where: { id: params.id },
+      where: { id },
       data:  { status: 'PENDING_APPROVAL' },
     })
 

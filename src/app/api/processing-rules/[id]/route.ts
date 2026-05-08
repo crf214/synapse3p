@@ -10,7 +10,7 @@ import { sanitiseString } from '@/lib/security/sanitise'
 
 const VALID_TRACKS = ['FULL_PO', 'LIGHTWEIGHT', 'STP', 'CONTRACT_REQUIRED'] as const
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function PUT(req: NextRequest, { params }: Params) {
   try {
@@ -18,7 +18,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (session.role !== 'ADMIN') throw new ForbiddenError()
 
-    const rule = await prisma.processingRule.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const rule = await prisma.processingRule.findUnique({ where: { id } })
     if (!rule || rule.orgId !== session.orgId) throw new NotFoundError('Processing rule not found')
 
     const body = await req.json()
@@ -44,7 +45,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       data.conditions = body.conditions
     }
 
-    await prisma.processingRule.update({ where: { id: params.id }, data })
+    await prisma.processingRule.update({ where: { id }, data })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, 'PUT /api/processing-rules/[id]')
@@ -57,10 +58,11 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (session.role !== 'ADMIN') throw new ForbiddenError()
 
-    const rule = await prisma.processingRule.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const rule = await prisma.processingRule.findUnique({ where: { id } })
     if (!rule || rule.orgId !== session.orgId) throw new NotFoundError('Processing rule not found')
 
-    await prisma.processingRule.delete({ where: { id: params.id } })
+    await prisma.processingRule.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, 'DELETE /api/processing-rules/[id]')

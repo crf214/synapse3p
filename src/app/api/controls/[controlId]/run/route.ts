@@ -8,15 +8,16 @@ const ALLOWED_ROLES = new Set(['ADMIN', 'CFO', 'CONTROLLER'])
 
 export async function POST(
   _req: Request,
-  { params }: { params: { controlId: string } },
+  { params }: { params: Promise<{ controlId: string }> },
 ) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !ALLOWED_ROLES.has(session.role)) throw new ForbiddenError()
 
+    const { controlId } = await params
     const control = await prisma.control.findFirst({
-      where: { id: params.controlId, orgId: session.orgId },
+      where: { id: controlId, orgId: session.orgId },
       select: { automatedTestKey: true, controlId: true },
     })
     if (!control) throw new NotFoundError('Control not found')
@@ -31,6 +32,6 @@ export async function POST(
 
     return NextResponse.json({ result })
   } catch (err) {
-    return handleApiError(err, `POST /api/controls/${params.controlId}/run`)
+    return handleApiError(err, 'POST /api/controls/[controlId]/run')
   }
 }

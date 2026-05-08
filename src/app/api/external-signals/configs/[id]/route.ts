@@ -12,7 +12,7 @@ const WRITE_ROLES = new Set(['ADMIN', 'CISO'])
 const VALID_TYPES = ['NEWS', 'STOCK_PRICE'] as const
 const VALID_SEV   = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function PUT(req: NextRequest, { params }: Params) {
   try {
@@ -20,7 +20,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const config = await prisma.externalSignalConfig.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const config = await prisma.externalSignalConfig.findUnique({ where: { id } })
     if (!config || config.orgId !== session.orgId) throw new NotFoundError('Config not found')
 
     const body = await req.json()
@@ -44,7 +45,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       data.severityThreshold = body.severityThreshold
     }
 
-    await prisma.externalSignalConfig.update({ where: { id: params.id }, data })
+    await prisma.externalSignalConfig.update({ where: { id }, data })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, 'PUT /api/external-signals/configs/[id]')
@@ -57,10 +58,11 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const config = await prisma.externalSignalConfig.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const config = await prisma.externalSignalConfig.findUnique({ where: { id } })
     if (!config || config.orgId !== session.orgId) throw new NotFoundError('Config not found')
 
-    await prisma.externalSignalConfig.delete({ where: { id: params.id } })
+    await prisma.externalSignalConfig.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, 'DELETE /api/external-signals/configs/[id]')

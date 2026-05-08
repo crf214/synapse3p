@@ -7,14 +7,14 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function POST(req: NextRequest, { params }: Params) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
 
-    const { id } = params
+    const { id } = await params
     const body = await req.json()
     const { type, decision, comments } = body as {
       type: 'PO' | 'INVOICE' | 'MERGED_AUTH'

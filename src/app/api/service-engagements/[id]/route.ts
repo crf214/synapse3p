@@ -12,7 +12,7 @@ import { sanitiseString } from '@/lib/security/sanitise'
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL'])
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
@@ -20,8 +20,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!ALLOWED_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
+    const { id } = await params
     const eng = await prisma.serviceEngagement.findUnique({
-      where:   { id: params.id },
+      where:   { id },
       include: {
         entity:           { select: { id: true, name: true } },
         serviceCatalogue: { select: { id: true, name: true, parentId: true, description: true } },
@@ -67,7 +68,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const eng = await prisma.serviceEngagement.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const eng = await prisma.serviceEngagement.findUnique({ where: { id } })
     if (!eng || eng.orgId !== session.orgId) throw new NotFoundError('Service engagement not found')
 
     const body = await req.json()
@@ -89,7 +91,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       data.complianceDocs = body.complianceDocs
     }
 
-    await prisma.serviceEngagement.update({ where: { id: params.id }, data })
+    await prisma.serviceEngagement.update({ where: { id }, data })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, 'PUT /api/service-engagements/[id]')
@@ -102,10 +104,11 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const eng = await prisma.serviceEngagement.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const eng = await prisma.serviceEngagement.findUnique({ where: { id } })
     if (!eng || eng.orgId !== session.orgId) throw new NotFoundError('Service engagement not found')
 
-    await prisma.serviceEngagement.delete({ where: { id: params.id } })
+    await prisma.serviceEngagement.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, 'DELETE /api/service-engagements/[id]')

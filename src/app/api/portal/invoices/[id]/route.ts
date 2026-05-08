@@ -10,7 +10,7 @@ import { supabaseAdmin } from '@/lib/supabase'
 const PORTAL_ROLES   = new Set(['VENDOR', 'CLIENT'])
 const INVOICE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? process.env.INVOICES_BUCKET ?? 'synapse3p-files'
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function GET(_req: NextRequest, { params }: Params): Promise<NextResponse> {
   try {
@@ -24,8 +24,9 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<NextRe
     })
     if (!rel) throw new NotFoundError('No entity linked to this portal account')
 
+    const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where:   { id: params.id, entityId: rel.entityId, orgId: rel.orgId },
+      where:   { id, entityId: rel.entityId, orgId: rel.orgId },
       include: {
         extractedFields: {
           where:   { confidence: { gte: 0.6 } },
@@ -53,7 +54,7 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<NextRe
         orgId:    rel.orgId,
         entityId: rel.entityId,
         source:   'VENDOR',
-        metadata: { path: ['invoiceId'], equals: params.id },
+        metadata: { path: ['invoiceId'], equals: id },
       },
       orderBy: { createdAt: 'desc' },
       select:  { id: true, title: true, docType: true, mimeType: true, fileSizeBytes: true, createdAt: true },
@@ -64,7 +65,7 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<NextRe
       where: {
         orgId:         rel.orgId,
         entityId:      rel.entityId,
-        referenceId:   params.id,
+        referenceId:   id,
         referenceType: 'Invoice',
         activityType:  'NOTE',
         metadata:      { path: ['type'], equals: 'VENDOR_DISPUTE' },
@@ -111,6 +112,6 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<NextRe
       })),
     })
   } catch (err) {
-    return handleApiError(err, `GET /api/portal/invoices/${params.id}`)
+    return handleApiError(err, 'GET /api/portal/invoices/[id]')
   }
 }

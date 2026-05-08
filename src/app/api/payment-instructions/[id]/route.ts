@@ -9,7 +9,7 @@ import { sanitiseString } from '@/lib/security/sanitise'
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
@@ -17,8 +17,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!READ_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
+    const { id } = await params
     const pi = await prisma.paymentInstruction.findUnique({
-      where: { id: params.id },
+      where: { id },
       include: {
         versions:   { orderBy: { version: 'asc' } },
         amendments: { orderBy: { requestedAt: 'desc' } },
@@ -85,7 +86,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const pi = await prisma.paymentInstruction.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const pi = await prisma.paymentInstruction.findUnique({ where: { id } })
     if (!pi || pi.orgId !== session.orgId) throw new NotFoundError('Payment instruction not found')
     if (pi.status !== 'DRAFT') throw new ValidationError('Only DRAFT payment instructions can be edited directly')
 
@@ -101,7 +103,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
     const updated = await prisma.$transaction(async tx => {
       const payment = await tx.paymentInstruction.update({
-        where: { id: params.id },
+        where: { id },
         data: {
           ...(body.bankAccountId !== undefined && { bankAccountId: body.bankAccountId }),
           ...(body.amount        !== undefined && { amount:        Number(body.amount) }),
@@ -118,7 +120,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       // Snapshot the new version
       await tx.paymentInstructionVersion.create({
         data: {
-          paymentInstructionId: params.id,
+          paymentInstructionId: id,
           version:     newVersion,
           entityId:    pi.entityId,
           bankAccountId: body.bankAccountId ?? pi.bankAccountId,

@@ -10,7 +10,7 @@ import { sanitiseString } from '@/lib/security/sanitise'
 
 const VALID_TIERS = ['LOW', 'MEDIUM', 'HIGH'] as const
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 export async function PUT(req: NextRequest, { params }: Params) {
   try {
@@ -18,7 +18,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (session.role !== 'ADMIN') throw new ForbiddenError()
 
-    const policy = await prisma.autoApprovePolicy.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const policy = await prisma.autoApprovePolicy.findUnique({ where: { id } })
     if (!policy || policy.orgId !== session.orgId) throw new NotFoundError('Policy not found')
 
     const body = await req.json()
@@ -43,7 +44,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       data.allowedRiskTiers = body.allowedRiskTiers
     }
 
-    await prisma.autoApprovePolicy.update({ where: { id: params.id }, data })
+    await prisma.autoApprovePolicy.update({ where: { id }, data })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, 'PUT /api/auto-approve-policies/[id]')
@@ -56,10 +57,11 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
     if (session.role !== 'ADMIN') throw new ForbiddenError()
 
-    const policy = await prisma.autoApprovePolicy.findUnique({ where: { id: params.id } })
+    const { id } = await params
+    const policy = await prisma.autoApprovePolicy.findUnique({ where: { id } })
     if (!policy || policy.orgId !== session.orgId) throw new NotFoundError('Policy not found')
 
-    await prisma.autoApprovePolicy.delete({ where: { id: params.id } })
+    await prisma.autoApprovePolicy.delete({ where: { id } })
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, 'DELETE /api/auto-approve-policies/[id]')
