@@ -263,13 +263,12 @@ async function main() {
   const catalogueMap: Record<string, string> = {} // name → id
 
   for (const def of catalogueDefs) {
-    const svc = await prisma.serviceCatalogue.upsert({
-      where:  { name: def.name },
-      update: { category: def.category as never, isActive: true },
-      create: { name: def.name, category: def.category as never, isActive: true },
-    })
+    let svc = await prisma.serviceCatalogue.findFirst({ where: { name: def.name } })
+    if (!svc) {
+      svc = await prisma.serviceCatalogue.create({ data: { name: def.name, isActive: true } })
+      tally('catalogue')
+    }
     catalogueMap[def.name] = svc.id
-    tally('catalogue')
     console.log(`  ✔ ${def.name}`)
   }
 
