@@ -393,21 +393,25 @@ export default function PODetailPage() {
                 <div>
                   <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>No goods receipts recorded.</p>
                   {GR_ROLES.has(role) && ['APPROVED', 'PARTIALLY_RECEIVED'].includes(po.status) && (
-                    <Link href={`/dashboard/purchase-orders/${poId}/goods-receipt`}
-                      className="text-sm px-4 py-2 rounded-lg border font-medium"
-                      style={{ borderColor: 'var(--border)', color: 'var(--ink)' }}>
+                    <button
+                      disabled
+                      title="Coming soon"
+                      className="text-sm px-4 py-2 rounded-lg border font-medium cursor-not-allowed opacity-50"
+                      style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
                       + Record Receipt
-                    </Link>
+                    </button>
                   )}
                 </div>
               ) : (
                 <>
                   {GR_ROLES.has(role) && po.status === 'PARTIALLY_RECEIVED' && (
-                    <Link href={`/dashboard/purchase-orders/${poId}/goods-receipt`}
-                      className="inline-block text-sm px-4 py-2 mb-3 rounded-lg border font-medium"
-                      style={{ borderColor: 'var(--border)', color: 'var(--ink)' }}>
+                    <button
+                      disabled
+                      title="Coming soon"
+                      className="inline-block text-sm px-4 py-2 mb-3 rounded-lg border font-medium cursor-not-allowed opacity-50"
+                      style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}>
                       + Record Another Receipt
-                    </Link>
+                    </button>
                   )}
                   {po.goodsReceipts.map(gr => {
                     const grStyle = gr.status === 'FULL' ? { bg: '#f0fdf4', color: '#16a34a' }

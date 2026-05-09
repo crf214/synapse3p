@@ -80,6 +80,17 @@ export async function POST(
       }
     }
 
+    // TODO: TWO_WAY match logic
+    // Two-way matching validates the goods receipt against the PO line items to prevent
+    // over-receiving and to compute per-line fulfilment status. Implementation should:
+    //   1. Load all existing GoodsReceipt records for this PO to sum prior received quantities.
+    //   2. For each submitted GR line item, look up the matching POLineItem by poLineItemId.
+    //   3. Reject if quantityReceived > (lineItem.quantity - already_received_qty).
+    //   4. Derive GR status automatically: if all PO lines are fully received → FULL,
+    //      else if any line has quantityReceived > 0 → PARTIAL, else → REJECTED.
+    //   5. Update PO status accordingly (FULLY_RECEIVED / PARTIALLY_RECEIVED).
+    // Until this is implemented the caller-supplied status and quantities are trusted.
+
     // Calculate received value
     const receivedAmount = body.lineItems.reduce((sum, item) => {
       return sum + (Number(item.quantityReceived) * Number(item.unitPrice))
