@@ -1,8 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { apiClient } from '@/lib/api-client'
 
 // ---------------------------------------------------------------------------
@@ -84,13 +86,27 @@ function fmtBytes(bytes: number | null) {
 export default function PortalInvoiceDetailPage() {
   const params = useParams()
   const router = useRouter()
+  const qc     = useQueryClient()
   const invoiceId = params.id as string
 
-  const [invoice,   setInvoice]   = useState<InvoiceDetail | null>(null)
-  const [documents, setDocuments] = useState<PortalDocument[]>([])
-  const [disputes,  setDisputes]  = useState<Dispute[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [error,     setError]     = useState<string | null>(null)
+  const queryKey = queryKeys.portal.invoices.detail(invoiceId)
+
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const res  = await fetch(`/api/portal/invoices/${invoiceId}`)
+      const json = await res.json() as {
+        invoice: InvoiceDetail; documents: PortalDocument[]; disputes: Dispute[]
+        error?: { message: string }
+      }
+      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to load')
+      return json
+    },
+  })
+
+  const invoice   = data?.invoice   ?? null
+  const documents = data?.documents ?? []
+  const disputes  = data?.disputes  ?? []
 
   // Active tab
   const [tab, setTab] = useState<'details' | 'documents' | 'dispute'>('details')
@@ -108,24 +124,6 @@ export default function PortalInvoiceDetailPage() {
   const [uploadError,  setUploadError]  = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState(false)
 
-  const load = useCallback(async () => {
-    setLoading(true); setError(null)
-    try {
-      const res  = await fetch(`/api/portal/invoices/${invoiceId}`)
-      const json = await res.json() as {
-        invoice: InvoiceDetail; documents: PortalDocument[]; disputes: Dispute[]
-        error?: { message: string }
-      }
-      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to load')
-      setInvoice(json.invoice)
-      setDocuments(json.documents)
-      setDisputes(json.disputes)
-    } catch (e) { setError(e instanceof Error ? e.message : 'Unknown error') }
-    finally { setLoading(false) }
-  }, [invoiceId])
-
-  useEffect(() => { void load() }, [load])
-
   async function submitDispute() {
     if (disputeReason.trim().length < 10) {
       setDisputeError('Reason must be at least 10 characters.')
@@ -142,7 +140,7 @@ export default function PortalInvoiceDetailPage() {
       if (!res.ok) throw new Error(json.error?.message ?? 'Submission failed')
       setDisputeSuccess(true)
       setDisputeReason('')
-      await load()
+      void qc.invalidateQueries({ queryKey })
     } catch (e) { setDisputeError(e instanceof Error ? e.message : 'Submission failed') }
     finally { setSubmittingDispute(false) }
   }
@@ -159,7 +157,7 @@ export default function PortalInvoiceDetailPage() {
       const json = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Upload failed')
       setUploadSuccess(true)
-      await load()
+      void qc.invalidateQueries({ queryKey })
     } catch (e) { setUploadError(e instanceof Error ? e.message : 'Upload failed') }
     finally {
       setUploading(false)
@@ -167,9 +165,9 @@ export default function PortalInvoiceDetailPage() {
     }
   }
 
-  if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
-  if (error)   return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>{error}</div>
-  if (!invoice) return null
+  if (isLoading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
+  if (isError)   return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>{error instanceof Error ? error.message : 'Unknown error'}</div>
+  if (!invoice)  return null
 
   const st = STATUS_COLOR[invoice.status] ?? { bg: '#f8fafc', color: '#64748b' }
   const canDispute = !NON_DISPUTABLE.has(invoice.status)

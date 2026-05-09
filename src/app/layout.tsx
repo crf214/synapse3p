@@ -2,6 +2,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { CsrfInitializer } from '@/components/shared/CsrfInitializer'
+import { QueryProvider } from '@/components/providers/QueryProvider'
 
 export const metadata: Metadata = {
   title: 'Synapse3P',
@@ -13,7 +14,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="min-h-screen bg-[var(--cream)]">
         <CsrfInitializer />
-        {children}
+        <QueryProvider>
+          {children}
+        </QueryProvider>
       </body>
     </html>
   )

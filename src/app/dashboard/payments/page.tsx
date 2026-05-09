@@ -1,8 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
@@ -66,41 +68,33 @@ export default function PaymentsPage() {
   const user   = useUser()
   const router = useRouter()
 
-  const [rows,    setRows]    = useState<PIRow[]>([])
-  const [total,   setTotal]   = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
-  const [status,  setStatus]  = useState('')
-  const [page,    setPage]    = useState(1)
+  const [status, setStatus] = useState('')
+  const [page,   setPage]   = useState(1)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    const p = new URLSearchParams({ page: String(page) })
-    if (status) p.set('status', status)
-    try {
+  // Reset to page 1 whenever filter changes
+  useEffect(() => { setPage(1) }, [status])
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: queryKeys.payments.list({ page, status }),
+    queryFn:  async () => {
+      const p = new URLSearchParams({ page: String(page) })
+      if (status) p.set('status', status)
       const res = await fetch(`/api/payment-instructions?${p}`)
       if (!res.ok) throw new Error()
-      const data = await res.json()
-      setRows(data.payments)
-      setTotal(data.total)
-    } catch {
-      setError('Could not load payment instructions.')
-    } finally {
-      setLoading(false)
-    }
-  }, [status, page])
+      return res.json() as Promise<{ payments: PIRow[]; total: number }>
+    },
+  })
 
-  useEffect(() => { setPage(1) }, [status])
-  useEffect(() => { load() }, [load])
+  const rows  = data?.payments ?? []
+  const total = data?.total    ?? 0
 
   if (!ALLOWED_ROLES.has(user.role ?? '')) {
     return <div className="p-8"><p style={{ color: 'var(--muted)' }}>Access denied.</p></div>
   }
 
   // Count actionable items
-  const pendingCount    = rows.filter(r => r.status === 'PENDING_APPROVAL').length
-  const amendmentCount  = rows.filter(r => r.status === 'AMENDMENT_PENDING').length
+  const pendingCount   = rows.filter(r => r.status === 'PENDING_APPROVAL').length
+  const amendmentCount = rows.filter(r => r.status === 'AMENDMENT_PENDING').length
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -140,13 +134,13 @@ export default function PaymentsPage() {
         })}
       </div>
 
-      {error && (
+      {isError && (
         <div className="mb-4 px-4 py-3 rounded-xl text-sm" style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}>
-          {error}
+          Could not load payment instructions.
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <div className="text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
       ) : rows.length === 0 ? (
         <div className="text-center py-20" style={{ color: 'var(--muted)' }}>

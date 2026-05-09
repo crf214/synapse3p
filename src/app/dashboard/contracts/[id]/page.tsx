@@ -1,8 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 import { apiClient } from '@/lib/api-client'
 
@@ -64,32 +66,27 @@ export default function ContractDetailPage() {
   const user    = useUser()
   const params  = useParams()
   const id      = params.id as string
+  const qc      = useQueryClient()
 
-  const [contract, setContract] = useState<ContractDetail | null>(null)
-  const [loading,  setLoading]  = useState(true)
-  const [error,    setError]    = useState<string | null>(null)
   const [editing,  setEditing]  = useState(false)
   const [saving,   setSaving]   = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [editData, setEditData] = useState<{
     status?: ContractStatus; value?: string; currency?: string
     startDate?: string; endDate?: string; renewalDate?: string
     autoRenew?: boolean; noticePeriodDays?: number; notes?: string
   }>({})
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/contracts/${id}`)
-      if (!res.ok) throw new Error('Not found')
-      setContract(await res.json())
-    } catch {
-      setError('Contract not found.')
-    } finally {
-      setLoading(false)
-    }
-  }, [id])
+  const queryKey = queryKeys.contracts.detail(id)
 
-  useEffect(() => { load() }, [load])
+  const { data: contract, isLoading: loading, isError } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const res = await fetch(`/api/contracts/${id}`)
+      if (!res.ok) throw new Error('Contract not found.')
+      return res.json() as Promise<ContractDetail>
+    },
+  })
 
   function startEdit() {
     if (!contract) return
@@ -109,7 +106,7 @@ export default function ContractDetailPage() {
 
   async function saveEdit() {
     setSaving(true)
-    setError(null)
+    setSaveError(null)
     try {
       const res = await apiClient(`/api/contracts/${id}`, {
         method: 'PUT',
@@ -124,16 +121,16 @@ export default function ContractDetailPage() {
         throw new Error(d.error?.message ?? 'Failed')
       }
       setEditing(false)
-      await load()
+      void qc.invalidateQueries({ queryKey })
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed')
+      setSaveError(e instanceof Error ? e.message : 'Failed')
     } finally {
       setSaving(false)
     }
   }
 
   if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
-  if (error || !contract) return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>{error ?? 'Not found'}</div>
+  if (isError || !contract) return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>Contract not found.</div>
 
   const col       = STATUS_COLOR[contract.status]
   const days      = daysUntil(contract.endDate)
@@ -251,9 +248,9 @@ export default function ContractDetailPage() {
                     className="w-full px-3 py-2 rounded-xl text-sm resize-none" style={inputStyle}
                   />
                 </div>
-                {error && <p className="text-xs" style={{ color: '#dc2626' }}>{error}</p>}
+                {saveError && <p className="text-xs" style={{ color: '#dc2626' }}>{saveError}</p>}
                 <div className="flex gap-2">
-                  <button onClick={() => { setEditing(false); setError(null) }}
+                  <button onClick={() => { setEditing(false); setSaveError(null) }}
                     className="px-4 py-2 rounded-xl text-sm"
                     style={{ background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
                     Cancel

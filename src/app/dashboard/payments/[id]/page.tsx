@@ -1,8 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 import { apiClient } from '@/lib/api-client'
 
@@ -11,7 +13,6 @@ type PIStatus =
   | 'CONFIRMED' | 'CANCELLED' | 'FAILED' | 'AMENDMENT_PENDING'
 
 type AmendmentStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'
-type AmendmentField  = 'AMOUNT' | 'ENTITY' | 'BANK_ACCOUNT'
 
 interface Version {
   id: string; version: number; amount: number; currency: string
@@ -22,9 +23,13 @@ interface Version {
 }
 
 interface Amendment {
-  id: string; field: AmendmentField; previousValue: string; proposedValue: string
-  status: AmendmentStatus; requestedAt: string; reviewedAt: string | null
-  rejectionReason: string | null; notes: string | null
+  id:      string
+  changes: Record<string, { from: string; to: string }>
+  status:  AmendmentStatus
+  requestedAt:     string
+  reviewedAt:      string | null
+  rejectionReason: string | null
+  notes:           string | null
   requestedByUser: { name: string | null; email: string } | null
   reviewedByUser:  { name: string | null; email: string } | null
 }
@@ -78,8 +83,8 @@ const STATUS_LABEL: Record<PIStatus, string> = {
   FAILED: 'Failed', AMENDMENT_PENDING: 'Amendment Pending',
 }
 
-const AMEND_FIELD_LABEL: Record<AmendmentField, string> = {
-  AMOUNT: 'Amount', ENTITY: 'Entity', BANK_ACCOUNT: 'Bank Account',
+const FIELD_LABEL: Record<string, string> = {
+  amount: 'Amount', entity: 'Entity', bank_account: 'Bank Account',
 }
 
 const AMEND_STATUS_COLOR: Record<AmendmentStatus, { bg: string; text: string }> = {
@@ -104,15 +109,31 @@ function fmtDateShort(iso: string | null) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function firstChange(a: Amendment): { key: string; from: string; to: string } | null {
+  const key = Object.keys(a.changes)[0]
+  if (!key) return null
+  return { key, from: a.changes[key].from, to: a.changes[key].to }
+}
+
 export default function PaymentDetailPage() {
   const user   = useUser()
   const params = useParams()
   const id     = params.id as string
+  const qc     = useQueryClient()
 
-  const [pi,       setPi]       = useState<PIDetail | null>(null)
-  const [loading,  setLoading]  = useState(true)
-  const [error,    setError]    = useState<string | null>(null)
+  const queryKey = queryKeys.payments.detail(id)
+
+  const { data: pi, isLoading, isError } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const res = await fetch(`/api/payment-instructions/${id}`)
+      if (!res.ok) throw new Error('Not found')
+      return res.json() as Promise<PIDetail>
+    },
+  })
+
   const [acting,   setActing]   = useState(false)
+  const [error,    setError]    = useState<string | null>(null)
 
   // Action modals
   const [approveModal,  setApproveModal]  = useState(false)
@@ -124,7 +145,7 @@ export default function PaymentDetailPage() {
   const [approveNotes,   setApproveNotes]   = useState('')
   const [rejectNotes,    setRejectNotes]    = useState('')
   const [cancelReason,   setCancelReason]   = useState('')
-  const [amendField,     setAmendField]     = useState<AmendmentField>('AMOUNT')
+  const [amendField,     setAmendField]     = useState('AMOUNT')
   const [amendValue,     setAmendValue]     = useState('')
   const [amendNotes,     setAmendNotes]     = useState('')
   const [amendDecision,  setAmendDecision]  = useState<'APPROVED' | 'REJECTED'>('APPROVED')
@@ -141,21 +162,6 @@ export default function PaymentDetailPage() {
   const canAmend   = AMEND_ROLES.has(user.role ?? '')    && pi && ['APPROVED','SENT_TO_ERP'].includes(pi.status)
   const canSendErp = APPROVER_ROLES.has(user.role ?? '') && pi?.status === 'APPROVED'
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/payment-instructions/${id}`)
-      if (!res.ok) throw new Error('Not found')
-      setPi(await res.json())
-    } catch {
-      setError('Payment instruction not found.')
-    } finally {
-      setLoading(false)
-    }
-  }, [id])
-
-  useEffect(() => { load() }, [load])
-
   async function doAction(url: string, body: object, onSuccess?: () => void) {
     setActing(true)
     setError(null)
@@ -168,7 +174,7 @@ export default function PaymentDetailPage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error?.message ?? 'Failed')
       onSuccess?.()
-      await load()
+      void qc.invalidateQueries({ queryKey })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Action failed')
     } finally {
@@ -188,7 +194,7 @@ export default function PaymentDetailPage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error?.message ?? 'Failed')
       setApproveAmendModal(null)
-      await load()
+      void qc.invalidateQueries({ queryKey })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Action failed')
     } finally {
@@ -196,8 +202,8 @@ export default function PaymentDetailPage() {
     }
   }
 
-  if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
-  if (error && !pi) return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>{error}</div>
+  if (isLoading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
+  if (isError && !pi) return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>Payment instruction not found.</div>
   if (!pi) return null
 
   const col = STATUS_COLOR[pi.status]
@@ -347,41 +353,48 @@ export default function PaymentDetailPage() {
                 Pending Amendments
               </h2>
               <div className="space-y-3">
-                {pi.amendments.filter(a => a.status === 'PENDING').map(a => (
-                  <div key={a.id} className="rounded-xl p-3"
-                    style={{ background: '#fff', border: '1px solid #e9d5ff' }}>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-medium" style={{ color: '#9333ea' }}>
-                          {AMEND_FIELD_LABEL[a.field]}
-                        </span>
-                        <div className="text-sm mt-1" style={{ color: 'var(--ink)' }}>
-                          <span style={{ color: 'var(--muted)' }}>{a.previousValue}</span>
-                          {' → '}
-                          <span className="font-medium">{a.proposedValue}</span>
+                {pi.amendments.filter(a => a.status === 'PENDING').map(a => {
+                  const ch = firstChange(a)
+                  return (
+                    <div key={a.id} className="rounded-xl p-3"
+                      style={{ background: '#fff', border: '1px solid #e9d5ff' }}>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          {ch && (
+                            <>
+                              <span className="text-xs font-medium" style={{ color: '#9333ea' }}>
+                                {FIELD_LABEL[ch.key] ?? ch.key}
+                              </span>
+                              <div className="text-sm mt-1" style={{ color: 'var(--ink)' }}>
+                                <span style={{ color: 'var(--muted)' }}>{ch.from}</span>
+                                {' → '}
+                                <span className="font-medium">{ch.to}</span>
+                              </div>
+                            </>
+                          )}
+                          {a.notes && <div className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{a.notes}</div>}
+                          <div className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
+                            Requested by {a.requestedByUser?.name ?? a.requestedByUser?.email ?? '—'} · {fmtDateShort(a.requestedAt)}
+                          </div>
                         </div>
-                        {a.notes && <div className="text-xs mt-1" style={{ color: 'var(--muted)' }}>{a.notes}</div>}
-                        <div className="text-xs mt-1" style={{ color: 'var(--muted)' }}>
-                          Requested by {a.requestedByUser?.name ?? a.requestedByUser?.email ?? '—'} · {fmtDateShort(a.requestedAt)}
-                        </div>
+                        {APPROVER_ROLES.has(user.role ?? '') && (
+                          <div className="flex gap-2 ml-4">
+                            <button onClick={() => { setApproveAmendModal(a); setAmendDecision('APPROVED') }}
+                              className="px-3 py-1 rounded-lg text-xs font-medium"
+                              style={{ background: '#f0fdf4', color: '#16a34a' }}>
+                              Approve
+                            </button>
+                            <button onClick={() => { setApproveAmendModal(a); setAmendDecision('REJECTED') }}
+                              className="px-3 py-1 rounded-lg text-xs font-medium"
+                              style={{ background: '#fef2f2', color: '#dc2626' }}>
+                              Reject
+                            </button>
+                          </div>
+                        )}
                       </div>
-                      {APPROVER_ROLES.has(user.role ?? '') && (
-                        <div className="flex gap-2 ml-4">
-                          <button onClick={() => { setApproveAmendModal(a); setAmendDecision('APPROVED') }}
-                            className="px-3 py-1 rounded-lg text-xs font-medium"
-                            style={{ background: '#f0fdf4', color: '#16a34a' }}>
-                            Approve
-                          </button>
-                          <button onClick={() => { setApproveAmendModal(a); setAmendDecision('REJECTED') }}
-                            className="px-3 py-1 rounded-lg text-xs font-medium"
-                            style={{ background: '#fef2f2', color: '#dc2626' }}>
-                            Reject
-                          </button>
-                        </div>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )}
@@ -392,18 +405,23 @@ export default function PaymentDetailPage() {
               <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--ink)' }}>Amendment History</h2>
               <div className="space-y-2">
                 {pi.amendments.filter(a => a.status !== 'PENDING').map(a => {
-                  const c = AMEND_STATUS_COLOR[a.status]
+                  const c  = AMEND_STATUS_COLOR[a.status]
+                  const ch = firstChange(a)
                   return (
                     <div key={a.id} className="flex items-start justify-between text-sm py-2"
                       style={{ borderBottom: '1px solid var(--border)' }}>
                       <div>
-                        <span className="font-medium" style={{ color: 'var(--ink)' }}>
-                          {AMEND_FIELD_LABEL[a.field]}
-                        </span>
-                        {' '}
-                        <span style={{ color: 'var(--muted)' }}>
-                          {a.previousValue} → {a.proposedValue}
-                        </span>
+                        {ch && (
+                          <>
+                            <span className="font-medium" style={{ color: 'var(--ink)' }}>
+                              {FIELD_LABEL[ch.key] ?? ch.key}
+                            </span>
+                            {' '}
+                            <span style={{ color: 'var(--muted)' }}>
+                              {ch.from} → {ch.to}
+                            </span>
+                          </>
+                        )}
                       </div>
                       <div className="text-right ml-4">
                         <span className="px-2 py-0.5 rounded-full text-xs font-medium"
@@ -616,7 +634,7 @@ export default function PaymentDetailPage() {
             <div className="space-y-4">
               <div>
                 <label className="text-xs font-medium block mb-1" style={{ color: 'var(--ink)' }}>Field</label>
-                <select value={amendField} onChange={e => setAmendField(e.target.value as AmendmentField)}
+                <select value={amendField} onChange={e => setAmendField(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl text-sm" style={inputStyle}>
                   <option value="AMOUNT">Amount</option>
                   <option value="ENTITY">Entity</option>
@@ -663,12 +681,17 @@ export default function PaymentDetailPage() {
             <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--ink)' }}>
               {amendDecision === 'APPROVED' ? 'Approve' : 'Reject'} Amendment
             </h2>
-            <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
-              {AMEND_FIELD_LABEL[approveAmendModal.field]}:{' '}
-              <span style={{ textDecoration: 'line-through' }}>{approveAmendModal.previousValue}</span>
-              {' → '}
-              <span className="font-medium">{approveAmendModal.proposedValue}</span>
-            </p>
+            {(() => {
+              const ch = firstChange(approveAmendModal)
+              return ch ? (
+                <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
+                  {FIELD_LABEL[ch.key] ?? ch.key}:{' '}
+                  <span style={{ textDecoration: 'line-through' }}>{ch.from}</span>
+                  {' → '}
+                  <span className="font-medium">{ch.to}</span>
+                </p>
+              ) : null
+            })()}
             <div className="flex gap-2 mb-4">
               {(['APPROVED', 'REJECTED'] as const).map(d => (
                 <button key={d} onClick={() => setAmendDecision(d)}

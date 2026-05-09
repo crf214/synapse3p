@@ -1,6 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 
 interface PaymentRow {
   id: string; amount: number; currency: string; rail: string
@@ -31,29 +33,19 @@ function fmtDate(iso: string | null) {
 }
 
 export default function PortalPaymentsPage() {
-  const [rows,    setRows]    = useState<PaymentRow[]>([])
-  const [total,   setTotal]   = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
-  const [page,    setPage]    = useState(1)
+  const [page, setPage] = useState(1)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: queryKeys.portal.payments.list({ page }),
+    queryFn:  async () => {
       const res = await fetch(`/api/portal/payments?page=${page}`)
       if (!res.ok) throw new Error()
-      const d = await res.json()
-      setRows(d.payments)
-      setTotal(d.total)
-    } catch {
-      setError('Could not load payments.')
-    } finally {
-      setLoading(false)
-    }
-  }, [page])
+      return res.json() as Promise<{ payments: PaymentRow[]; total: number }>
+    },
+  })
 
-  useEffect(() => { load() }, [load])
+  const rows  = data?.payments ?? []
+  const total = data?.total    ?? 0
 
   return (
     <div className="p-8 max-w-4xl mx-auto">
@@ -62,14 +54,14 @@ export default function PortalPaymentsPage() {
         <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>{total} payment{total !== 1 ? 's' : ''}</p>
       </div>
 
-      {error && (
+      {isError && (
         <div className="mb-4 px-4 py-3 rounded-xl text-sm"
           style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}>
-          {error}
+          Could not load payments.
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <div className="text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
       ) : rows.length === 0 ? (
         <div className="text-center py-16 text-sm" style={{ color: 'var(--muted)' }}>No payments found.</div>

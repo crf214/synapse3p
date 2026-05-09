@@ -1,7 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 import { apiClient } from '@/lib/api-client'
 
@@ -30,31 +32,27 @@ export default function NewMergedAuthPage() {
   const user   = useUser()
   const router = useRouter()
 
-  const [invoices,   setInvoices]  = useState<InvoiceOption[]>([])
   const [selected,   setSelected]  = useState<Set<string>>(new Set())
   const [creditSet,  setCreditSet] = useState<Set<string>>(new Set())
   const [name,       setName]      = useState('')
   const [notes,      setNotes]     = useState('')
   const [search,     setSearch]    = useState('')
-  const [loading,    setLoading]   = useState(true)
   const [saving,     setSaving]    = useState(false)
   const [error,      setError]     = useState<string | null>(null)
 
-  const loadInvoices = useCallback(async () => {
-    try {
+  const { data: invoiceData, isLoading: loading } = useQuery({
+    queryKey: queryKeys.invoices.eligibleForMerge,
+    queryFn:  async () => {
       const res = await fetch('/api/invoices?status=APPROVED&status=MATCHED&pageSize=200')
-      if (!res.ok) throw new Error()
+      if (!res.ok) throw new Error('Could not load invoices.')
       const data = await res.json()
-      // Filter out invoices already in a merged auth batch
-      setInvoices((data.invoices ?? []).filter((inv: InvoiceOption & { mergedAuthId?: string }) => !inv.mergedAuthId))
-    } catch {
-      setError('Could not load invoices.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+      return (data.invoices ?? []).filter(
+        (inv: InvoiceOption & { mergedAuthId?: string }) => !inv.mergedAuthId
+      ) as InvoiceOption[]
+    },
+  })
 
-  useEffect(() => { loadInvoices() }, [loadInvoices])
+  const invoices = invoiceData ?? []
 
   if (!ALLOWED_ROLES.has(user.role ?? '')) {
     return <div className="p-8"><p style={{ color: 'var(--muted)' }}>Access denied.</p></div>

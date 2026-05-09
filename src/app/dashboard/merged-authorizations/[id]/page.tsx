@@ -1,8 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 import { apiClient } from '@/lib/api-client'
 
@@ -12,7 +14,6 @@ type MAStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'PAID'
 
 interface MAItem {
   id:       string
-  isCredit: boolean
   amount:   number
   notes:    string | null
   invoice: {
@@ -27,21 +28,19 @@ interface MAItem {
 }
 
 interface MADetail {
-  id:           string
-  reference:    string
-  name:         string | null
-  totalAmount:  number
-  creditAmount: number
-  netAmount:    number
-  currency:     string
-  status:       MAStatus
-  notes:        string | null
-  createdAt:    string
-  updatedAt:    string
-  approvedAt:   string | null
-  creator:      { id: string; name: string | null; email: string } | null
-  approver:     { id: string; name: string | null; email: string } | null
-  items:        MAItem[]
+  id:          string
+  reference:   string
+  name:        string | null
+  totalAmount: number
+  currency:    string
+  status:      MAStatus
+  notes:       string | null
+  createdAt:   string
+  updatedAt:   string
+  approvedAt:  string | null
+  creator:     { id: string; name: string | null; email: string } | null
+  approver:    { id: string; name: string | null; email: string } | null
+  items:       MAItem[]
 }
 
 const STATUS_COLOR: Record<MAStatus, { bg: string; text: string }> = {
@@ -79,11 +78,10 @@ export default function MergedAuthDetailPage() {
   const user   = useUser()
   const router = useRouter()
   const { id } = useParams<{ id: string }>()
+  const qc     = useQueryClient()
 
-  const [ma,      setMa]      = useState<MADetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
   const [acting,  setActing]  = useState(false)
+  const [actError, setActError] = useState<string | null>(null)
 
   // Modal states
   const [showSubmitModal,  setShowSubmitModal]  = useState(false)
@@ -92,21 +90,16 @@ export default function MergedAuthDetailPage() {
   const [showDeleteModal,  setShowDeleteModal]  = useState(false)
   const [comments,         setComments]         = useState('')
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/merged-authorizations/${id}`)
-      if (!res.ok) throw new Error()
-      setMa(await res.json())
-    } catch {
-      setError('Could not load merged authorization.')
-    } finally {
-      setLoading(false)
-    }
-  }, [id])
+  const queryKey = queryKeys.mergedAuthorizations.detail(id)
 
-  useEffect(() => { load() }, [load])
+  const { data: ma, isLoading, isError } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      const res = await fetch(`/api/merged-authorizations/${id}`)
+      if (!res.ok) throw new Error('Could not load merged authorization.')
+      return res.json() as Promise<MADetail>
+    },
+  })
 
   if (!ALLOWED_ROLES.has(user.role ?? '')) {
     return <div className="p-8"><p style={{ color: 'var(--muted)' }}>Access denied.</p></div>
@@ -114,7 +107,7 @@ export default function MergedAuthDetailPage() {
 
   async function doAction(path: string, body: Record<string, unknown> = {}) {
     setActing(true)
-    setError(null)
+    setActError(null)
     try {
       const res = await apiClient(path, {
         method: 'POST',
@@ -125,9 +118,9 @@ export default function MergedAuthDetailPage() {
         const j = await res.json().catch(() => ({}))
         throw new Error(j.error?.message ?? 'Action failed')
       }
-      await load()
+      void qc.invalidateQueries({ queryKey })
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Action failed.')
+      setActError(err instanceof Error ? err.message : 'Action failed.')
     } finally {
       setActing(false)
     }
@@ -135,7 +128,7 @@ export default function MergedAuthDetailPage() {
 
   async function doApprovalDecide(decision: 'APPROVED' | 'REJECTED') {
     setActing(true)
-    setError(null)
+    setActError(null)
     try {
       const res = await apiClient(`/api/approvals/${id}/decide`, {
         method: 'POST',
@@ -149,9 +142,9 @@ export default function MergedAuthDetailPage() {
       setShowApproveModal(false)
       setShowRejectModal(false)
       setComments('')
-      await load()
+      void qc.invalidateQueries({ queryKey })
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Action failed.')
+      setActError(err instanceof Error ? err.message : 'Action failed.')
     } finally {
       setActing(false)
     }
@@ -167,19 +160,18 @@ export default function MergedAuthDetailPage() {
       }
       router.push('/dashboard/merged-authorizations')
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Delete failed.')
+      setActError(err instanceof Error ? err.message : 'Delete failed.')
       setActing(false)
     }
   }
 
-  if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
-  if (error && !ma) return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>{error}</div>
-  if (!ma) return null
+  if (isLoading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
+  if (isError || !ma) return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>Could not load merged authorization.</div>
 
-  const col         = STATUS_COLOR[ma.status]
-  const canSubmit   = ma.status === 'DRAFT' && new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER']).has(user.role ?? '')
-  const canApprove  = ma.status === 'PENDING_APPROVAL' && new Set(['ADMIN', 'CONTROLLER', 'CFO']).has(user.role ?? '')
-  const canDelete   = ma.status === 'DRAFT' && new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER']).has(user.role ?? '')
+  const col        = STATUS_COLOR[ma.status]
+  const canSubmit  = ma.status === 'DRAFT' && new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER']).has(user.role ?? '')
+  const canApprove = ma.status === 'PENDING_APPROVAL' && new Set(['ADMIN', 'CONTROLLER', 'CFO']).has(user.role ?? '')
+  const canDelete  = ma.status === 'DRAFT' && new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER']).has(user.role ?? '')
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -234,28 +226,22 @@ export default function MergedAuthDetailPage() {
         </div>
       </div>
 
-      {error && (
+      {actError && (
         <div className="mb-4 px-4 py-3 rounded-xl text-sm"
           style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}>
-          {error}
+          {actError}
         </div>
       )}
 
       <div className="grid grid-cols-3 gap-8 mt-6">
         {/* Main — invoice list */}
         <div className="col-span-2 space-y-6">
-          {/* Totals */}
-          <div className="grid grid-cols-3 gap-4">
-            {[
-              { label: 'Subtotal', value: fmtAmt(ma.totalAmount, ma.currency), color: 'var(--ink)' },
-              { label: 'Credits', value: ma.creditAmount > 0 ? `−${fmtAmt(ma.creditAmount, ma.currency)}` : '—', color: '#16a34a' },
-              { label: 'Net Amount', value: fmtAmt(ma.netAmount, ma.currency), color: '#2563eb' },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="rounded-2xl p-4" style={{ border: '1px solid var(--border)' }}>
-                <p className="text-xs mb-1" style={{ color: 'var(--muted)' }}>{label}</p>
-                <p className="text-xl font-semibold" style={{ color }}>{value}</p>
-              </div>
-            ))}
+          {/* Total */}
+          <div className="rounded-2xl p-4" style={{ border: '1px solid var(--border)' }}>
+            <p className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Total Amount</p>
+            <p className="text-xl font-semibold" style={{ color: '#2563eb' }}>
+              {fmtAmt(ma.totalAmount, ma.currency)}
+            </p>
           </div>
 
           {/* Invoice items */}
@@ -269,7 +255,7 @@ export default function MergedAuthDetailPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-                  {['Invoice #', 'Entity', 'Date', 'Amount', 'Type', 'Status'].map(h => (
+                  {['Invoice #', 'Entity', 'Date', 'Amount', 'Status'].map(h => (
                     <th key={h} className="text-left px-4 py-2 font-medium text-xs uppercase tracking-wide"
                       style={{ color: 'var(--muted)' }}>{h}</th>
                   ))}
@@ -294,20 +280,8 @@ export default function MergedAuthDetailPage() {
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted)' }}>
                       {fmtDate(item.invoice.invoiceDate)}
                     </td>
-                    <td className="px-4 py-3 text-sm font-medium"
-                      style={{ color: item.isCredit ? '#16a34a' : 'var(--ink)' }}>
-                      {item.isCredit
-                        ? `−${fmtAmt(item.amount, ma.currency)}`
-                        : fmtAmt(item.amount, ma.currency)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-xs px-1.5 py-0.5 rounded-full"
-                        style={{
-                          background: item.isCredit ? '#f0fdf4' : '#f8fafc',
-                          color:      item.isCredit ? '#16a34a' : '#64748b',
-                        }}>
-                        {item.isCredit ? 'Credit' : 'Invoice'}
-                      </span>
+                    <td className="px-4 py-3 text-sm font-medium" style={{ color: 'var(--ink)' }}>
+                      {fmtAmt(item.amount, ma.currency)}
                     </td>
                     <td className="px-4 py-3">
                       <span className="text-xs px-1.5 py-0.5 rounded-full"
@@ -336,11 +310,11 @@ export default function MergedAuthDetailPage() {
           <div className="rounded-2xl p-5 space-y-3" style={{ border: '1px solid var(--border)' }}>
             <h3 className="text-sm font-medium" style={{ color: 'var(--ink)' }}>Details</h3>
             {[
-              { label: 'Reference', value: ma.reference },
-              { label: 'Currency',  value: ma.currency },
-              { label: 'Created',   value: fmtDateTime(ma.createdAt) },
-              { label: 'Created by', value: ma.creator?.name ?? ma.creator?.email ?? '—' },
-              { label: 'Approved', value: ma.approvedAt ? fmtDateTime(ma.approvedAt) : '—' },
+              { label: 'Reference',   value: ma.reference },
+              { label: 'Currency',    value: ma.currency },
+              { label: 'Created',     value: fmtDateTime(ma.createdAt) },
+              { label: 'Created by',  value: ma.creator?.name ?? ma.creator?.email ?? '—' },
+              { label: 'Approved',    value: ma.approvedAt ? fmtDateTime(ma.approvedAt) : '—' },
               { label: 'Approved by', value: ma.approver?.name ?? ma.approver?.email ?? '—' },
             ].map(({ label, value }) => (
               <div key={label}>
@@ -355,10 +329,10 @@ export default function MergedAuthDetailPage() {
             <h3 className="text-sm font-medium mb-4" style={{ color: 'var(--ink)' }}>Timeline</h3>
             <div className="space-y-3">
               {[
-                { label: 'Created',          done: true,                               ts: ma.createdAt },
-                { label: 'Submitted',        done: ma.status !== 'DRAFT',              ts: null },
-                { label: 'Approved',         done: ['APPROVED','PAID'].includes(ma.status), ts: ma.approvedAt },
-                { label: 'Paid',             done: ma.status === 'PAID',               ts: null },
+                { label: 'Created',  done: true,                                       ts: ma.createdAt },
+                { label: 'Submitted',done: ma.status !== 'DRAFT',                      ts: null },
+                { label: 'Approved', done: ['APPROVED','PAID'].includes(ma.status),    ts: ma.approvedAt },
+                { label: 'Paid',     done: ma.status === 'PAID',                       ts: null },
               ].map(({ label, done, ts }) => (
                 <div key={label} className="flex items-start gap-3">
                   <div className="mt-0.5 w-4 h-4 rounded-full flex-shrink-0 flex items-center justify-center text-xs"
@@ -389,7 +363,7 @@ export default function MergedAuthDetailPage() {
           <div className="rounded-2xl p-6 w-full max-w-sm" style={{ background: '#fff', border: '1px solid var(--border)' }}>
             <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--ink)' }}>Submit for Approval</h2>
             <p className="text-sm mb-5" style={{ color: 'var(--muted)' }}>
-              This batch of {ma.items.length} invoices totalling {fmtAmt(ma.netAmount, ma.currency)} will be sent for approval.
+              This batch of {ma.items.length} invoices totalling {fmtAmt(ma.totalAmount, ma.currency)} will be sent for approval.
             </p>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setShowSubmitModal(false)}
@@ -415,7 +389,7 @@ export default function MergedAuthDetailPage() {
           <div className="rounded-2xl p-6 w-full max-w-sm" style={{ background: '#fff', border: '1px solid var(--border)' }}>
             <h2 className="text-lg font-semibold mb-2" style={{ color: 'var(--ink)' }}>Approve Batch</h2>
             <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
-              Approve this merged authorization for {fmtAmt(ma.netAmount, ma.currency)}?
+              Approve this merged authorization for {fmtAmt(ma.totalAmount, ma.currency)}?
             </p>
             <textarea value={comments} onChange={e => setComments(e.target.value)}
               rows={2} placeholder="Comments (optional)…"

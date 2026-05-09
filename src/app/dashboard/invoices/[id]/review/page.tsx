@@ -1,7 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { apiClient } from '@/lib/api-client'
@@ -190,11 +192,8 @@ export default function InvoiceReviewPage() {
   const params = useParams()
   const router = useRouter()
   const invoiceId = params.id as string
+  const qc = useQueryClient()
 
-  const [invoice,    setInvoice]    = useState<InvoiceDetail | null>(null)
-  const [loading,    setLoading]    = useState(true)
-  const [error,      setError]      = useState<string | null>(null)
-  const [approvers,  setApprovers]  = useState<Approver[]>([])
   const [corrections, setCorrections] = useState<Record<string, string>>({})
   const [saving,     setSaving]     = useState(false)
 
@@ -216,39 +215,41 @@ export default function InvoiceReviewPage() {
   const [submittingOverride,    setSubmittingOverride]    = useState(false)
   const [overrideError,         setOverrideError]         = useState<string | null>(null)
 
-  // Vendor disputes
-  const [disputes, setDisputes] = useState<InvoiceDetail['disputes']>([])
+  const invoiceQueryKey = queryKeys.invoices.detail(invoiceId)
 
-  // PDF blob URL — must be called before any early returns (Rules of Hooks)
-  const pdfBlobUrl = usePdfBlobUrl(invoice?.pdfSignedUrl ?? null)
-
-  const fetchInvoice = useCallback(async () => {
-    setLoading(true); setError(null)
-    try {
+  const { data: invoice, isLoading: loading, isError, error } = useQuery({
+    queryKey: invoiceQueryKey,
+    queryFn:  async () => {
       const res  = await fetch(`/api/invoices/${invoiceId}`)
       const json = await res.json() as { invoice: InvoiceDetail; error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to load')
-      setInvoice(json.invoice)
-    } catch (e) { setError(e instanceof Error ? e.message : 'Unknown error') }
-    finally { setLoading(false) }
-  }, [invoiceId])
+      return json.invoice
+    },
+  })
 
-  useEffect(() => { void fetchInvoice() }, [fetchInvoice])
+  const { data: approversData } = useQuery({
+    queryKey: queryKeys.users.approvers(APPROVER_ROLES),
+    enabled:  !!role && ROUTING_ROLES.has(role),
+    queryFn:  async () => {
+      const res = await fetch(`/api/users?roles=${APPROVER_ROLES.join(',')}`)
+      if (!res.ok) return { users: [] as Approver[] }
+      return res.json() as Promise<{ users: Approver[] }>
+    },
+  })
+  const approvers = approversData?.users ?? []
 
-  useEffect(() => {
-    if (!role || !ROUTING_ROLES.has(role)) return
-    fetch(`/api/users?roles=${APPROVER_ROLES.join(',')}`)
-      .then(r => r.json())
-      .then((j: { users: Approver[] }) => setApprovers(j.users))
-      .catch(() => {})
-  }, [role])
+  const { data: disputesData } = useQuery({
+    queryKey: queryKeys.invoices.disputes(invoiceId),
+    queryFn:  async () => {
+      const res = await fetch(`/api/invoices/${invoiceId}/disputes`)
+      if (!res.ok) return { disputes: [] as InvoiceDetail['disputes'] }
+      return res.json() as Promise<{ disputes: InvoiceDetail['disputes'] }>
+    },
+  })
+  const disputes = disputesData?.disputes ?? []
 
-  useEffect(() => {
-    fetch(`/api/invoices/${invoiceId}/disputes`)
-      .then(r => r.json())
-      .then((j: { disputes: InvoiceDetail['disputes'] }) => setDisputes(j.disputes ?? []))
-      .catch(() => {})
-  }, [invoiceId])
+  // PDF blob URL — must be called before any early returns (Rules of Hooks)
+  const pdfBlobUrl = usePdfBlobUrl(invoice?.pdfSignedUrl ?? null)
 
   if (!role || !ALLOWED_ROLES.has(role)) {
     return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Access denied.</div>
@@ -264,7 +265,7 @@ export default function InvoiceReviewPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fieldCorrections }),
       })
-      await fetchInvoice()
+      void qc.invalidateQueries({ queryKey: invoiceQueryKey })
       setCorrections({})
     } finally { setSaving(false) }
   }
@@ -323,14 +324,14 @@ export default function InvoiceReviewPage() {
       })
       const json = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Override failed')
-      await fetchInvoice()
+      void qc.invalidateQueries({ queryKey: invoiceQueryKey })
       setOverrideJustification('')
     } catch (e) { setOverrideError(e instanceof Error ? e.message : 'Override failed') }
     finally { setSubmittingOverride(false) }
   }
 
-  if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading invoice…</div>
-  if (error)   return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>{error}</div>
+  if (loading)  return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading invoice…</div>
+  if (isError)  return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>{error instanceof Error ? error.message : 'Unknown error'}</div>
   if (!invoice) return null
 
   const latestRisk = invoice.riskEvaluations[0] ?? null

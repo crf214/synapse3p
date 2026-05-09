@@ -1,7 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 import { apiClient } from '@/lib/api-client'
 
@@ -53,30 +55,24 @@ function subjectHref(item: ApprovalItem) {
 
 export default function ApprovalsPage() {
   const user = useUser()
-  const [items,    setItems]    = useState<ApprovalItem[]>([])
-  const [loading,  setLoading]  = useState(true)
+  const qc   = useQueryClient()
+
   const [filter,   setFilter]   = useState<ItemType | 'ALL'>('ALL')
   const [deciding, setDeciding] = useState<string | null>(null)
   const [modal,    setModal]    = useState<{ item: ApprovalItem; decision: 'APPROVED' | 'REJECTED' } | null>(null)
   const [comments, setComments] = useState('')
   const [error,    setError]    = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    try {
+  const { data, isLoading } = useQuery({
+    queryKey: queryKeys.approvals.all,
+    queryFn:  async () => {
       const res = await fetch('/api/approvals')
       if (!res.ok) throw new Error('Failed to load')
-      const data = await res.json()
-      setItems(data.items)
-    } catch {
-      setError('Could not load approvals.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+      return res.json() as Promise<{ items: ApprovalItem[] }>
+    },
+  })
 
-  useEffect(() => { load() }, [load])
+  const items = data?.items ?? []
 
   if (!ALLOWED_ROLES.has(user.role ?? '')) {
     return (
@@ -103,7 +99,7 @@ export default function ApprovalsPage() {
       }
       setModal(null)
       setComments('')
-      await load()
+      void qc.invalidateQueries({ queryKey: queryKeys.approvals.all })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to submit decision')
     } finally {
@@ -158,7 +154,7 @@ export default function ApprovalsPage() {
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <div className="text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
       ) : visible.length === 0 ? (
         <div className="text-center py-20" style={{ color: 'var(--muted)' }}>

@@ -1,7 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 import { apiClient } from '@/lib/api-client'
 
@@ -80,33 +82,29 @@ const STATUS_TABS: Array<{ value: ExecStatus | 'ALL'; label: string }> = [
 
 export default function PaymentExecutionsPage() {
   const { role } = useUser()
+  const qc = useQueryClient()
 
-  const [executions,  setExecutions]  = useState<Execution[]>([])
-  const [pagination,  setPagination]  = useState<Pagination | null>(null)
-  const [loading,     setLoading]     = useState(true)
-  const [error,       setError]       = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<ExecStatus | 'ALL'>('ALL')
-  const [page,        setPage]        = useState(1)
+  const [page,         setPage]         = useState(1)
 
   const [actioning,   setActioning]   = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [processing,  setProcessing]  = useState(false)
 
-  const load = useCallback(async (p = 1, status: ExecStatus | 'ALL' = 'ALL') => {
-    setLoading(true); setError(null)
-    try {
-      const qs  = new URLSearchParams({ page: String(p), limit: '50' })
-      if (status !== 'ALL') qs.set('status', status)
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: queryKeys.paymentExecutions.list({ page, statusFilter }),
+    queryFn:  async () => {
+      const qs  = new URLSearchParams({ page: String(page), limit: '50' })
+      if (statusFilter !== 'ALL') qs.set('status', statusFilter)
       const res  = await fetch(`/api/payment-executions?${qs}`)
       const json = await res.json() as { executions: Execution[]; pagination: Pagination; error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to load')
-      setExecutions(json.executions)
-      setPagination(json.pagination)
-    } catch (e) { setError(e instanceof Error ? e.message : 'Unknown error') }
-    finally { setLoading(false) }
-  }, [])
+      return json
+    },
+  })
 
-  useEffect(() => { void load(page, statusFilter) }, [load, page, statusFilter])
+  const executions = data?.executions ?? []
+  const pagination = data?.pagination  ?? null
 
   if (!role || !READ_ROLES.has(role)) {
     return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Access denied.</div>
@@ -118,7 +116,7 @@ export default function PaymentExecutionsPage() {
       const res  = await apiClient(`/api/payment-executions/${id}/retry`, { method: 'POST' })
       const json = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Retry failed')
-      await load(page, statusFilter)
+      void qc.invalidateQueries({ queryKey: queryKeys.paymentExecutions.all })
     } catch (e) { setActionError(e instanceof Error ? e.message : 'Retry failed') }
     finally { setActioning(null) }
   }
@@ -129,7 +127,7 @@ export default function PaymentExecutionsPage() {
       const res  = await apiClient(`/api/payment-executions/${id}/reconcile`, { method: 'POST' })
       const json = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Reconcile failed')
-      await load(page, statusFilter)
+      void qc.invalidateQueries({ queryKey: queryKeys.paymentExecutions.all })
     } catch (e) { setActionError(e instanceof Error ? e.message : 'Reconcile failed') }
     finally { setActioning(null) }
   }
@@ -140,7 +138,7 @@ export default function PaymentExecutionsPage() {
       const res  = await apiClient('/api/payment-executions', { method: 'POST' })
       const json = await res.json() as { processed?: number; failed?: number; error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Process failed')
-      await load(page, statusFilter)
+      void qc.invalidateQueries({ queryKey: queryKeys.paymentExecutions.all })
       if ((json.processed ?? 0) + (json.failed ?? 0) === 0) {
         setActionError('No scheduled payments are due at this time.')
       }
@@ -148,7 +146,7 @@ export default function PaymentExecutionsPage() {
     finally { setProcessing(false) }
   }
 
-  const failedCount = executions.filter(e => e.status === 'FAILED').length
+  const failedCount    = executions.filter(e => e.status === 'FAILED').length
   const scheduledCount = executions.filter(e => e.status === 'SCHEDULED').length
 
   return (
@@ -204,10 +202,10 @@ export default function PaymentExecutionsPage() {
           </div>
         )}
 
-        {loading && <p className="text-sm" style={{ color: 'var(--muted)' }}>Loading…</p>}
-        {error   && <p className="text-sm" style={{ color: '#dc2626' }}>{error}</p>}
+        {isLoading && <p className="text-sm" style={{ color: 'var(--muted)' }}>Loading…</p>}
+        {isError   && <p className="text-sm" style={{ color: '#dc2626' }}>{error instanceof Error ? error.message : 'Unknown error'}</p>}
 
-        {!loading && executions.length === 0 && (
+        {!isLoading && executions.length === 0 && (
           <div className="text-center py-16">
             <p className="text-sm font-medium mb-1" style={{ color: 'var(--ink)' }}>No executions found</p>
             <p className="text-sm" style={{ color: 'var(--muted)' }}>
@@ -221,9 +219,9 @@ export default function PaymentExecutionsPage() {
             <div className="space-y-3">
               {executions.map(e => {
                 const st = STATUS_STYLE[e.status]
-                const isActioning = actioning === e.id
-                const canRetry      = ACTION_ROLES.has(role) && e.status === 'FAILED' && e.retryCount < 3
-                const canReconcile  = ACTION_ROLES.has(role) && e.status === 'COMPLETED' && !e.reconciled
+                const isActioning  = actioning === e.id
+                const canRetry     = ACTION_ROLES.has(role) && e.status === 'FAILED' && e.retryCount < 3
+                const canReconcile = ACTION_ROLES.has(role) && e.status === 'COMPLETED' && !e.reconciled
 
                 return (
                   <div key={e.id} className="rounded-xl p-4"

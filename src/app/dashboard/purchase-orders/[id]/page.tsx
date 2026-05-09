@@ -1,8 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { apiClient } from '@/lib/api-client'
@@ -99,10 +101,8 @@ export default function PODetailPage() {
   const params   = useParams()
   const router   = useRouter()
   const poId     = params.id as string
+  const qc       = useQueryClient()
 
-  const [po,      setPo]      = useState<PODetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
   const [tab,     setTab]     = useState<'overview' | 'amendments' | 'receipts'>('overview')
 
   // Approval action state
@@ -115,25 +115,24 @@ export default function PODetailPage() {
   const [submitting,   setSubmitting]   = useState(false)
   const [submitError,  setSubmitError]  = useState<string | null>(null)
 
-  const fetchPO = useCallback(async () => {
-    setLoading(true); setError(null)
-    try {
+  const queryKey = queryKeys.purchaseOrders.detail(poId)
+
+  const { data: po, isLoading, isError, error } = useQuery({
+    queryKey,
+    queryFn: async () => {
       const res  = await fetch(`/api/purchase-orders/${poId}`)
       const json = await res.json() as { purchaseOrder: PODetail; error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to load')
-      setPo(json.purchaseOrder)
-    } catch (e) { setError(e instanceof Error ? e.message : 'Unknown error') }
-    finally { setLoading(false) }
-  }, [poId])
-
-  useEffect(() => { void fetchPO() }, [fetchPO])
+      return json.purchaseOrder
+    },
+  })
 
   if (!role || !ALLOWED_ROLES.has(role)) {
     return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Access denied.</div>
   }
-  if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
-  if (error)   return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>{error}</div>
-  if (!po)     return null
+  if (isLoading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
+  if (isError)   return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>{error instanceof Error ? error.message : 'Unknown error'}</div>
+  if (!po)       return null
 
   const statusStyle = STATUS_STYLES[po.status] ?? STATUS_STYLES.DRAFT
 
@@ -150,7 +149,7 @@ export default function PODetailPage() {
       const res  = await apiClient(`/api/purchase-orders/${poId}/submit`, { method: 'POST' })
       const json = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Submit failed')
-      await fetchPO()
+      void qc.invalidateQueries({ queryKey })
     } catch (e) { setSubmitError(e instanceof Error ? e.message : 'Submit failed') }
     finally { setSubmitting(false) }
   }
@@ -167,7 +166,7 @@ export default function PODetailPage() {
       const json = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Decision failed')
       setComments('')
-      await fetchPO()
+      void qc.invalidateQueries({ queryKey })
     } catch (e) { setApproveError(e instanceof Error ? e.message : 'Decision failed') }
     finally { setApproving(false) }
   }

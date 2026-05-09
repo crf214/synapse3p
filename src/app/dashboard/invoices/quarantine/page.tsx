@@ -1,7 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 import { apiClient } from '@/lib/api-client'
 
@@ -268,35 +270,34 @@ function FlagRow({
 
 export default function QuarantinePage() {
   const { role } = useUser()
+  const qc = useQueryClient()
 
-  const [flags,      setFlags]      = useState<Flag[]>([])
-  const [resolved,   setResolved]   = useState<Flag[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [error,      setError]      = useState<string | null>(null)
-  const [pagination, setPagination] = useState<Pagination | null>(null)
-  const [page,       setPage]       = useState(1)
-
+  const [page,           setPage]           = useState(1)
   const [overrideTarget, setOverrideTarget] = useState<Flag | null>(null)
 
-  const load = useCallback(async (p = 1) => {
-    setLoading(true); setError(null)
-    try {
-      const [quarRes, resolvedRes] = await Promise.all([
-        fetch(`/api/invoices/quarantine?status=QUARANTINED&page=${p}&limit=50`),
-        fetch('/api/invoices/quarantine?status=OVERRIDE_APPROVED&limit=20'),
-      ])
-      const quarJson     = await quarRes.json()     as { flags: Flag[]; pagination: Pagination; error?: { message: string } }
-      const resolvedJson = await resolvedRes.json() as { flags: Flag[]; error?: { message: string } }
+  const { data: quarData, isLoading: quarLoading, isError: quarError } = useQuery({
+    queryKey: queryKeys.invoices.quarantine({ status: 'QUARANTINED', page }),
+    queryFn:  async () => {
+      const res  = await fetch(`/api/invoices/quarantine?status=QUARANTINED&page=${page}&limit=50`)
+      const json = await res.json() as { flags: Flag[]; pagination: Pagination; error?: { message: string } }
+      if (!res.ok) throw new Error(json.error?.message ?? 'Failed to load')
+      return json
+    },
+  })
 
-      if (!quarRes.ok) throw new Error(quarJson.error?.message ?? 'Failed to load')
-      setFlags(quarJson.flags)
-      setPagination(quarJson.pagination)
-      setResolved(resolvedJson.flags ?? [])
-    } catch (e) { setError(e instanceof Error ? e.message : 'Unknown error') }
-    finally { setLoading(false) }
-  }, [])
+  const { data: resolvedData } = useQuery({
+    queryKey: queryKeys.invoices.quarantine({ status: 'OVERRIDE_APPROVED' }),
+    queryFn:  async () => {
+      const res  = await fetch('/api/invoices/quarantine?status=OVERRIDE_APPROVED&limit=20')
+      const json = await res.json() as { flags: Flag[]; error?: { message: string } }
+      return json
+    },
+  })
 
-  useEffect(() => { void load(page) }, [load, page])
+  const flags      = quarData?.flags      ?? []
+  const pagination = quarData?.pagination ?? null
+  const resolved   = resolvedData?.flags  ?? []
+  const loading    = quarLoading
 
   if (!role || !READ_ROLES.has(role)) {
     return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Access denied.</div>
@@ -304,7 +305,7 @@ export default function QuarantinePage() {
 
   function handleOverridden() {
     setOverrideTarget(null)
-    void load(page)
+    void qc.invalidateQueries({ queryKey: ['invoices', 'quarantine'] })
   }
 
   return (
@@ -330,8 +331,8 @@ export default function QuarantinePage() {
 
       <div className="p-6 max-w-4xl mx-auto space-y-8">
 
-        {loading && <p className="text-sm" style={{ color: 'var(--muted)' }}>Loading…</p>}
-        {error   && <p className="text-sm" style={{ color: '#dc2626' }}>{error}</p>}
+        {loading    && <p className="text-sm" style={{ color: 'var(--muted)' }}>Loading…</p>}
+        {quarError  && <p className="text-sm" style={{ color: '#dc2626' }}>Failed to load quarantine flags.</p>}
 
         {/* Quarantined */}
         {!loading && (

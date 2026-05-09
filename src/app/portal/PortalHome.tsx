@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { useQuery } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 
 interface EntityInfo {
   entity:             { id: string; name: string }
@@ -57,32 +58,35 @@ const PAY_STATUS_COLOR: Record<string, { bg: string; text: string }> = {
 }
 
 export default function PortalHome({ name, role }: { name: string; role: string }) {
-  const [info,      setInfo]      = useState<EntityInfo | null>(null)
-  const [invoices,  setInvoices]  = useState<InvoiceSummary[]>([])
-  const [payments,  setPayments]  = useState<PaymentSummary[]>([])
-  const [invTotal,  setInvTotal]  = useState(0)
-  const [payTotal,  setPayTotal]  = useState(0)
-  const [loading,   setLoading]   = useState(true)
-  const [noEntity,  setNoEntity]  = useState(false)
+  const { data: meData, isLoading: meLoading, isError: meError } = useQuery({
+    queryKey: queryKeys.portal.me,
+    queryFn:  async () => {
+      const res = await fetch('/api/portal/me')
+      if (res.status === 404) return null
+      if (!res.ok) throw new Error()
+      return res.json() as Promise<EntityInfo>
+    },
+  })
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [meRes, invRes, payRes] = await Promise.all([
-          fetch('/api/portal/me'),
-          fetch('/api/portal/invoices?page=1'),
-          fetch('/api/portal/payments?page=1'),
-        ])
-        if (meRes.status === 404) { setNoEntity(true); setLoading(false); return }
-        if (meRes.ok)  setInfo(await meRes.json())
-        if (invRes.ok) { const d = await invRes.json(); setInvoices(d.invoices); setInvTotal(d.total) }
-        if (payRes.ok) { const d = await payRes.json(); setPayments(d.payments); setPayTotal(d.total) }
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
+  const { data: invData, isLoading: invLoading } = useQuery({
+    queryKey: queryKeys.portal.invoices.list({ page: 1 }),
+    queryFn:  async () => {
+      const res = await fetch('/api/portal/invoices?page=1')
+      if (!res.ok) throw new Error()
+      return res.json() as Promise<{ invoices: InvoiceSummary[]; total: number }>
+    },
+  })
+
+  const { data: payData, isLoading: payLoading } = useQuery({
+    queryKey: queryKeys.portal.payments.list({ page: 1 }),
+    queryFn:  async () => {
+      const res = await fetch('/api/portal/payments?page=1')
+      if (!res.ok) throw new Error()
+      return res.json() as Promise<{ payments: PaymentSummary[]; total: number }>
+    },
+  })
+
+  const loading = meLoading || invLoading || payLoading
 
   if (loading) {
     return (
@@ -92,7 +96,8 @@ export default function PortalHome({ name, role }: { name: string; role: string 
     )
   }
 
-  if (noEntity) {
+  // meData === null means 404 (no entity linked)
+  if (!meError && meData === null) {
     return (
       <div className="p-8 max-w-xl mx-auto mt-16 text-center">
         <div className="text-4xl mb-4">◎</div>
@@ -104,7 +109,13 @@ export default function PortalHome({ name, role }: { name: string; role: string 
     )
   }
 
-  const contractDays = daysUntil(info?.contractEnd ?? null)
+  const info     = meData ?? null
+  const invoices = invData?.invoices ?? []
+  const invTotal = invData?.total    ?? 0
+  const payments = payData?.payments ?? []
+  const payTotal = payData?.total    ?? 0
+
+  const contractDays     = daysUntil(info?.contractEnd ?? null)
   const contractExpiring = contractDays !== null && contractDays >= 0 && contractDays <= 30
   const contractExpired  = contractDays !== null && contractDays < 0
 

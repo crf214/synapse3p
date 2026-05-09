@@ -1,7 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/query-keys'
 
 interface InvoiceRow {
   id: string; invoiceNo: string; amount: number; currency: string
@@ -35,33 +37,25 @@ function daysUntil(iso: string | null) {
 
 export default function PortalInvoicesPage() {
   const router = useRouter()
-  const [rows,    setRows]    = useState<InvoiceRow[]>([])
-  const [total,   setTotal]   = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
-  const [status,  setStatus]  = useState('')
-  const [page,    setPage]    = useState(1)
+  const [status, setStatus] = useState('')
+  const [page,   setPage]   = useState(1)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setError(null)
-    const p = new URLSearchParams({ page: String(page) })
-    if (status) p.set('status', status)
-    try {
+  // Reset to page 1 whenever filter changes
+  useEffect(() => { setPage(1) }, [status])
+
+  const { data, isLoading, isError } = useQuery({
+    queryKey: queryKeys.portal.invoices.list({ page, status }),
+    queryFn:  async () => {
+      const p = new URLSearchParams({ page: String(page) })
+      if (status) p.set('status', status)
       const res = await fetch(`/api/portal/invoices?${p}`)
       if (!res.ok) throw new Error()
-      const d = await res.json()
-      setRows(d.invoices)
-      setTotal(d.total)
-    } catch {
-      setError('Could not load invoices.')
-    } finally {
-      setLoading(false)
-    }
-  }, [status, page])
+      return res.json() as Promise<{ invoices: InvoiceRow[]; total: number }>
+    },
+  })
 
-  useEffect(() => { setPage(1) }, [status])
-  useEffect(() => { load() }, [load])
+  const rows  = data?.invoices ?? []
+  const total = data?.total    ?? 0
 
   const STATUSES = ['', 'RECEIVED', 'PENDING_APPROVAL', 'APPROVED', 'MATCHED', 'PAID', 'REJECTED']
 
@@ -90,14 +84,14 @@ export default function PortalInvoicesPage() {
         })}
       </div>
 
-      {error && (
+      {isError && (
         <div className="mb-4 px-4 py-3 rounded-xl text-sm"
           style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }}>
-          {error}
+          Could not load invoices.
         </div>
       )}
 
-      {loading ? (
+      {isLoading ? (
         <div className="text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
       ) : rows.length === 0 ? (
         <div className="text-center py-16 text-sm" style={{ color: 'var(--muted)' }}>No invoices found.</div>
