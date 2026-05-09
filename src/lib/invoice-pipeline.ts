@@ -390,14 +390,23 @@ async function buildRiskSignals(
   const now = new Date()
   const thirtyDaysOut = new Date(now); thirtyDaysOut.setDate(now.getDate() + 30)
 
-  // NEW_VENDOR: no spend snapshots in last 6 months
-  const sixMonthsAgo = new Date(now); sixMonthsAgo.setMonth(now.getMonth() - 6)
-  const recentPeriod = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, '0')}`
-  const snapshots = await prisma.vendorSpendSnapshot.findMany({
-    where: { orgId, entityId: invoice.entityId, period: { gte: recentPeriod } },
-    orderBy: { period: 'asc' },
-  })
-  const isNewVendor = snapshots.length === 0
+  // NEW_VENDOR / AMOUNT_VARIANCE: direct query against invoices for last 6 months
+  // VendorSpendSnapshot replaced with direct query — snapshot table retained but no longer read
+  type SpendRow = { period: string; totalAmount: string; invoiceCount: bigint }
+  const spendRows = await prisma.$queryRaw<SpendRow[]>`
+    SELECT
+      TO_CHAR(DATE_TRUNC('month', "invoiceDate"), 'YYYY-MM') AS period,
+      SUM(amount)::text                                        AS "totalAmount",
+      COUNT(*)                                                 AS "invoiceCount"
+    FROM invoices
+    WHERE "orgId"       = ${orgId}
+      AND "entityId"    = ${invoice.entityId}
+      AND "invoiceDate" >= NOW() - INTERVAL '6 months'
+      AND status        != 'DUPLICATE'
+    GROUP BY DATE_TRUNC('month', "invoiceDate")
+    ORDER BY DATE_TRUNC('month', "invoiceDate") ASC
+  `
+  const isNewVendor = spendRows.length === 0
   signals.push({
     type:      'NEW_VENDOR',
     triggered: isNewVendor,
@@ -408,9 +417,9 @@ async function buildRiskSignals(
   let avgAmount    = 0
   let deviation    = 0
   let deviationPct = 0
-  if (snapshots.length > 0) {
-    const totalInvoices = snapshots.reduce((acc, s) => acc + s.invoiceCount, 0)
-    const totalAmount   = snapshots.reduce((acc, s) => acc + Number(s.totalAmount), 0)
+  if (spendRows.length > 0) {
+    const totalInvoices = spendRows.reduce((acc, s) => acc + Number(s.invoiceCount), 0)
+    const totalAmount   = spendRows.reduce((acc, s) => acc + parseFloat(s.totalAmount), 0)
     avgAmount   = totalInvoices > 0 ? totalAmount / totalInvoices : 0
     deviation   = Math.abs(invoice.amount - avgAmount)
     deviationPct = avgAmount > 0 ? deviation / avgAmount : 0

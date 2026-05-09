@@ -80,23 +80,34 @@ export async function GET(
       pdfSignedUrl = data?.signedUrl ?? null
     }
 
-    // Vendor spend history (last 6 months)
-    const sixMonthsAgo = new Date()
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
-    const periodFloor = `${sixMonthsAgo.getFullYear()}-${String(sixMonthsAgo.getMonth() + 1).padStart(2, '0')}`
+    // Vendor spend history (last 12 months)
+    // VendorSpendSnapshot replaced with direct query — snapshot table retained but no longer read
+    type SpendRow = { period: string; totalAmount: string; invoiceCount: bigint }
+    const rawSpend = await prisma.$queryRaw<SpendRow[]>`
+      SELECT
+        TO_CHAR(DATE_TRUNC('month', "invoiceDate"), 'YYYY-MM') AS period,
+        SUM(amount)::text                                        AS "totalAmount",
+        COUNT(*)                                                 AS "invoiceCount"
+      FROM invoices
+      WHERE "orgId"       = ${session.orgId}
+        AND "entityId"    = ${invoice.entityId}
+        AND "invoiceDate" >= NOW() - INTERVAL '12 months'
+        AND status        != 'DUPLICATE'
+      GROUP BY DATE_TRUNC('month', "invoiceDate")
+      ORDER BY DATE_TRUNC('month', "invoiceDate") ASC
+    `
+    const spendHistory = rawSpend.map(r => ({
+      period:       r.period,
+      totalAmount:  parseFloat(r.totalAmount),
+      invoiceCount: Number(r.invoiceCount),
+    }))
 
-    const [spendHistory, recentInvoices] = await Promise.all([
-      prisma.vendorSpendSnapshot.findMany({
-        where:   { entityId: invoice.entityId, orgId: session.orgId, period: { gte: periodFloor } },
-        orderBy: { period: 'asc' },
-      }),
-      prisma.invoice.findMany({
+    const recentInvoices = await prisma.invoice.findMany({
         where:   { entityId: invoice.entityId, orgId: session.orgId, id: { not: invoice.id }, status: { not: 'DUPLICATE' } },
         orderBy: { invoiceDate: 'desc' },
         take:    5,
         select:  { id: true, invoiceNo: true, amount: true, currency: true, invoiceDate: true, status: true },
-      }),
-    ])
+      })
 
     return NextResponse.json({
       invoice: {
