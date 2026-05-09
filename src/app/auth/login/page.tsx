@@ -1,12 +1,14 @@
 'use client'
 // src/app/auth/login/page.tsx
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { apiClient } from '@/lib/api-client'
 
 export default function LoginPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const sessionExpired = searchParams.get('reason') === 'session_expired'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -40,6 +42,11 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {sessionExpired && (
+            <div className="text-sm px-4 py-3 rounded-lg" style={{ background: 'var(--blue-soft)', color: 'var(--blue-text)' }}>
+              Your session expired — please log in to continue.
+            </div>
+          )}
           {error && (
             <div className="text-sm px-4 py-3 rounded-lg" style={{ background: 'var(--red-soft)', color: 'var(--red-text)' }}>
               {error}

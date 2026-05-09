@@ -137,6 +137,10 @@ export async function middleware(req: NextRequest) {
     if (!session.userId) {
       const loginUrl = new URL('/auth/login', req.url)
       loginUrl.searchParams.set('next', pathname)
+      // Only add session_expired if a cookie was present but invalid/expired.
+      // If there is no session cookie at all this is a fresh visit, not expiry.
+      const hasSessionCookie = req.cookies.has('synapse3p_session')
+      if (hasSessionCookie) loginUrl.searchParams.set('reason', 'session_expired')
       return applySecurityHeaders(NextResponse.redirect(loginUrl))
     }
 
