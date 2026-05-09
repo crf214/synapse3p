@@ -1,9 +1,10 @@
 'use client'
 // src/app/auth/verify-email/page.tsx
+import { Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 
-export default function VerifyEmailPage() {
+function VerifyEmailContent() {
   const searchParams = useSearchParams()
   const verified = searchParams.get('verified') === 'true'
 
@@ -60,5 +61,13 @@ export default function VerifyEmailPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <VerifyEmailContent />
+    </Suspense>
   )
 }

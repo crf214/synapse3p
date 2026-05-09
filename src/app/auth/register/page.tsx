@@ -1,11 +1,11 @@
 'use client'
 // src/app/auth/register/page.tsx
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { apiClient } from '@/lib/api-client'
 
-export default function RegisterPage() {
+function RegisterForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialToken = searchParams.get('inviteToken') ?? ''
@@ -126,5 +126,13 @@ export default function RegisterPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense fallback={<div />}>
+      <RegisterForm />
+    </Suspense>
   )
 }
