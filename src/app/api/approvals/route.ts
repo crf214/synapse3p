@@ -62,7 +62,6 @@ export async function GET() {
         items: {
           select: {
             id: true,
-            isCredit: true,
             invoice: { select: { id: true, invoiceNo: true, amount: true, currency: true } },
           },
         },
@@ -126,7 +125,7 @@ export async function GET() {
         title:       m.name ?? `Batch ${m.reference}`,
         entityId:    null,
         entity:      `${m.items.length} invoice${m.items.length !== 1 ? 's' : ''}`,
-        amount:      Number(m.netAmount),
+        amount:      Number(m.totalAmount),
         currency:    m.currency,
         step:        null,
         requester:   userMap[m.createdBy] ?? null,

@@ -12,7 +12,6 @@ import { sanitiseString } from '@/lib/security/sanitise'
 const CreateMergedAuthorizationSchema = z.object({
   items: z.array(z.object({
     invoiceId: z.string().min(1),
-    isCredit:  z.boolean().optional(),
   })).min(2),
   name:  z.string().optional(),
   notes: z.string().optional(),
@@ -46,7 +45,7 @@ export async function GET(req: NextRequest) {
         take: pageSize,
         include: {
           items: {
-            select: { id: true, isCredit: true, amount: true },
+            select: { id: true, amount: true },
           },
         },
       }),
@@ -67,13 +66,11 @@ export async function GET(req: NextRequest) {
     const userMap = Object.fromEntries(users.map(u => [u.id, u]))
 
     const batches = rows.map(r => ({
-      id:           r.id,
-      reference:    r.reference,
-      name:         r.name,
-      totalAmount:  Number(r.totalAmount),
-      creditAmount: Number(r.creditAmount),
-      netAmount:    Number(r.netAmount),
-      currency:     r.currency,
+      id:          r.id,
+      reference:   r.reference,
+      name:        r.name,
+      totalAmount: Number(r.totalAmount),
+      currency:    r.currency,
       status:       r.status,
       itemCount:    r.items.length,
       createdAt:    r.createdAt.toISOString(),
@@ -132,22 +129,9 @@ export async function POST(req: NextRequest) {
 
     const currency = invoices[0].currency
 
-    // Build invoice map and apply isCredit from request body
-    const invoiceMap = Object.fromEntries(invoices.map(i => [i.id, i]))
-    const resolvedItems = itemsInput.map(item => ({
-      ...invoiceMap[item.invoiceId],
-      isCredit: item.isCredit ?? false,
-    }))
-
-    // Compute totals
-    let totalAmount  = 0
-    let creditAmount = 0
-    for (const inv of resolvedItems) {
-      const amt = Number(inv.amount)
-      if (inv.isCredit) creditAmount += amt
-      else              totalAmount  += amt
-    }
-    const netAmount = totalAmount - creditAmount
+    // Build invoice map and compute total
+    const invoiceMap  = Object.fromEntries(invoices.map(i => [i.id, i]))
+    const totalAmount = invoices.reduce((sum, inv) => sum + Number(inv.amount), 0)
 
     // Generate a reference
     const dateStr   = new Date().toISOString().slice(0, 10).replace(/-/g, '')
@@ -159,25 +143,22 @@ export async function POST(req: NextRequest) {
     const batch = await prisma.$transaction(async tx => {
       const ma = await tx.mergedAuthorization.create({
         data: {
-          orgId:        session.orgId!,
+          orgId:     session.orgId!,
           reference,
-          name:         name ? sanitiseString(name) : null,
+          name:      name ? sanitiseString(name) : null,
           totalAmount,
-          creditAmount,
-          netAmount,
           currency,
-          status:       'DRAFT',
-          createdBy:    session.userId!,
-          notes:        notes ? sanitiseString(notes) : null,
+          status:    'DRAFT',
+          createdBy: session.userId!,
+          notes:     notes ? sanitiseString(notes) : null,
         },
       })
 
       await tx.mergedAuthItem.createMany({
-        data: resolvedItems.map(inv => ({
+        data: itemsInput.map(item => ({
           mergedAuthId: ma.id,
-          invoiceId:    inv.id,
-          isCredit:     inv.isCredit,
-          amount:       Number(inv.amount),
+          invoiceId:    item.invoiceId,
+          amount:       Number(invoiceMap[item.invoiceId].amount),
         })),
       })
 

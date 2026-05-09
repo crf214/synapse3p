@@ -1892,15 +1892,13 @@ model NotificationPreference {
 
 // Parent record for a consolidated invoice authorization (batch approval + payment).
 // Each member invoice retains its own record and full audit trail.
-// netAmount = totalAmount - creditAmount (vendor credits offset charges).
+// totalAmount = simple sum of all member invoice amounts (no credit netting in v1).
 model MergedAuthorization {
   id            String           @id @default(cuid())
   orgId         String
   reference     String           // human-readable batch reference
   name          String?
   totalAmount   Decimal          @db.Decimal(18, 4)
-  creditAmount  Decimal          @default(0) @db.Decimal(18, 4)
-  netAmount     Decimal          @db.Decimal(18, 4)
   currency      String
   status        MergedAuthStatus @default(DRAFT)
   createdBy     String
@@ -1919,12 +1917,10 @@ model MergedAuthorization {
 }
 
 // Junction between a MergedAuthorization and its member invoices.
-// isCredit = true for vendor credit notes being netted against charges.
 model MergedAuthItem {
   id             String              @id @default(cuid())
   mergedAuthId   String
   invoiceId      String              @unique // each invoice belongs to at most one merge
-  isCredit       Boolean             @default(false)
   amount         Decimal             @db.Decimal(18, 4)
   notes          String?
 

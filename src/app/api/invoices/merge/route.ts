@@ -11,7 +11,6 @@ import { sanitiseString } from '@/lib/security/sanitise'
 
 const MergeInvoicesSchema = z.object({
   invoiceIds: z.array(z.string()).min(2),
-  creditIds:  z.array(z.string()).optional(),
   name:       z.string().optional(),
   notes:      z.string().optional(),
 })
@@ -37,8 +36,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (body.invoiceIds.length > 50) {
       throw new ValidationError('Cannot merge more than 50 invoices at once')
     }
-
-    const creditSet = new Set(body.creditIds ?? [])
 
     // Load and validate all invoices
     const invoices = await prisma.invoice.findMany({
@@ -89,12 +86,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw new ValidationError('Duplicate detection: two or more invoices in this selection have identical PDF fingerprints')
     }
 
-    // Compute totals
-    const chargeInvoices = invoices.filter(i => !creditSet.has(i.id))
-    const creditInvoices = invoices.filter(i => creditSet.has(i.id))
-    const totalAmount  = chargeInvoices.reduce((s, i) => s + i.amount, 0)
-    const creditAmount = creditInvoices.reduce((s, i) => s + i.amount, 0)
-    const netAmount    = totalAmount - creditAmount
+    // Compute total
+    const totalAmount = invoices.reduce((s, i) => s + i.amount, 0)
 
     // All invoices must share a currency (simplification — multi-currency merges require FX conversion)
     const currencies = new Set(invoices.map(i => i.currency))
@@ -110,20 +103,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const mergedAuth = await prisma.mergedAuthorization.create({
       data: {
-        orgId:        session.orgId,
+        orgId:     session.orgId,
         reference,
         name,
         totalAmount,
-        creditAmount,
-        netAmount,
         currency,
-        status:       'PENDING_APPROVAL',
-        createdBy:    session.userId!,
+        status:    'PENDING_APPROVAL',
+        createdBy: session.userId!,
         notes,
         items: {
           create: invoices.map(inv => ({
             invoiceId: inv.id,
-            isCredit:  creditSet.has(inv.id),
             amount:    inv.amount,
           })),
         },
