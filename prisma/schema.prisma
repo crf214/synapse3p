@@ -1323,14 +1323,13 @@ model PaymentInstructionVersion {
   @@map("payment_instruction_versions")
 }
 
-// NOTE: @@unique([paymentInstructionId, field, status]) prevents duplicate
-// combinations of all three values but does NOT enforce "only one PENDING
-// amendment per instruction per field" at the DB level on its own, because
-// Postgres unique constraints are not partial. To fully enforce this, add a
-// partial unique index via raw SQL migration:
-//   CREATE UNIQUE INDEX uq_pi_amendment_pending
-//   ON payment_instruction_amendments (payment_instruction_id, field)
-//   WHERE status = 'PENDING';
+// @@unique([paymentInstructionId, field, status]) prevents exact triple-duplicate
+// rows but cannot on its own enforce "only one PENDING per (instruction, field)".
+// That constraint is enforced at the DB level by a partial unique index created
+// in migration 20260509000001_payment_amendment_partial_unique_index:
+//   CREATE UNIQUE INDEX "payment_instruction_amendments_pending_field_unique"
+//   ON "payment_instruction_amendments" ("paymentInstructionId", "field")
+//   WHERE "status" = 'PENDING';
 model PaymentInstructionAmendment {
   id                    String          @id @default(cuid())
   paymentInstructionId  String
