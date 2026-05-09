@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 
-export default function InvoicePage({ params }: { params: { id: string } }) {
-  redirect(`/dashboard/invoices/${params.id}/review`)
+export default async function InvoicePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  redirect(`/dashboard/invoices/${id}/review`)
 }
