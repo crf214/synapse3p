@@ -1,11 +1,11 @@
 'use client'
 // src/app/auth/login/page.tsx
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { apiClient } from '@/lib/api-client'
 
-export default function LoginPage() {
+function LoginPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const sessionExpired = searchParams.get('reason') === 'session_expired'
@@ -92,3 +92,5 @@ export default function LoginPage() {
     </div>
   )
 }
+
+export default function LoginPage() { return <Suspense fallback={null}><LoginPageInner /></Suspense> }
