@@ -3,10 +3,23 @@
 // POST — create a new record
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateBcDrRecordSchema = z.object({
+  recordType:     z.string().min(1),
+  status:         z.string().min(1),
+  description:    z.string().min(1),
+  testedAt:       z.string().optional(),
+  rtoTargetHours: z.number().optional(),
+  rpoTargetHours: z.number().optional(),
+  actualRtoHours: z.number().nullable().optional(),
+  actualRpoHours: z.number().nullable().optional(),
+  notes:          z.string().optional(),
+})
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'CISO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'CISO', 'CONTROLLER'])
@@ -80,22 +93,28 @@ export async function POST(req: NextRequest) {
     if (!session.userId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = CreateBcDrRecordSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
     const {
       recordType, status, description, testedAt,
       rtoTargetHours, rpoTargetHours, actualRtoHours, actualRpoHours,
       notes,
-    } = body
+    } = parsed.data
 
-    if (!VALID_TYPES.includes(recordType))   throw new ValidationError(`recordType must be one of: ${VALID_TYPES.join(', ')}`)
-    if (!VALID_RESULTS.includes(status))     throw new ValidationError(`status must be one of: ${VALID_RESULTS.join(', ')}`)
-    if (!description?.trim())                throw new ValidationError('description is required')
+    if (!VALID_TYPES.includes(recordType as never))   throw new ValidationError(`recordType must be one of: ${VALID_TYPES.join(', ')}`)
+    if (!VALID_RESULTS.includes(status as never))     throw new ValidationError(`status must be one of: ${VALID_RESULTS.join(', ')}`)
 
     const record = await prisma.bcDrRecord.create({
       data: {
         orgId:          session.orgId!,
-        recordType,
-        status,
+        recordType: recordType as never,
+        status:     status     as never,
         description:    sanitiseString(description),
         testedAt:       testedAt ? new Date(testedAt) : new Date(),
         testedBy:       session.userId,

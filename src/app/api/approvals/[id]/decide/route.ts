@@ -3,9 +3,16 @@
 // Body: { type: 'PO' | 'INVOICE' | 'MERGED_AUTH', decision: 'APPROVED' | 'REJECTED', comments?: string }
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
+
+const DecideApprovalSchema = z.object({
+  type:     z.string().min(1),
+  decision: z.string().min(1),
+  comments: z.string().optional(),
+})
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -15,12 +22,15 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (!session.userId) throw new UnauthorizedError()
 
     const { id } = await params
-    const body = await req.json()
-    const { type, decision, comments } = body as {
-      type: 'PO' | 'INVOICE' | 'MERGED_AUTH'
-      decision: 'APPROVED' | 'REJECTED'
-      comments?: string
+    const rawBody = await req.json()
+    const parsed = DecideApprovalSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const { type, decision, comments } = parsed.data
 
     if (!['PO', 'INVOICE', 'MERGED_AUTH'].includes(type)) throw new ValidationError('Invalid type')
     if (!['APPROVED', 'REJECTED'].includes(decision)) throw new ValidationError('decision must be APPROVED or REJECTED')
@@ -34,7 +44,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
       await prisma.pOApproval.update({
         where: { id },
-        data: { status: decision, decidedAt: new Date(), comments: comments ?? null },
+        data: { status: decision as never, decidedAt: new Date(), comments: comments ?? null },
       })
 
       // Delegate to existing PO approve logic via internal fetch is heavy; do it inline.

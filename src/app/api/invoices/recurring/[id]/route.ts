@@ -1,10 +1,24 @@
 // src/app/api/invoices/recurring/[id]/route.ts — PUT/DELETE a recurring schedule
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const UpdateRecurringScheduleSchema = z.object({
+  name:           z.string().optional(),
+  description:    z.string().optional(),
+  spendCategory:  z.string().optional(),
+  expectedAmount: z.number().optional(),
+  currency:       z.string().optional(),
+  frequency:      z.string().optional(),
+  dayOfMonth:     z.number().nullable().optional(),
+  toleranceFixed: z.number().optional(),
+  tolerancePct:   z.number().optional(),
+  isActive:       z.boolean().optional(),
+})
 
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const VALID_FREQUENCIES = new Set(['DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'])
@@ -24,18 +38,15 @@ export async function PUT(
     })
     if (!sched) throw new NotFoundError('Recurring schedule not found')
 
-    const body = await req.json() as {
-      name?:          string
-      description?:   string
-      spendCategory?: string
-      expectedAmount?: number
-      currency?:      string
-      frequency?:     string
-      dayOfMonth?:    number | null
-      toleranceFixed?: number
-      tolerancePct?:  number
-      isActive?:      boolean
+    const rawBody = await req.json()
+    const parsed = UpdateRecurringScheduleSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsed.data
 
     if (body.frequency && !VALID_FREQUENCIES.has(body.frequency.toUpperCase())) {
       throw new ValidationError(`frequency must be one of: ${[...VALID_FREQUENCIES].join(', ')}`)

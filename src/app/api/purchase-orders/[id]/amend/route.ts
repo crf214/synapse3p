@@ -4,10 +4,22 @@
 // If the PO was APPROVED, it resets to PENDING_APPROVAL for re-approval.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const AmendPurchaseOrderSchema = z.object({
+  reason: z.string().min(1),
+  changes: z.object({
+    title:       z.string().optional(),
+    description: z.string().optional(),
+    totalAmount: z.number().optional(),
+    validTo:     z.string().nullable().optional(),
+    notes:       z.string().optional(),
+  }),
+})
 
 const AMEND_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const AMENDABLE   = new Set(['APPROVED', 'PARTIALLY_RECEIVED'])
@@ -35,20 +47,19 @@ export async function POST(
       throw new ValidationError(`Cannot amend a PO with status ${po.status}. Only APPROVED or PARTIALLY_RECEIVED POs can be amended.`)
     }
 
-    const body = await req.json() as {
-      reason: string
-      changes: {
-        title?:       string
-        description?: string
-        totalAmount?: number
-        validTo?:     string | null
-        notes?:       string
-      }
+    const rawBody = await req.json()
+    const parsed = AmendPurchaseOrderSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsed.data
 
     const reason = sanitiseString(body.reason ?? '', 1000).trim()
     if (!reason) throw new ValidationError('reason is required for amendments')
-    if (!body.changes || Object.keys(body.changes).length === 0) {
+    if (Object.keys(body.changes).length === 0) {
       throw new ValidationError('At least one field must be changed in an amendment')
     }
 

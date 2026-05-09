@@ -1,10 +1,23 @@
 // src/app/api/payment-instructions/route.ts — GET (list) + POST (create)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreatePaymentInstructionSchema = z.object({
+  invoiceId:     z.string().min(1),
+  bankAccountId: z.string().min(1),
+  amount:        z.number().optional(),
+  currency:      z.string().optional(),
+  dueDate:       z.string().optional().nullable(),
+  glCode:        z.string().optional().nullable(),
+  costCentre:    z.string().optional().nullable(),
+  poReference:   z.string().optional().nullable(),
+  notes:         z.string().optional().nullable(),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
@@ -99,12 +112,16 @@ export async function POST(req: NextRequest) {
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const orgId = session.orgId!
-    const body  = await req.json()
-
+    const rawBody = await req.json()
+    const parsed = CreatePaymentInstructionSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
     const { invoiceId, bankAccountId } = body
-
-    if (!invoiceId)     throw new ValidationError('invoiceId is required')
-    if (!bankAccountId) throw new ValidationError('bankAccountId is required')
 
     // Validate invoice exists, belongs to org, and is APPROVED
     const invoice = await prisma.invoice.findFirst({

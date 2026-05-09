@@ -3,10 +3,23 @@
 // DELETE — delete a rule (ADMIN only)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const UpdateProcessingRuleSchema = z.object({
+  name:                 z.string().optional(),
+  description:          z.string().nullable().optional(),
+  notes:                z.string().nullable().optional(),
+  isActive:             z.boolean().optional(),
+  requiresGoodsReceipt: z.boolean().optional(),
+  requiresContract:     z.boolean().optional(),
+  track:                z.string().optional(),
+  priority:             z.number().optional(),
+  conditions:           z.record(z.unknown()).optional(),
+})
 
 const VALID_TRACKS = ['FULL_PO', 'LIGHTWEIGHT', 'STP', 'CONTRACT_REQUIRED'] as const
 
@@ -22,7 +35,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const rule = await prisma.processingRule.findUnique({ where: { id } })
     if (!rule || rule.orgId !== session.orgId) throw new NotFoundError('Processing rule not found')
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = UpdateProcessingRuleSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
     const data: Record<string, unknown> = { updatedBy: session.userId }
 
     if (body.name        !== undefined) data.name        = sanitiseString(body.name)
@@ -33,15 +54,14 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (body.requiresContract     !== undefined) data.requiresContract     = Boolean(body.requiresContract)
 
     if (body.track !== undefined) {
-      if (!VALID_TRACKS.includes(body.track)) throw new ValidationError(`track must be one of: ${VALID_TRACKS.join(', ')}`)
+      if (!VALID_TRACKS.includes(body.track as never)) throw new ValidationError(`track must be one of: ${VALID_TRACKS.join(', ')}`)
       data.track = body.track
     }
     if (body.priority !== undefined) {
-      if (typeof body.priority !== 'number' || body.priority < 1) throw new ValidationError('priority must be a positive integer')
+      if (body.priority < 1) throw new ValidationError('priority must be a positive integer')
       data.priority = body.priority
     }
     if (body.conditions !== undefined) {
-      if (!body.conditions || typeof body.conditions !== 'object') throw new ValidationError('conditions must be a JSON object')
       data.conditions = body.conditions
     }
 

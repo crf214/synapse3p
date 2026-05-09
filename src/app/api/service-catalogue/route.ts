@@ -2,10 +2,18 @@
 // POST — create a new node (ADMIN only)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateServiceCatalogueSchema = z.object({
+  name:        z.string().min(1),
+  parentId:    z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  sortOrder:   z.number().optional(),
+})
 
 export async function GET(req: NextRequest) {
   try {
@@ -32,10 +40,15 @@ export async function POST(req: NextRequest) {
     if (!session.userId) throw new UnauthorizedError()
     if (session.role !== 'ADMIN') throw new ForbiddenError()
 
-    const body = await req.json()
-    const { name, parentId, description, sortOrder } = body
-
-    if (!name?.trim()) throw new ValidationError('name is required')
+    const rawBody = await req.json()
+    const parsed = CreateServiceCatalogueSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const { name, parentId, description, sortOrder } = parsed.data
 
     // Verify parent exists if provided
     if (parentId) {

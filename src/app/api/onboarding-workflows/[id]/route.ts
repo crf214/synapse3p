@@ -3,11 +3,21 @@
 // DELETE — deactivate (soft delete if instances exist, hard delete otherwise)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { VALID_STEP_TYPES, VALID_OPERATORS, type RuleCondition } from '@/lib/workflow-steps'
+
+const UpdateOnboardingWorkflowSchema = z.object({
+  name:          z.string().optional(),
+  description:   z.string().nullable().optional(),
+  entityTypes:   z.array(z.string()).optional(),
+  steps:         z.array(z.unknown()).optional(),
+  isActive:      z.boolean().optional(),
+  workflowType:  z.string().optional(),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -102,29 +112,37 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     })
     if (!existing) throw new NotFoundError('Workflow not found')
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = UpdateOnboardingWorkflowSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
     const updates: Record<string, unknown> = {}
 
-    if ('name' in body) {
+    if (body.name !== undefined) {
       const name = sanitiseString(body.name ?? '', 200)
       if (!name) throw new ValidationError('name cannot be empty')
       updates.name = name
     }
-    if ('description' in body) {
-      updates.description = body.description ? sanitiseString(body.description as string, 500) : null
+    if (body.description !== undefined) {
+      updates.description = body.description ? sanitiseString(body.description, 500) : null
     }
-    if ('entityTypes' in body) {
-      updates.entityTypes = (body.entityTypes as string[]).filter(t => VALID_ENTITY_TYPES.has(t))
+    if (body.entityTypes !== undefined) {
+      updates.entityTypes = body.entityTypes.filter((t: string) => VALID_ENTITY_TYPES.has(t))
     }
-    if ('steps' in body) {
+    if (body.steps !== undefined) {
       updates.steps = validateSteps(body.steps)
     }
-    if ('isActive' in body) {
+    if (body.isActive !== undefined) {
       updates.isActive = Boolean(body.isActive)
     }
-    if ('workflowType' in body) {
+    if (body.workflowType !== undefined) {
       const VALID = new Set(['ENTITY', 'INVOICE', 'PURCHASE_ORDER', 'OTHER'])
-      if (!VALID.has(body.workflowType as string)) throw new ValidationError('Invalid workflowType')
+      if (!VALID.has(body.workflowType)) throw new ValidationError('Invalid workflowType')
       updates.workflowType = body.workflowType
     }
 

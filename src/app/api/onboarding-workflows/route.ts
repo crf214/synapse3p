@@ -2,11 +2,20 @@
 // POST — create a new workflow
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { VALID_STEP_TYPES, VALID_OPERATORS, type RuleCondition, type StepDef } from '@/lib/workflow-steps'
+
+const CreateOnboardingWorkflowSchema = z.object({
+  name:          z.string().min(1),
+  description:   z.string().optional().nullable(),
+  workflowType:  z.string().optional(),
+  entityTypes:   z.array(z.string()).optional(),
+  steps:         z.array(z.unknown()),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -97,13 +106,18 @@ export async function POST(req: NextRequest) {
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const body = await req.json()
-    const { name, description, workflowType, entityTypes, steps } = body
-
-    if (!name?.trim()) throw new ValidationError('name is required')
+    const rawBody = await req.json()
+    const parsed = CreateOnboardingWorkflowSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const { name, description, workflowType, entityTypes, steps } = parsed.data
 
     const VALID_WORKFLOW_TYPES = new Set(['ENTITY', 'INVOICE', 'PURCHASE_ORDER', 'OTHER'])
-    const resolvedType = VALID_WORKFLOW_TYPES.has(workflowType) ? workflowType : 'ENTITY'
+    const resolvedType = workflowType && VALID_WORKFLOW_TYPES.has(workflowType) ? workflowType : 'ENTITY'
 
     const entityTypeList: string[] = resolvedType === 'ENTITY'
       ? (entityTypes ?? []).filter((t: string) => VALID_ENTITY_TYPES.has(t))

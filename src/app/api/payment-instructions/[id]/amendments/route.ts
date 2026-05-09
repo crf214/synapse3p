@@ -3,10 +3,23 @@
 // Body: { field: AmendmentField, proposedValue: string, notes?: string }
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const RequestAmendmentSchema = z.object({
+  field:         z.string().min(1),
+  proposedValue: z.string().min(1),
+  notes:         z.string().optional().nullable(),
+})
+
+const ReviewAmendmentSchema = z.object({
+  amendmentId:      z.string().min(1),
+  decision:         z.string().min(1),
+  rejectionReason:  z.string().optional(),
+})
 
 const AMEND_ROLES   = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const APPROVE_ROLES = new Set(['ADMIN', 'CONTROLLER', 'CFO'])
@@ -30,13 +43,19 @@ export async function POST(req: NextRequest, { params }: Params) {
       throw new ValidationError(`Amendments can only be requested on APPROVED or SENT_TO_ERP instructions (current: ${pi.status})`)
     }
 
-    const body = await req.json()
-    const field         = body.field as string
-    const proposedValue = sanitiseString(body.proposedValue ?? '')
-    const notes         = body.notes ? sanitiseString(body.notes) : null
+    const rawBody = await req.json()
+    const parsedPost = RequestAmendmentSchema.safeParse(rawBody)
+    if (!parsedPost.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsedPost.error.issues },
+        { status: 400 },
+      )
+    }
+    const field         = parsedPost.data.field
+    const proposedValue = sanitiseString(parsedPost.data.proposedValue ?? '')
+    const notes         = parsedPost.data.notes ? sanitiseString(parsedPost.data.notes) : null
 
     if (!VALID_FIELDS.includes(field)) throw new ValidationError('field must be AMOUNT, ENTITY, or BANK_ACCOUNT')
-    if (!proposedValue) throw new ValidationError('proposedValue is required')
 
     // Check no open amendment for same field
     const openAmendment = await prisma.paymentInstructionAmendment.findFirst({
@@ -89,9 +108,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const pi = await prisma.paymentInstruction.findUnique({ where: { id } })
     if (!pi || pi.orgId !== session.orgId) throw new NotFoundError('Payment instruction not found')
 
-    const body = await req.json()
-    const { amendmentId, decision, rejectionReason } = body
-    if (!amendmentId) throw new ValidationError('amendmentId is required')
+    const rawBody2 = await req.json()
+    const parsedPut = ReviewAmendmentSchema.safeParse(rawBody2)
+    if (!parsedPut.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsedPut.error.issues },
+        { status: 400 },
+      )
+    }
+    const { amendmentId, decision, rejectionReason } = parsedPut.data
     if (!['APPROVED', 'REJECTED'].includes(decision)) throw new ValidationError('decision must be APPROVED or REJECTED')
 
     const amendment = await prisma.paymentInstructionAmendment.findUnique({ where: { id: amendmentId } })
@@ -102,7 +127,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       await tx.paymentInstructionAmendment.update({
         where: { id: amendmentId },
         data: {
-          status:          decision,
+          status:          decision as never,
           reviewedBy:      session.userId,
           reviewedAt:      new Date(),
           rejectionReason: decision === 'REJECTED' ? sanitiseString(rejectionReason ?? '') : null,

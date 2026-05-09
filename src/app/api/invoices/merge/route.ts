@@ -3,10 +3,18 @@
 // Runs duplicate detection across selected invoices before confirming.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const MergeInvoicesSchema = z.object({
+  invoiceIds: z.array(z.string()).min(2),
+  creditIds:  z.array(z.string()).optional(),
+  name:       z.string().optional(),
+  notes:      z.string().optional(),
+})
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
@@ -16,16 +24,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !ALLOWED_ROLES.has(session.role)) throw new ForbiddenError()
 
-    const body = await req.json() as {
-      invoiceIds: string[]
-      creditIds?:  string[]   // invoiceIds that are credit notes (netting)
-      name?:       string
-      notes?:      string
+    const rawBody = await req.json()
+    const parsed = MergeInvoicesSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsed.data
 
-    if (!Array.isArray(body.invoiceIds) || body.invoiceIds.length < 2) {
-      throw new ValidationError('At least 2 invoiceIds are required to create a merged authorization')
-    }
     if (body.invoiceIds.length > 50) {
       throw new ValidationError('Cannot merge more than 50 invoices at once')
     }

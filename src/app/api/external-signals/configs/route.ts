@@ -3,10 +3,21 @@
 // POST — create a config for an entity (ADMIN/CISO only)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateSignalConfigSchema = z.object({
+  entityId:          z.string().min(1),
+  companyName:       z.string().min(1),
+  signalTypes:       z.array(z.string()).optional(),
+  stockTicker:       z.string().optional().nullable(),
+  newsKeywords:      z.array(z.string()).optional(),
+  severityThreshold: z.string().optional(),
+  alertRecipients:   z.array(z.string()).optional(),
+})
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'CISO', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'CISO'])
@@ -62,20 +73,24 @@ export async function POST(req: NextRequest) {
     if (!session.userId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = CreateSignalConfigSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
     const {
       entityId, signalTypes, stockTicker, companyName,
       newsKeywords, severityThreshold, alertRecipients,
-    } = body
-
-    if (!entityId)       throw new ValidationError('entityId is required')
-    if (!companyName?.trim()) throw new ValidationError('companyName is required')
+    } = parsed.data
 
     const types = (signalTypes ?? []) as string[]
     for (const t of types) {
       if (!VALID_TYPES.includes(t as never)) throw new ValidationError(`signalTypes must be NEWS or STOCK_PRICE`)
     }
-    if (severityThreshold && !VALID_SEV.includes(severityThreshold)) {
+    if (severityThreshold && !VALID_SEV.includes(severityThreshold as never)) {
       throw new ValidationError(`severityThreshold must be LOW, MEDIUM, HIGH, or CRITICAL`)
     }
 
@@ -97,7 +112,7 @@ export async function POST(req: NextRequest) {
         signalTypes:       types as never[],
         stockTicker:       stockTicker ? sanitiseString(stockTicker).toUpperCase() : null,
         newsKeywords:      Array.isArray(newsKeywords) ? newsKeywords.map((k: string) => sanitiseString(k)) : [],
-        severityThreshold: severityThreshold ?? 'MEDIUM',
+        severityThreshold: (severityThreshold ?? 'MEDIUM') as never,
         alertRecipients:   Array.isArray(alertRecipients) ? alertRecipients : [],
         isActive:          true,
       },

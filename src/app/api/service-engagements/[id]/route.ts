@@ -4,10 +4,24 @@
 // DELETE — remove engagement
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const UpdateServiceEngagementSchema = z.object({
+  status:          z.string().optional(),
+  slaStatus:       z.string().optional(),
+  slaTarget:       z.string().nullable().optional(),
+  department:      z.string().nullable().optional(),
+  internalOwner:   z.string().nullable().optional(),
+  contractStart:   z.string().nullable().optional(),
+  contractEnd:     z.string().nullable().optional(),
+  notes:           z.string().nullable().optional(),
+  markReviewed:    z.boolean().optional(),
+  complianceDocs:  z.array(z.unknown()).optional(),
+})
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL'])
@@ -72,7 +86,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const eng = await prisma.serviceEngagement.findUnique({ where: { id } })
     if (!eng || eng.orgId !== session.orgId) throw new NotFoundError('Service engagement not found')
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = UpdateServiceEngagementSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
     const data: Record<string, unknown> = {}
 
     if (body.status        !== undefined) data.status        = body.status
@@ -85,9 +107,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (body.notes         !== undefined) data.notes         = body.notes         ? sanitiseString(body.notes)         : null
     if (body.markReviewed)               data.lastReviewedAt = new Date()
 
-    // complianceDocs must be a valid JSON array if provided
     if (body.complianceDocs !== undefined) {
-      if (!Array.isArray(body.complianceDocs)) throw new ValidationError('complianceDocs must be an array')
       data.complianceDocs = body.complianceDocs
     }
 

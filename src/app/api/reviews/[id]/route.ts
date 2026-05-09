@@ -1,10 +1,25 @@
 // src/app/api/reviews/[id]/route.ts — GET (detail) + PUT (update findings/scores)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const UpdateReviewSchema = z.object({
+  status:          z.string().optional(),
+  cyberScore:      z.number().nullable().optional(),
+  legalScore:      z.number().nullable().optional(),
+  privacyScore:    z.number().nullable().optional(),
+  overallScore:    z.number().nullable().optional(),
+  cyberFindings:   z.unknown().optional(),
+  legalFindings:   z.unknown().optional(),
+  privacyFindings: z.unknown().optional(),
+  notes:           z.string().nullable().optional(),
+  nextReviewDate:  z.string().nullable().optional(),
+  scheduledAt:     z.string().nullable().optional(),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'])
@@ -67,7 +82,15 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     const review = await prisma.thirdPartyReview.findUnique({ where: { id } })
     if (!review || review.orgId !== session.orgId) throw new NotFoundError('Review not found')
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = UpdateReviewSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
 
     if (body.status && !VALID_STATUSES.has(body.status)) throw new ValidationError('Invalid status')
 
@@ -79,16 +102,16 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
       changedParts.push(`status → ${String(body.status).replace(/_/g,' ')}`)
     }
     if (body.cyberScore !== undefined) {
-      data.cyberScore = body.cyberScore !== null && body.cyberScore !== '' ? Number(body.cyberScore) : null
+      data.cyberScore = body.cyberScore !== null ? Number(body.cyberScore) : null
     }
     if (body.legalScore !== undefined) {
-      data.legalScore = body.legalScore !== null && body.legalScore !== '' ? Number(body.legalScore) : null
+      data.legalScore = body.legalScore !== null ? Number(body.legalScore) : null
     }
     if (body.privacyScore !== undefined) {
-      data.privacyScore = body.privacyScore !== null && body.privacyScore !== '' ? Number(body.privacyScore) : null
+      data.privacyScore = body.privacyScore !== null ? Number(body.privacyScore) : null
     }
     if (body.overallScore !== undefined) {
-      data.overallScore = body.overallScore !== null && body.overallScore !== '' ? Number(body.overallScore) : null
+      data.overallScore = body.overallScore !== null ? Number(body.overallScore) : null
     }
     if (body.cyberFindings !== undefined)   data.cyberFindings   = body.cyberFindings
     if (body.legalFindings !== undefined)   data.legalFindings   = body.legalFindings
@@ -104,13 +127,14 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     }
 
     // Build score summary for activity log
+    const bodyRec = body as Record<string, unknown>
     const scores = ['overall','cyber','legal','privacy']
-      .filter(d => body[`${d}Score`] !== undefined && body[`${d}Score`] !== null && body[`${d}Score`] !== '')
-      .map(d => `${d[0].toUpperCase() + d.slice(1)} ${Number(body[`${d}Score`]).toFixed(1)}`)
+      .filter(d => bodyRec[`${d}Score`] !== undefined && bodyRec[`${d}Score`] !== null)
+      .map(d => `${d[0].toUpperCase() + d.slice(1)} ${Number(bodyRec[`${d}Score`]).toFixed(1)}`)
     if (scores.length > 0) changedParts.push(`scores: ${scores.join(', ')}`)
 
     const findingDomains = ['cyber','legal','privacy']
-      .filter(d => body[`${d}Findings`] !== undefined && Object.keys(body[`${d}Findings`] ?? {}).length > 0)
+      .filter(d => bodyRec[`${d}Findings`] !== undefined && Object.keys((bodyRec[`${d}Findings`] as Record<string, unknown>) ?? {}).length > 0)
       .map(d => d)
     if (findingDomains.length > 0) changedParts.push(`findings updated: ${findingDomains.join(', ')}`)
 

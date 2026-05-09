@@ -3,10 +3,16 @@
 // GET  — list disputes for an invoice (portal-scoped)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateDisputeSchema = z.object({
+  disputeType: z.string().optional(),
+  reason:      z.string().optional(),
+})
 
 const PORTAL_ROLES = new Set(['VENDOR', 'CLIENT'])
 
@@ -97,7 +103,15 @@ export async function POST(req: NextRequest, { params }: Params): Promise<NextRe
       throw new ValidationError(`Cannot raise a dispute on an invoice with status ${invoice.status}`)
     }
 
-    const body = await req.json() as { disputeType?: string; reason?: string }
+    const rawBody = await req.json()
+    const parsed = CreateDisputeSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
 
     const disputeType = body.disputeType?.toUpperCase() ?? 'OTHER'
     if (!VALID_DISPUTE_TYPES.has(disputeType)) {

@@ -4,10 +4,16 @@
 // DELETE — delete DRAFT only
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const UpdateMergedAuthorizationSchema = z.object({
+  name:  z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+})
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const EDIT_ROLES    = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
@@ -101,7 +107,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!ma || ma.orgId !== session.orgId) throw new NotFoundError('Merged authorization not found')
     if (ma.status !== 'DRAFT') throw new ValidationError('Only DRAFT merged authorizations can be edited')
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = UpdateMergedAuthorizationSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
     const data: Record<string, unknown> = {}
     if (body.name  !== undefined) data.name  = body.name  ? sanitiseString(body.name)  : null
     if (body.notes !== undefined) data.notes = body.notes ? sanitiseString(body.notes) : null

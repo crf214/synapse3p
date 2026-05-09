@@ -3,10 +3,25 @@
 // POST — create a new service engagement
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateServiceEngagementSchema = z.object({
+  entityId:           z.string().min(1),
+  serviceCatalogueId: z.string().min(1),
+  contractId:         z.string().min(1),
+  internalOwner:      z.string().optional().nullable(),
+  department:         z.string().optional().nullable(),
+  status:             z.string().optional(),
+  slaTarget:          z.string().optional().nullable(),
+  slaStatus:          z.string().optional(),
+  contractStart:      z.string().optional().nullable(),
+  contractEnd:        z.string().optional().nullable(),
+  notes:              z.string().optional().nullable(),
+})
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL'])
@@ -80,16 +95,19 @@ export async function POST(req: NextRequest) {
     if (!session.userId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = CreateServiceEngagementSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
     const {
       entityId, serviceCatalogueId, contractId, internalOwner, department,
       status, slaTarget, slaStatus, contractStart, contractEnd,
       notes,
-    } = body
-
-    if (!entityId)           throw new ValidationError('entityId is required')
-    if (!serviceCatalogueId) throw new ValidationError('serviceCatalogueId is required')
-    if (!contractId)         throw new ValidationError('contractId is required — every service engagement must be backed by a contract')
+    } = parsed.data
 
     // Verify entity belongs to org
     const entity = await prisma.entity.findFirst({
@@ -121,9 +139,9 @@ export async function POST(req: NextRequest) {
         contractId:     contractId,
         internalOwner:  internalOwner ?? null,
         department:     department    ? sanitiseString(department)  : null,
-        status:         status        ?? 'ACTIVE',
+        status:         (status        ?? 'ACTIVE') as never,
         slaTarget:      slaTarget     ? sanitiseString(slaTarget)   : null,
-        slaStatus:      slaStatus     ?? 'NOT_APPLICABLE',
+        slaStatus:      (slaStatus     ?? 'NOT_APPLICABLE') as never,
         contractStart:  contractStart ? new Date(contractStart)     : null,
         contractEnd:    contractEnd   ? new Date(contractEnd)       : null,
         notes:          notes         ? sanitiseString(notes)       : null,

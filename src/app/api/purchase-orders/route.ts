@@ -1,11 +1,41 @@
 // src/app/api/purchase-orders/route.ts — GET (list) + POST (create)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { Prisma } from '@prisma/client'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const LineItemSchema = z.object({
+  description: z.string().min(1),
+  quantity:    z.number(),
+  unitPrice:   z.number(),
+  taxRate:     z.number().optional(),
+  glCode:      z.string().optional(),
+  costCentre:  z.string().optional(),
+  notes:       z.string().optional(),
+})
+
+const CreatePurchaseOrderSchema = z.object({
+  entityId:              z.string().min(1),
+  title:                 z.string().min(1),
+  description:           z.string().optional(),
+  type:                  z.string().optional(),
+  currency:              z.string().optional(),
+  spendCategory:         z.string().optional(),
+  department:            z.string().optional(),
+  costCentre:            z.string().optional(),
+  glCode:                z.string().optional(),
+  validFrom:             z.string().optional(),
+  validTo:               z.string().optional(),
+  requiresGoodsReceipt:  z.boolean().optional(),
+  requiresContract:      z.boolean().optional(),
+  notes:                 z.string().optional(),
+  contractId:            z.string().optional(),
+  lineItems:             z.array(LineItemSchema).min(1),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -112,34 +142,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
-    const body = await req.json() as {
-      entityId:            string
-      title:               string
-      description?:        string
-      type?:               string
-      currency?:           string
-      spendCategory?:      string
-      department?:         string
-      costCentre?:         string
-      glCode?:             string
-      validFrom?:          string
-      validTo?:            string
-      requiresGoodsReceipt?: boolean
-      requiresContract?:     boolean
-      notes?:              string
-      contractId?:         string
-      lineItems:           LineItemInput[]
+    const rawBody = await req.json()
+    const parsed = CreatePurchaseOrderSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsed.data
 
     const entityId    = sanitiseString(body.entityId ?? '',    50).trim()
     const title       = sanitiseString(body.title ?? '',       200).trim()
     const description = sanitiseString(body.description ?? '', 1000).trim() || null
     const currency    = sanitiseString(body.currency ?? 'USD', 10).trim().toUpperCase()
     const type        = (body.type ?? 'FIXED') as 'FIXED' | 'OPEN' | 'BLANKET'
-
-    if (!entityId) throw new ValidationError('entityId is required')
-    if (!title)    throw new ValidationError('title is required')
-    if (!body.lineItems?.length) throw new ValidationError('At least one line item is required')
 
     // Validate entity belongs to org
     const entity = await prisma.entity.findFirst({

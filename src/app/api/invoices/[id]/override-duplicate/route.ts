@@ -4,10 +4,16 @@
 // All overrides are visible in the audit trail.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const OverrideDuplicateSchema = z.object({
+  flagId:        z.string().min(1),
+  justification: z.string().min(1),
+})
 
 // Only senior roles may override a duplicate quarantine — this is a financial control.
 const OVERRIDE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -21,12 +27,18 @@ export async function POST(
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !OVERRIDE_ROLES.has(session.role)) throw new ForbiddenError()
 
-    const body = await req.json() as { flagId: string; justification: string }
-
-    if (!body.flagId) throw new ValidationError('flagId is required')
+    const rawBody = await req.json()
+    const parsed = OverrideDuplicateSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
 
     const justification = sanitiseString(body.justification ?? '', 2000).trim()
-    if (!justification || justification.length < 10) {
+    if (justification.length < 10) {
       throw new ValidationError('A written justification of at least 10 characters is required to override a duplicate flag')
     }
 

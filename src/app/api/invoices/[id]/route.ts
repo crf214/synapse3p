@@ -1,11 +1,22 @@
 // src/app/api/invoices/[id]/route.ts — GET single invoice detail + PUT field corrections
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { supabaseAdmin } from '@/lib/supabase'
+
+const UpdateInvoiceSchema = z.object({
+  fieldCorrections: z.array(z.object({
+    fieldName:     z.string(),
+    reviewedValue: z.string(),
+  })).optional(),
+  invoiceNo:   z.string().optional(),
+  contractId:  z.string().nullable().optional(),
+  notes:       z.string().optional(),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -120,12 +131,15 @@ export async function PUT(
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
 
-    const body = await req.json() as {
-      fieldCorrections?: Array<{ fieldName: string; reviewedValue: string }>
-      invoiceNo?:   string
-      contractId?:  string | null
-      notes?:       string
+    const rawBody = await req.json()
+    const parsed = UpdateInvoiceSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsed.data
 
     // Apply field corrections
     if (body.fieldCorrections?.length) {

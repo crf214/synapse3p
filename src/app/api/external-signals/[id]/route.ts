@@ -2,9 +2,14 @@
 // PUT — review or dismiss a signal
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from '@/lib/errors'
+
+const UpdateExternalSignalSchema = z.object({
+  dismissed: z.boolean().optional(),
+})
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'CISO', 'CONTROLLER', 'CFO'])
 
@@ -20,7 +25,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const signal = await prisma.externalSignal.findUnique({ where: { id } })
     if (!signal || signal.orgId !== session.orgId) throw new NotFoundError('Signal not found')
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = UpdateExternalSignalSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
     const data: Record<string, unknown> = {}
 
     if (body.dismissed !== undefined) {

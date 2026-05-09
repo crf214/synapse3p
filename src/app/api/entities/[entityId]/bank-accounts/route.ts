@@ -1,8 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateBankAccountSchema = z.object({
+  label:       z.string().min(1),
+  accountName: z.string().min(1),
+  accountNo:   z.string().min(1),
+  currency:    z.string().min(1),
+  paymentRail: z.string().min(1),
+  routingNo:   z.string().optional(),
+  swiftBic:    z.string().optional(),
+  iban:        z.string().optional(),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR', 'LEGAL', 'CISO'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER'])
@@ -54,7 +66,15 @@ export async function POST(
     })
     if (!entity) throw new NotFoundError('Entity not found')
 
-    const body = await req.json() as Record<string, unknown>
+    const rawBody = await req.json()
+    const parsed = CreateBankAccountSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
 
     const label       = sanitiseString(body.label       ?? '', 200)
     const accountName = sanitiseString(body.accountName ?? '', 200)
@@ -65,11 +85,6 @@ export async function POST(
     const swiftBic    = body.swiftBic  ? sanitiseString(body.swiftBic,  20)  : undefined
     const iban        = body.iban      ? sanitiseString(body.iban,       50)  : undefined
 
-    if (!label)       throw new ValidationError('label is required')
-    if (!accountName) throw new ValidationError('accountName is required')
-    if (!accountNo)   throw new ValidationError('accountNo is required')
-    if (!currency)    throw new ValidationError('currency is required')
-    if (!paymentRail) throw new ValidationError('paymentRail is required')
     if (!VALID_PAYMENT_RAILS.has(paymentRail)) {
       throw new ValidationError(`paymentRail must be one of: ${[...VALID_PAYMENT_RAILS].join(', ')}`)
     }

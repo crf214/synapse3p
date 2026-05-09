@@ -1,8 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateEntitySchema = z.object({
+  name:              z.string().min(1),
+  legalStructure:    z.string().min(1),
+  jurisdiction:      z.string().min(1),
+  primaryCurrency:   z.string().min(1),
+  registrationNo:    z.string().optional(),
+  notes:             z.string().optional(),
+  parentId:          z.string().optional().nullable(),
+  incorporationDate: z.string().optional().nullable(),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER'])
@@ -107,7 +119,15 @@ export async function POST(req: NextRequest) {
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
-    const body = await req.json() as Record<string, unknown>
+    const rawBody = await req.json()
+    const parsed = CreateEntitySchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
 
     const name              = sanitiseString(body.name            ?? '', 200)
     const legalStructure    = sanitiseString(body.legalStructure  ?? '', 50)
@@ -115,13 +135,8 @@ export async function POST(req: NextRequest) {
     const primaryCurrency   = sanitiseString(body.primaryCurrency ?? '', 10)
     const registrationNo    = sanitiseString(body.registrationNo  ?? '', 100)
     const notes             = sanitiseString(body.notes           ?? '', 2000)
-    const parentId          = body.parentId          ? sanitiseString(body.parentId as string, 100) : null
-    const incorporationDate = body.incorporationDate ? new Date(body.incorporationDate as string) : null
-
-    if (!name)            throw new ValidationError('name is required')
-    if (!legalStructure)  throw new ValidationError('legalStructure is required')
-    if (!jurisdiction)    throw new ValidationError('jurisdiction is required')
-    if (!primaryCurrency) throw new ValidationError('primaryCurrency is required')
+    const parentId          = body.parentId          ? sanitiseString(body.parentId, 100) : null
+    const incorporationDate = body.incorporationDate ? new Date(body.incorporationDate) : null
 
     const VALID_STRUCTURES = ['INDIVIDUAL', 'COMPANY', 'FUND', 'TRUST', 'GOVERNMENT', 'OTHER']
     if (!VALID_STRUCTURES.includes(legalStructure)) throw new ValidationError('invalid legalStructure')

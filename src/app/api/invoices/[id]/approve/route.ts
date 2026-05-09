@@ -3,11 +3,17 @@
 // PATCH — record an approver decision (approve/reject/escalate)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { sendInvoiceAssignedEmail } from '@/lib/resend'
+
+const RouteInvoiceSchema = z.object({
+  assignedTo: z.string().min(1),
+  notes:      z.string().optional(),
+})
 
 const ROUTE_ROLES   = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const APPROVE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -26,8 +32,15 @@ export async function POST(
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !ROUTE_ROLES.has(session.role)) throw new ForbiddenError()
 
-    const body = await req.json() as { assignedTo: string; notes?: string }
-    if (!body.assignedTo) throw new ValidationError('assignedTo is required')
+    const rawBody = await req.json()
+    const parsed = RouteInvoiceSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
 
     const { id } = await params
     const invoice = await prisma.invoice.findFirst({

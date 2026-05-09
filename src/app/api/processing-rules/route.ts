@@ -3,10 +3,22 @@
 // POST — create a new rule
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateProcessingRuleSchema = z.object({
+  name:                 z.string().min(1),
+  description:          z.string().optional().nullable(),
+  priority:             z.number().int().min(1),
+  track:                z.string().min(1),
+  conditions:           z.record(z.unknown()),
+  requiresGoodsReceipt: z.boolean().optional(),
+  requiresContract:     z.boolean().optional(),
+  notes:                z.string().optional().nullable(),
+})
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const WRITE_ROLES   = new Set(['ADMIN'])
@@ -67,14 +79,18 @@ export async function POST(req: NextRequest) {
     if (!session.userId) throw new UnauthorizedError()
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = CreateProcessingRuleSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
     const { name, description, priority, track, conditions,
-            requiresGoodsReceipt, requiresContract, notes } = body
+            requiresGoodsReceipt, requiresContract, notes } = parsed.data
 
-    if (!name?.trim())              throw new ValidationError('name is required')
-    if (!VALID_TRACKS.includes(track)) throw new ValidationError(`track must be one of: ${VALID_TRACKS.join(', ')}`)
-    if (typeof priority !== 'number' || priority < 1) throw new ValidationError('priority must be a positive integer')
-    if (!conditions || typeof conditions !== 'object') throw new ValidationError('conditions must be a JSON object')
+    if (!VALID_TRACKS.includes(track as never)) throw new ValidationError(`track must be one of: ${VALID_TRACKS.join(', ')}`)
 
     const rule = await prisma.processingRule.create({
       data: {
@@ -82,8 +98,8 @@ export async function POST(req: NextRequest) {
         name:                 sanitiseString(name),
         description:          description ? sanitiseString(description) : null,
         priority,
-        track,
-        conditions,
+        track:      track as never,
+        conditions: conditions as never,
         requiresGoodsReceipt: requiresGoodsReceipt ?? false,
         requiresContract:     requiresContract     ?? false,
         notes:                notes ? sanitiseString(notes) : null,

@@ -1,10 +1,38 @@
 // src/app/api/purchase-orders/[id]/route.ts — GET detail + PUT update
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const LineItemSchema = z.object({
+  description: z.string().min(1),
+  quantity:    z.number(),
+  unitPrice:   z.number(),
+  taxRate:     z.number().optional(),
+  glCode:      z.string().optional(),
+  costCentre:  z.string().optional(),
+  notes:       z.string().optional(),
+})
+
+const UpdatePurchaseOrderSchema = z.object({
+  title:                z.string().optional(),
+  description:          z.string().optional(),
+  type:                 z.string().optional(),
+  currency:             z.string().optional(),
+  spendCategory:        z.string().optional(),
+  department:           z.string().optional(),
+  costCentre:           z.string().optional(),
+  glCode:               z.string().optional(),
+  validFrom:            z.string().nullable().optional(),
+  validTo:              z.string().nullable().optional(),
+  requiresGoodsReceipt: z.boolean().optional(),
+  requiresContract:     z.boolean().optional(),
+  notes:                z.string().optional(),
+  lineItems:            z.array(LineItemSchema).optional(),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -167,22 +195,15 @@ export async function PUT(
       throw new ValidationError('Only DRAFT purchase orders can be edited. Use the amend endpoint for approved POs.')
     }
 
-    const body = await req.json() as {
-      title?:              string
-      description?:        string
-      type?:               string
-      currency?:           string
-      spendCategory?:      string
-      department?:         string
-      costCentre?:         string
-      glCode?:             string
-      validFrom?:          string | null
-      validTo?:            string | null
-      requiresGoodsReceipt?: boolean
-      requiresContract?:   boolean
-      notes?:              string
-      lineItems?:          LineItemInput[]
+    const rawBody = await req.json()
+    const parsed = UpdatePurchaseOrderSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsed.data
 
     const updates: Record<string, unknown> = {}
 

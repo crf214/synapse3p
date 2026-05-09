@@ -3,10 +3,21 @@
 // DELETE — remove config (ADMIN/CISO)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const UpdateSignalConfigSchema = z.object({
+  isActive:          z.boolean().optional(),
+  companyName:       z.string().optional(),
+  stockTicker:       z.string().nullable().optional(),
+  alertRecipients:   z.array(z.string()).optional(),
+  newsKeywords:      z.array(z.string()).optional(),
+  signalTypes:       z.array(z.string()).optional(),
+  severityThreshold: z.string().optional(),
+})
 
 const WRITE_ROLES = new Set(['ADMIN', 'CISO'])
 const VALID_TYPES = ['NEWS', 'STOCK_PRICE'] as const
@@ -24,24 +35,31 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const config = await prisma.externalSignalConfig.findUnique({ where: { id } })
     if (!config || config.orgId !== session.orgId) throw new NotFoundError('Config not found')
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = UpdateSignalConfigSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
     const data: Record<string, unknown> = {}
 
     if (body.isActive          !== undefined) data.isActive          = Boolean(body.isActive)
     if (body.companyName       !== undefined) data.companyName       = sanitiseString(body.companyName)
     if (body.stockTicker       !== undefined) data.stockTicker       = body.stockTicker ? sanitiseString(body.stockTicker).toUpperCase() : null
-    if (body.alertRecipients   !== undefined) data.alertRecipients   = Array.isArray(body.alertRecipients) ? body.alertRecipients : []
-    if (body.newsKeywords      !== undefined) data.newsKeywords      = Array.isArray(body.newsKeywords) ? body.newsKeywords.map((k: string) => sanitiseString(k)) : []
+    if (body.alertRecipients   !== undefined) data.alertRecipients   = body.alertRecipients
+    if (body.newsKeywords      !== undefined) data.newsKeywords      = body.newsKeywords.map((k: string) => sanitiseString(k))
 
     if (body.signalTypes !== undefined) {
-      const types = body.signalTypes as string[]
-      for (const t of types) {
+      for (const t of body.signalTypes) {
         if (!VALID_TYPES.includes(t as never)) throw new ValidationError('Invalid signal type')
       }
-      data.signalTypes = types
+      data.signalTypes = body.signalTypes
     }
     if (body.severityThreshold !== undefined) {
-      if (!VALID_SEV.includes(body.severityThreshold)) throw new ValidationError('Invalid severity threshold')
+      if (!VALID_SEV.includes(body.severityThreshold as never)) throw new ValidationError('Invalid severity threshold')
       data.severityThreshold = body.severityThreshold
     }
 

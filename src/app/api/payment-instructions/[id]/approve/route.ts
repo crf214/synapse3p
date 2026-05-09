@@ -3,9 +3,15 @@
 // Body: { decision: 'APPROVED' | 'REJECTED', notes?: string }
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
+
+const ApprovePaymentInstructionSchema = z.object({
+  decision: z.string().min(1),
+  notes:    z.string().optional(),
+})
 
 const APPROVER_ROLES = new Set(['ADMIN', 'CONTROLLER', 'CFO'])
 
@@ -29,8 +35,15 @@ export async function POST(req: NextRequest, { params }: Params) {
       throw new ForbiddenError('Four-eyes control: the creator cannot approve their own payment instruction')
     }
 
-    const body = await req.json()
-    const { decision, notes } = body as { decision: 'APPROVED' | 'REJECTED'; notes?: string }
+    const rawBody = await req.json()
+    const parsed = ApprovePaymentInstructionSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const { decision, notes } = parsed.data
     if (!['APPROVED', 'REJECTED'].includes(decision)) throw new ValidationError('decision must be APPROVED or REJECTED')
 
     const newStatus = decision === 'APPROVED' ? 'APPROVED' : 'DRAFT'

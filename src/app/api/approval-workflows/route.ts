@@ -1,11 +1,28 @@
 // src/app/api/approval-workflows/route.ts — GET (list) + POST (create)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { Prisma } from '@prisma/client'
+
+const WorkflowStepSchema = z.object({
+  step:  z.number(),
+  role:  z.string(),
+  label: z.string(),
+})
+
+const CreateApprovalWorkflowSchema = z.object({
+  name:             z.string().min(1),
+  description:      z.string().optional(),
+  thresholdMin:     z.number().optional(),
+  thresholdMax:     z.number().nullable().optional(),
+  spendCategories:  z.array(z.string()).optional(),
+  departments:      z.array(z.string()).optional(),
+  steps:            z.array(WorkflowStepSchema).min(1),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const WRITE_ROLES = new Set(['ADMIN'])
@@ -35,19 +52,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
-    const body = await req.json() as {
-      name:            string
-      description?:    string
-      thresholdMin?:   number
-      thresholdMax?:   number | null
-      spendCategories?: string[]
-      departments?:    string[]
-      steps:           WorkflowStep[]
+    const rawBody = await req.json()
+    const parsed = CreateApprovalWorkflowSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsed.data
 
     const name = sanitiseString(body.name ?? '', 200).trim()
     if (!name) throw new ValidationError('name is required')
-    if (!body.steps?.length) throw new ValidationError('At least one step is required')
 
     // Validate steps
     const steps = body.steps.map((s, i) => {

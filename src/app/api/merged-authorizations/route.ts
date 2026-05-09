@@ -3,10 +3,20 @@
 // POST — create a new merged authorization batch
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateMergedAuthorizationSchema = z.object({
+  items: z.array(z.object({
+    invoiceId: z.string().min(1),
+    isCredit:  z.boolean().optional(),
+  })).min(2),
+  name:  z.string().optional(),
+  notes: z.string().optional(),
+})
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const CREATE_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
@@ -84,16 +94,15 @@ export async function POST(req: NextRequest) {
     if (!session.userId) throw new UnauthorizedError()
     if (!CREATE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const body = await req.json()
-    const { items: itemsInput, name, notes } = body as {
-      items: Array<{ invoiceId: string; isCredit?: boolean }>
-      name?: string
-      notes?: string
+    const rawBody = await req.json()
+    const parsed = CreateMergedAuthorizationSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
-
-    if (!Array.isArray(itemsInput) || itemsInput.length < 2) {
-      throw new ValidationError('At least 2 invoices are required to create a merged authorization')
-    }
+    const { items: itemsInput, name, notes } = parsed.data
 
     const invoiceIds = itemsInput.map(i => i.invoiceId)
 

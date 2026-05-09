@@ -6,10 +6,16 @@
 // so the requester can edit and re-submit.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sendPODecisionEmail, sendPOSubmittedEmail } from '@/lib/resend'
+
+const ApprovePurchaseOrderSchema = z.object({
+  decision: z.string().min(1),
+  comments: z.string().optional(),
+})
 
 const APPROVER_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
@@ -24,10 +30,15 @@ export async function POST(
 
     const { id } = await params
 
-    const body = await req.json() as {
-      decision: 'APPROVED' | 'REJECTED' | 'CHANGES_REQUESTED'
-      comments?: string
+    const rawBody = await req.json()
+    const parsed = ApprovePurchaseOrderSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsed.data
 
     if (!['APPROVED', 'REJECTED', 'CHANGES_REQUESTED'].includes(body.decision)) {
       throw new ValidationError('decision must be APPROVED, REJECTED, or CHANGES_REQUESTED')

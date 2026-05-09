@@ -2,9 +2,16 @@
 // GET/PUT the current user's invoice notification preferences.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ValidationError } from '@/lib/errors'
+
+const UpdateNotificationPreferencesSchema = z.object({
+  emailOnInvoiceRouted: z.boolean().optional(),
+  reminderEnabled:      z.boolean().optional(),
+  reminderAfterDays:    z.number().optional(),
+})
 
 export async function GET(): Promise<NextResponse> {
   try {
@@ -33,11 +40,15 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
 
-    const body = await req.json() as {
-      emailOnInvoiceRouted?: boolean
-      reminderEnabled?:      boolean
-      reminderAfterDays?:    number
+    const rawBody = await req.json()
+    const parsed = UpdateNotificationPreferencesSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsed.data
 
     if (body.reminderAfterDays !== undefined) {
       const days = Number(body.reminderAfterDays)

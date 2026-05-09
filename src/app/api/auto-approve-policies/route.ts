@@ -6,10 +6,24 @@
 // entityId = null → org-wide default; entityId set → per-entity override.
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateAutoApprovePolicySchema = z.object({
+  name:                  z.string().min(1),
+  entityId:              z.string().optional().nullable(),
+  maxAmount:             z.number().optional().nullable(),
+  currency:              z.string().optional(),
+  requireContractMatch:  z.boolean().optional(),
+  requireRecurringMatch: z.boolean().optional(),
+  allowedRiskTiers:      z.array(z.string()).optional(),
+  noDuplicateFlag:       z.boolean().optional(),
+  noAnomalyFlag:         z.boolean().optional(),
+  allFieldsExtracted:    z.boolean().optional(),
+})
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const VALID_TIERS   = ['LOW', 'MEDIUM', 'HIGH'] as const
@@ -77,18 +91,20 @@ export async function POST(req: NextRequest) {
     if (!session.userId) throw new UnauthorizedError()
     if (session.role !== 'ADMIN') throw new ForbiddenError()
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = CreateAutoApprovePolicySchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
     const {
       name, entityId, maxAmount, currency,
       requireContractMatch, requireRecurringMatch,
       allowedRiskTiers, noDuplicateFlag, noAnomalyFlag, allFieldsExtracted,
-    } = body
+    } = parsed.data
 
-    if (!name?.trim()) throw new ValidationError('name is required')
-
-    if (allowedRiskTiers && !Array.isArray(allowedRiskTiers)) {
-      throw new ValidationError('allowedRiskTiers must be an array')
-    }
     const tiers = (allowedRiskTiers ?? []) as string[]
     for (const t of tiers) {
       if (!VALID_TIERS.includes(t as never)) {

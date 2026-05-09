@@ -1,10 +1,24 @@
 // src/app/api/invoices/recurring/route.ts — GET/POST recurring schedules
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateRecurringScheduleSchema = z.object({
+  entityId:        z.string().min(1),
+  name:            z.string().min(1),
+  description:     z.string().optional(),
+  spendCategory:   z.string().optional(),
+  expectedAmount:  z.number().positive(),
+  currency:        z.string().optional(),
+  frequency:       z.string().min(1),
+  dayOfMonth:      z.number().optional(),
+  toleranceFixed:  z.number().optional(),
+  tolerancePct:    z.number().optional(),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -42,23 +56,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
-    const body = await req.json() as {
-      entityId:       string
-      name:           string
-      description?:   string
-      spendCategory?: string
-      expectedAmount: number
-      currency?:      string
-      frequency:      string
-      dayOfMonth?:    number
-      toleranceFixed?: number
-      tolerancePct?:  number
+    const rawBody = await req.json()
+    const parsed = CreateRecurringScheduleSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsed.data
 
-    if (!body.entityId)        throw new ValidationError('entityId is required')
-    if (!body.name?.trim())    throw new ValidationError('name is required')
-    if (!body.expectedAmount || body.expectedAmount <= 0) throw new ValidationError('expectedAmount must be positive')
-    if (!body.frequency || !VALID_FREQUENCIES.has(body.frequency.toUpperCase())) {
+    if (!VALID_FREQUENCIES.has(body.frequency.toUpperCase())) {
       throw new ValidationError(`frequency must be one of: ${[...VALID_FREQUENCIES].join(', ')}`)
     }
 

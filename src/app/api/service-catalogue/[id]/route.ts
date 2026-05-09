@@ -2,10 +2,18 @@
 // DELETE — deactivate if in use, hard delete otherwise (ADMIN only)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const UpdateServiceCatalogueSchema = z.object({
+  name:        z.string().optional(),
+  description: z.string().nullable().optional(),
+  isActive:    z.boolean().optional(),
+  sortOrder:   z.number().optional(),
+})
 
 type RouteParams = { params: Promise<{ id: string }> }
 
@@ -19,21 +27,29 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     const existing = await prisma.serviceCatalogue.findUnique({ where: { id } })
     if (!existing) throw new NotFoundError('Catalogue entry not found')
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = UpdateServiceCatalogueSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
     const updates: Record<string, unknown> = {}
 
-    if ('name' in body) {
+    if (body.name !== undefined) {
       const name = sanitiseString(body.name ?? '', 200)
       if (!name) throw new ValidationError('name cannot be empty')
       updates.name = name
     }
-    if ('description' in body) {
-      updates.description = body.description ? sanitiseString(body.description as string, 500) : null
+    if (body.description !== undefined) {
+      updates.description = body.description ? sanitiseString(body.description, 500) : null
     }
-    if ('isActive' in body) {
+    if (body.isActive !== undefined) {
       updates.isActive = Boolean(body.isActive)
     }
-    if ('sortOrder' in body) {
+    if (body.sortOrder !== undefined) {
       updates.sortOrder = Number(body.sortOrder)
     }
 

@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateAuditPeriodSchema = z.object({
+  name:        z.string().min(1),
+  framework:   z.string().min(1),
+  periodStart: z.string().min(1),
+  periodEnd:   z.string().min(1),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'CFO', 'CONTROLLER'])
@@ -35,18 +43,24 @@ export async function POST(req: NextRequest) {
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
-    const body = await req.json() as Record<string, unknown>
+    const rawBody = await req.json()
+    const parsed = CreateAuditPeriodSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
 
-    const name        = sanitiseString(body.name      ?? '', 200)
-    const framework   = sanitiseString(body.framework ?? '', 50)
-    const periodStart = body.periodStart ? new Date(body.periodStart as string) : null
-    const periodEnd   = body.periodEnd   ? new Date(body.periodEnd   as string) : null
+    const name        = sanitiseString(body.name,      200)
+    const framework   = sanitiseString(body.framework, 50)
+    const periodStart = new Date(body.periodStart)
+    const periodEnd   = new Date(body.periodEnd)
 
-    if (!name)                             throw new ValidationError('name is required')
-    if (!framework)                        throw new ValidationError('framework is required')
-    if (!periodStart || isNaN(periodStart.getTime())) throw new ValidationError('valid periodStart is required')
-    if (!periodEnd   || isNaN(periodEnd.getTime()))   throw new ValidationError('valid periodEnd is required')
-    if (periodEnd <= periodStart)          throw new ValidationError('periodEnd must be after periodStart')
+    if (isNaN(periodStart.getTime())) throw new ValidationError('valid periodStart is required')
+    if (isNaN(periodEnd.getTime()))   throw new ValidationError('valid periodEnd is required')
+    if (periodEnd <= periodStart)     throw new ValidationError('periodEnd must be after periodStart')
 
     const period = await prisma.auditPeriod.create({
       data: {

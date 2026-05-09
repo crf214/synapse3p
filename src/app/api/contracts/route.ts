@@ -1,10 +1,28 @@
 // src/app/api/contracts/route.ts — GET (list) + POST (create)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CreateContractSchema = z.object({
+  contractNo:       z.string().min(1),
+  type:             z.string().min(1),
+  entityId:         z.string().min(1),
+  docTitle:         z.string().optional(),
+  status:           z.string().optional(),
+  value:            z.union([z.number(), z.string()]).optional().nullable(),
+  currency:         z.string().optional(),
+  startDate:        z.string().optional().nullable(),
+  endDate:          z.string().optional().nullable(),
+  renewalDate:      z.string().optional().nullable(),
+  autoRenew:        z.boolean().optional(),
+  noticePeriodDays: z.number().optional(),
+  linkedPoId:       z.string().optional().nullable(),
+  notes:            z.string().optional().nullable(),
+})
 
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL'])
 const READ_ROLES  = new Set([...WRITE_ROLES, 'AP_CLERK', 'AUDITOR'])
@@ -102,16 +120,20 @@ export async function POST(req: NextRequest) {
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const orgId = session.orgId!
-    const body  = await req.json()
+    const rawBody = await req.json()
+    const parsed = CreateContractSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
 
     const contractNo = sanitiseString(body.contractNo ?? '')
     const type       = body.type as string
     const entityId   = body.entityId as string
     const docTitle   = sanitiseString(body.docTitle ?? contractNo)
-
-    if (!contractNo) throw new ValidationError('contractNo is required')
-    if (!type)       throw new ValidationError('type is required')
-    if (!entityId)   throw new ValidationError('entityId is required')
 
     const VALID_TYPES = ['MASTER','SOW','AMENDMENT','NDA','SLA','FRAMEWORK','OTHER'] as const
     type ValidType = typeof VALID_TYPES[number]
@@ -150,7 +172,7 @@ export async function POST(req: NextRequest) {
         entityId,
         contractNo,
         type:            contractType,
-        status:          body.status ?? 'DRAFT',
+        status:          (body.status ?? 'DRAFT') as never,
         value:           body.value !== undefined && body.value !== '' ? Number(body.value) : null,
         currency:        sanitiseString(body.currency ?? 'USD'),
         startDate:       body.startDate  ? new Date(body.startDate)  : null,

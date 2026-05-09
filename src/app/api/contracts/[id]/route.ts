@@ -1,10 +1,26 @@
 // src/app/api/contracts/[id]/route.ts — GET (detail) + PUT (update)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const UpdateContractSchema = z.object({
+  type:             z.string().optional(),
+  status:           z.string().optional(),
+  value:            z.union([z.number(), z.string()]).nullable().optional(),
+  currency:         z.string().optional(),
+  startDate:        z.string().nullable().optional(),
+  endDate:          z.string().nullable().optional(),
+  renewalDate:      z.string().nullable().optional(),
+  autoRenew:        z.boolean().optional(),
+  noticePeriodDays: z.number().optional(),
+  linkedPoId:       z.string().nullable().optional(),
+  notes:            z.string().nullable().optional(),
+  reviewedAt:       z.string().nullable().optional(),
+})
 
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL'])
 const READ_ROLES  = new Set([...WRITE_ROLES, 'AP_CLERK', 'AUDITOR'])
@@ -73,7 +89,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const contract = await prisma.contract.findUnique({ where: { id } })
     if (!contract || contract.orgId !== session.orgId) throw new NotFoundError('Contract not found')
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = UpdateContractSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
 
     const VALID_TYPES    = ['MASTER','SOW','AMENDMENT','NDA','SLA','FRAMEWORK','OTHER']
     const VALID_STATUSES = ['DRAFT','ACTIVE','EXPIRED','TERMINATED','UNDER_REVIEW','RENEWED']
@@ -84,8 +108,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const updated = await prisma.contract.update({
       where: { id },
       data: {
-        ...(body.type            && { type: body.type }),
-        ...(body.status          && { status: body.status }),
+        ...(body.type            && { type: body.type as never }),
+        ...(body.status          && { status: body.status as never }),
         ...(body.value !== undefined  && { value: body.value !== '' && body.value !== null ? Number(body.value) : null }),
         ...(body.currency        && { currency: sanitiseString(body.currency) }),
         ...(body.startDate  !== undefined && { startDate:   body.startDate   ? new Date(body.startDate)   : null }),

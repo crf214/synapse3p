@@ -3,10 +3,15 @@
 // Body: { reason: string }
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const CancelPaymentInstructionSchema = z.object({
+  reason: z.string().min(1),
+})
 
 const CANCEL_ROLES = new Set(['ADMIN', 'CONTROLLER', 'CFO', 'FINANCE_MANAGER'])
 
@@ -27,8 +32,15 @@ export async function POST(req: NextRequest, { params }: Params) {
       throw new ValidationError(`Cannot cancel a ${pi.status} payment instruction`)
     }
 
-    const body = await req.json()
-    const reason = sanitiseString(body.reason ?? '')
+    const rawBody = await req.json()
+    const parsed = CancelPaymentInstructionSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const reason = sanitiseString(parsed.data.reason ?? '')
     if (!reason) throw new ValidationError('Cancellation reason is required')
 
     await prisma.paymentInstruction.update({

@@ -1,11 +1,29 @@
 // src/app/api/approval-workflows/[id]/route.ts — PUT (update) + DELETE (deactivate)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { Prisma } from '@prisma/client'
+
+const WorkflowStepSchema = z.object({
+  step:  z.number(),
+  role:  z.string(),
+  label: z.string(),
+})
+
+const UpdateApprovalWorkflowSchema = z.object({
+  name:            z.string().optional(),
+  description:     z.string().optional(),
+  thresholdMin:    z.number().optional(),
+  thresholdMax:    z.number().nullable().optional(),
+  spendCategories: z.array(z.string()).optional(),
+  departments:     z.array(z.string()).optional(),
+  steps:           z.array(WorkflowStepSchema).optional(),
+  isActive:        z.boolean().optional(),
+})
 
 const WRITE_ROLES = new Set(['ADMIN'])
 
@@ -27,16 +45,15 @@ export async function PUT(
     })
     if (!existing) throw new NotFoundError('Approval workflow not found')
 
-    const body = await req.json() as {
-      name?:           string
-      description?:    string
-      thresholdMin?:   number
-      thresholdMax?:   number | null
-      spendCategories?: string[]
-      departments?:    string[]
-      steps?:          WorkflowStep[]
-      isActive?:       boolean
+    const rawBody = await req.json()
+    const parsed = UpdateApprovalWorkflowSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsed.data
 
     const updates: Record<string, unknown> = {}
 

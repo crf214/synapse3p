@@ -4,10 +4,23 @@
 // DELETE — delete (ADMIN/CISO only)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const UpdateBcDrRecordSchema = z.object({
+  status:         z.string().optional(),
+  description:    z.string().optional(),
+  notes:          z.string().nullable().optional(),
+  testedAt:       z.string().optional(),
+  rtoTargetHours: z.number().optional(),
+  rpoTargetHours: z.number().optional(),
+  actualRtoHours: z.number().nullable().optional(),
+  actualRpoHours: z.number().nullable().optional(),
+  evidence:       z.array(z.unknown()).optional(),
+})
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'CISO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'CISO', 'CONTROLLER'])
@@ -59,11 +72,19 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const record = await prisma.bcDrRecord.findUnique({ where: { id } })
     if (!record || record.orgId !== session.orgId) throw new NotFoundError('BC/DR record not found')
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = UpdateBcDrRecordSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
     const data: Record<string, unknown> = {}
 
     if (body.status !== undefined) {
-      if (!VALID_RESULTS.includes(body.status)) throw new ValidationError('Invalid status')
+      if (!VALID_RESULTS.includes(body.status as never)) throw new ValidationError('Invalid status')
       data.status = body.status
     }
     if (body.description    !== undefined) data.description    = sanitiseString(body.description)
@@ -73,10 +94,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (body.rpoTargetHours !== undefined) data.rpoTargetHours = Number(body.rpoTargetHours)
     if (body.actualRtoHours !== undefined) data.actualRtoHours = body.actualRtoHours != null ? Number(body.actualRtoHours) : null
     if (body.actualRpoHours !== undefined) data.actualRpoHours = body.actualRpoHours != null ? Number(body.actualRpoHours) : null
-    if (body.evidence       !== undefined) {
-      if (!Array.isArray(body.evidence)) throw new ValidationError('evidence must be an array')
-      data.evidence = body.evidence
-    }
+    if (body.evidence       !== undefined) data.evidence       = body.evidence
 
     await prisma.bcDrRecord.update({ where: { id }, data })
     return NextResponse.json({ ok: true })

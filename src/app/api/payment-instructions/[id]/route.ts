@@ -1,10 +1,23 @@
 // src/app/api/payment-instructions/[id]/route.ts — GET (detail) + PUT (edit DRAFT)
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+
+const UpdatePaymentInstructionSchema = z.object({
+  bankAccountId: z.string().optional(),
+  amount:        z.number().optional(),
+  currency:      z.string().optional(),
+  dueDate:       z.string().nullable().optional(),
+  glCode:        z.string().nullable().optional(),
+  costCentre:    z.string().nullable().optional(),
+  poReference:   z.string().nullable().optional(),
+  notes:         z.string().nullable().optional(),
+  changeReason:  z.string().optional(),
+})
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
@@ -91,7 +104,15 @@ export async function PUT(req: NextRequest, { params }: Params) {
     if (!pi || pi.orgId !== session.orgId) throw new NotFoundError('Payment instruction not found')
     if (pi.status !== 'DRAFT') throw new ValidationError('Only DRAFT payment instructions can be edited directly')
 
-    const body = await req.json()
+    const rawBody = await req.json()
+    const parsed = UpdatePaymentInstructionSchema.safeParse(rawBody)
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsed.error.issues },
+        { status: 400 },
+      )
+    }
+    const body = parsed.data
 
     // Validate bank account if changing it
     if (body.bankAccountId && body.bankAccountId !== pi.bankAccountId) {

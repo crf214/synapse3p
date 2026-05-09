@@ -3,11 +3,27 @@
 // Updates PO amountSpent and status (PARTIALLY_RECEIVED or FULLY_RECEIVED).
 
 import { NextRequest, NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { Prisma } from '@prisma/client'
+
+const GoodsReceiptLineItemSchema = z.object({
+  poLineItemId:     z.string(),
+  description:      z.string(),
+  quantityOrdered:  z.number(),
+  quantityReceived: z.number(),
+  unitPrice:        z.number(),
+})
+
+const CreateGoodsReceiptSchema = z.object({
+  receivedAt: z.string().min(1),
+  status:     z.string().min(1),
+  lineItems:  z.array(GoodsReceiptLineItemSchema).min(1),
+  notes:      z.string().optional(),
+})
 
 const GR_ROLES    = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
 const GR_ELIGIBLE = new Set(['APPROVED', 'PARTIALLY_RECEIVED'])
@@ -43,18 +59,19 @@ export async function POST(
       throw new ValidationError(`Cannot record a goods receipt for a PO with status ${po.status}`)
     }
 
-    const body = await req.json() as {
-      receivedAt: string
-      status:     'PARTIAL' | 'FULL' | 'REJECTED'
-      lineItems:  GRLineItem[]
-      notes?:     string
+    const rawBody = await req.json()
+    const parsedBody = CreateGoodsReceiptSchema.safeParse(rawBody)
+    if (!parsedBody.success) {
+      return NextResponse.json(
+        { error: 'Validation failed', issues: parsedBody.error.issues },
+        { status: 400 },
+      )
     }
+    const body = parsedBody.data
 
-    if (!body.receivedAt) throw new ValidationError('receivedAt is required')
     if (!['PARTIAL', 'FULL', 'REJECTED'].includes(body.status)) {
       throw new ValidationError('status must be PARTIAL, FULL, or REJECTED')
     }
-    if (!body.lineItems?.length) throw new ValidationError('At least one line item is required')
 
     // Validate received quantities
     for (const item of body.lineItems) {
