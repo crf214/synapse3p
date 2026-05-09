@@ -131,6 +131,52 @@ export async function sendPODecisionEmail(p: PODecisionEmailParams): Promise<voi
 }
 
 // ---------------------------------------------------------------------------
+// Invoice decision — notify submitter
+// ---------------------------------------------------------------------------
+
+export interface InvoiceDecisionEmailParams {
+  to: string
+  submitterName: string
+  invoiceNo: string
+  vendorName: string
+  amount: number
+  currency: string
+  invoiceId: string
+  decision: 'APPROVED' | 'REJECTED'
+  approverName: string
+  reason?: string
+}
+
+export async function sendInvoiceDecisionEmail(p: InvoiceDecisionEmailParams): Promise<void> {
+  const url = `${APP_URL}/dashboard/invoices/${p.invoiceId}/review`
+  const formatted = new Intl.NumberFormat('en-US', { style: 'currency', currency: p.currency }).format(p.amount)
+  const isApproved = p.decision === 'APPROVED'
+  const decisionLabel = isApproved ? 'approved' : 'rejected'
+  const decisionColor = isApproved ? '#16a34a' : '#dc2626'
+
+  await resend.emails.send({
+    from: FROM,
+    to: p.to,
+    subject: `Invoice ${p.invoiceNo} has been ${decisionLabel}`,
+    html: `
+      <div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #fff;">
+        <div style="font-size: 20px; font-weight: 600; color: ${decisionColor}; margin-bottom: 8px; text-transform: capitalize;">Invoice ${decisionLabel}</div>
+        <p style="color: #555; margin: 0 0 24px;">Hi ${p.submitterName}, your invoice has been ${decisionLabel} by ${p.approverName}.</p>
+        <table style="width: 100%; border-collapse: collapse; margin-bottom: 24px;">
+          <tr><td style="padding: 8px 0; color: #888; font-size: 13px;">Vendor</td><td style="padding: 8px 0; font-weight: 500; color: #111; font-size: 13px; text-align: right;">${p.vendorName}</td></tr>
+          <tr><td style="padding: 8px 0; color: #888; font-size: 13px;">Invoice #</td><td style="padding: 8px 0; font-weight: 500; color: #111; font-size: 13px; text-align: right;">${p.invoiceNo}</td></tr>
+          <tr><td style="padding: 8px 0; color: #888; font-size: 13px;">Amount</td><td style="padding: 8px 0; font-weight: 600; color: #111; font-size: 13px; text-align: right;">${formatted}</td></tr>
+          <tr><td style="padding: 8px 0; color: #888; font-size: 13px;">Approved by</td><td style="padding: 8px 0; font-size: 13px; color: #111; text-align: right;">${p.approverName}</td></tr>
+          ${p.reason ? `<tr><td style="padding: 8px 0; color: #888; font-size: 13px; vertical-align: top;">Reason</td><td style="padding: 8px 0; font-size: 13px; color: #111; text-align: right;">${p.reason}</td></tr>` : ''}
+        </table>
+        <a href="${url}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 14px; font-weight: 500; padding: 12px 24px; border-radius: 8px; text-decoration: none;">View Invoice</a>
+        <p style="color: #aaa; font-size: 12px; margin-top: 32px;">Synapse3P · <a href="${APP_URL}" style="color: #aaa;">Open platform</a></p>
+      </div>
+    `,
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Pending invoice reminder
 // ---------------------------------------------------------------------------
 

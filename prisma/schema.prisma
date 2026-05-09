@@ -1881,6 +1881,7 @@ model NotificationPreference {
   orgId                String
 
   emailOnInvoiceRouted Boolean  @default(true)
+  notifyOnApproval     Boolean  @default(true)
   reminderEnabled      Boolean  @default(true)
   reminderAfterDays    Int      @default(3)
 

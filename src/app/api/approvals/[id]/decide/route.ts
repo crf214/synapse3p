@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
+import { sendInvoiceDecisionEmail, sendPODecisionEmail } from '@/lib/resend'
 
 const DecideApprovalSchema = z.object({
   type:     z.string().min(1),
@@ -80,6 +81,35 @@ export async function POST(req: NextRequest, { params }: Params) {
         })
       }
 
+      // ── Notify PO creator ───────────────────────────────────────────────────
+      try {
+        const poForEmail = await prisma.purchaseOrder.findUnique({
+          where: { id: approval.poId },
+          include: { entity: { select: { name: true } } },
+        })
+        if (poForEmail && poForEmail.requestedBy !== session.userId) {
+          const creator = await prisma.user.findUnique({
+            where: { id: poForEmail.requestedBy },
+            include: { notificationPreference: true },
+          })
+          if (creator?.email && creator.notificationPreference?.notifyOnApproval !== false) {
+            await sendPODecisionEmail({
+              to:          creator.email,
+              creatorName: creator.name ?? creator.email,
+              poNumber:    poForEmail.poNumber,
+              vendorName:  poForEmail.entity.name,
+              totalAmount: poForEmail.totalAmount,
+              currency:    poForEmail.currency,
+              poId:        poForEmail.id,
+              decision:    decision as 'APPROVED' | 'REJECTED',
+              comments,
+            })
+          }
+        }
+      } catch (emailErr) {
+        console.error('[decide] PO decision email failed:', emailErr)
+      }
+
       return NextResponse.json({ ok: true })
     }
 
@@ -116,6 +146,46 @@ export async function POST(req: NextRequest, { params }: Params) {
           where: { id: approval.invoiceId },
           data: { status: 'REJECTED' },
         })
+      }
+
+      // ── Notify invoice submitter ────────────────────────────────────────────
+      try {
+        const invoice = await prisma.invoice.findUnique({
+          where: { id: approval.invoiceId },
+          include: {
+            entity:         { select: { name: true } },
+            ingestionEvent: { select: { uploadedBy: true } },
+          },
+        })
+        const submitterId = invoice?.ingestionEvent?.uploadedBy ?? null
+        if (invoice && submitterId && submitterId !== session.userId) {
+          const [submitter, approver] = await Promise.all([
+            prisma.user.findUnique({
+              where: { id: submitterId },
+              include: { notificationPreference: true },
+            }),
+            prisma.user.findUnique({
+              where: { id: session.userId! },
+              select: { name: true },
+            }),
+          ])
+          if (submitter?.email && submitter.notificationPreference?.notifyOnApproval !== false) {
+            await sendInvoiceDecisionEmail({
+              to:            submitter.email,
+              submitterName: submitter.name ?? submitter.email,
+              invoiceNo:     invoice.invoiceNo,
+              vendorName:    invoice.entity.name,
+              amount:        invoice.amount,
+              currency:      invoice.currency,
+              invoiceId:     invoice.id,
+              decision:      decision as 'APPROVED' | 'REJECTED',
+              approverName:  approver?.name ?? 'An approver',
+              reason:        comments,
+            })
+          }
+        }
+      } catch (emailErr) {
+        console.error('[decide] invoice decision email failed:', emailErr)
       }
 
       return NextResponse.json({ ok: true })
