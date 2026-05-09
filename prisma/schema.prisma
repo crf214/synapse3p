@@ -1233,6 +1233,7 @@ enum PaymentInstructionStatus {
   CANCELLED
   FAILED
   AMENDMENT_PENDING
+  RECONCILED
 }
 
 enum AmendmentStatus {
@@ -1240,12 +1241,6 @@ enum AmendmentStatus {
   APPROVED
   REJECTED
   CANCELLED
-}
-
-enum AmendmentField {
-  AMOUNT
-  ENTITY
-  BANK_ACCOUNT
 }
 
 enum ErpTransactionType {
@@ -1326,19 +1321,18 @@ model PaymentInstructionVersion {
   @@map("payment_instruction_versions")
 }
 
-// @@unique([paymentInstructionId, field, status]) prevents exact triple-duplicate
-// rows but cannot on its own enforce "only one PENDING per (instruction, field)".
-// That constraint is enforced at the DB level by a partial unique index created
-// in migration 20260509000001_payment_amendment_partial_unique_index:
-//   CREATE UNIQUE INDEX "payment_instruction_amendments_pending_field_unique"
-//   ON "payment_instruction_amendments" ("paymentInstructionId", "field")
+// One PENDING amendment per paymentInstructionId is enforced by the partial unique
+// index in migration 20260509000004_simplify_payment_amendment:
+//   CREATE UNIQUE INDEX "payment_instruction_amendments_pending_unique"
+//   ON "payment_instruction_amendments" ("paymentInstructionId")
 //   WHERE "status" = 'PENDING';
+//
+// The `changes` field stores a freeform diff object, e.g.:
+//   { "amount": { "from": 100, "to": 150 }, "bankAccountId": { "from": "ba-1", "to": "ba-2" } }
 model PaymentInstructionAmendment {
   id                    String          @id @default(cuid())
   paymentInstructionId  String
-  field                 AmendmentField
-  previousValue         String
-  proposedValue         String
+  changes               Json            @default("{}")
   status                AmendmentStatus @default(PENDING)
   requestedBy           String
   requestedAt           DateTime        @default(now())
@@ -1349,7 +1343,6 @@ model PaymentInstructionAmendment {
 
   paymentInstruction    PaymentInstruction @relation(fields: [paymentInstructionId], references: [id])
 
-  @@unique([paymentInstructionId, field, status])
   @@index([paymentInstructionId, status])
   @@map("payment_instruction_amendments")
 }

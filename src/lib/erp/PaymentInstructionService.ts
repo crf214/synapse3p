@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { getErpAdapter } from './index'
 import type { PaymentInstructionPayload } from './types'
+import type { Prisma } from '@prisma/client'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -262,12 +263,13 @@ export async function requestAmendment(
     throw new Error(`Proposed value is identical to the current ${field.toLowerCase()}`)
   }
 
+  const fieldKey = field.toLowerCase()
+  const changes  = { [fieldKey]: { from: previousValue, to: proposedValue } } as Prisma.InputJsonValue
+
   const amendment = await prisma.paymentInstructionAmendment.create({
     data: {
       paymentInstructionId: instructionId,
-      field,
-      previousValue,
-      proposedValue,
+      changes,
       status:      'PENDING',
       requestedBy,
       notes:       notes ?? null,
@@ -284,11 +286,11 @@ export async function requestAmendment(
       entityId:      instruction.entityId,
       orgId:         instruction.orgId,
       activityType:  'PAYMENT',
-      title:         `Amendment requested on field ${field}`,
+      title:         `Amendment requested on field ${fieldKey}`,
       referenceId:   amendment.id,
       referenceType: 'PaymentInstructionAmendment',
       performedBy:   requestedBy,
-      metadata:      { field, previousValue, proposedValue },
+      metadata:      { field: fieldKey, previousValue, proposedValue },
     },
   })
 
@@ -324,19 +326,15 @@ export async function approveAmendment(
   const now = new Date()
 
   // Apply the amendment to the parent instruction
-  const { field, proposedValue, paymentInstruction: instruction } = amendment
+  const { paymentInstruction: instruction } = amendment
+  const changes = amendment.changes as Record<string, { from: unknown; to: unknown }>
+  const changedFields = Object.keys(changes)
 
-  const updateData: Record<string, unknown> = {
-    status:      'APPROVED',
-    reviewedBy,
-    reviewedAt:  now,
-  }
-
-  // Build the instruction patch
+  // Build the instruction patch from the changes map
   const instructionPatch: Record<string, unknown> = {}
-  if (field === 'AMOUNT')        instructionPatch.amount        = parseFloat(proposedValue)
-  if (field === 'ENTITY')        instructionPatch.entityId      = proposedValue
-  if (field === 'BANK_ACCOUNT')  instructionPatch.bankAccountId = proposedValue
+  if ('amount'       in changes) instructionPatch.amount        = parseFloat(String(changes.amount.to))
+  if ('entity'       in changes) instructionPatch.entityId      = String(changes.entity.to)
+  if ('bank_account' in changes) instructionPatch.bankAccountId = String(changes.bank_account.to)
 
   // Snapshot the instruction state before applying
   await prisma.paymentInstructionVersion.create({
@@ -351,14 +349,18 @@ export async function approveAmendment(
       costCentre:           instruction.costCentre,
       snapshotAt:           now,
       snapshotBy:           reviewedBy,
-      changeReason:         `Amendment approved: ${field} changed from ${amendment.previousValue} to ${proposedValue}`,
+      changeReason:         `Amendment approved: ${changedFields.join(', ')} changed`,
     },
   })
 
   await prisma.$transaction([
     prisma.paymentInstructionAmendment.update({
       where: { id: amendmentId },
-      data:  updateData,
+      data: {
+        status:     'APPROVED',
+        reviewedBy,
+        reviewedAt: now,
+      },
     }),
     prisma.paymentInstruction.update({
       where: { id: instruction.id },
@@ -375,11 +377,11 @@ export async function approveAmendment(
       entityId:      instruction.entityId,
       orgId:         instruction.orgId,
       activityType:  'PAYMENT',
-      title:         `Amendment approved: ${field} → ${proposedValue}`,
+      title:         `Amendment approved: ${changedFields.join(', ')} updated`,
       referenceId:   amendmentId,
       referenceType: 'PaymentInstructionAmendment',
       performedBy:   reviewedBy,
-      metadata:      { field, previousValue: amendment.previousValue, proposedValue },
+      metadata:      { changes } as Prisma.InputJsonValue,
     },
   })
 }
@@ -421,16 +423,19 @@ export async function rejectAmendment(
     }),
   ])
 
+  const rejectedChanges = amendment.changes as Record<string, unknown>
+  const rejectedFields  = Object.keys(rejectedChanges)
+
   await prisma.entityActivityLog.create({
     data: {
       entityId:      amendment.paymentInstruction.entityId,
       orgId:         amendment.paymentInstruction.orgId,
       activityType:  'PAYMENT',
-      title:         `Amendment rejected: ${amendment.field}`,
+      title:         `Amendment rejected: ${rejectedFields.join(', ')}`,
       referenceId:   amendmentId,
       referenceType: 'PaymentInstructionAmendment',
       performedBy:   reviewedBy,
-      metadata:      { field: amendment.field, reason: rejectionReason },
+      metadata:      { changes: rejectedChanges, reason: rejectionReason } as Prisma.InputJsonValue,
     },
   })
 }

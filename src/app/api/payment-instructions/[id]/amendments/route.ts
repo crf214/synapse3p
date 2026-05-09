@@ -1,30 +1,39 @@
 // src/app/api/payment-instructions/[id]/amendments/route.ts
-// POST — request an amendment to a SENT_TO_ERP or APPROVED PI
-// Body: { field: AmendmentField, proposedValue: string, notes?: string }
+//
+// POST — request an amendment to an APPROVED / SENT_TO_ERP / AMENDMENT_PENDING PI
+// Body: { changes: Record<string, { from: unknown; to: unknown }>, notes?: string }
+//
+// PUT — approve or reject a PENDING amendment
+// Body: { amendmentId: string, decision: 'APPROVED' | 'REJECTED', rejectionReason?: string }
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
-import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
+import {
+  handleApiError,
+  UnauthorizedError,
+  ForbiddenError,
+  NotFoundError,
+  ValidationError,
+  ConflictError,
+} from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { Prisma } from '@prisma/client'
 
 const RequestAmendmentSchema = z.object({
-  field:         z.string().min(1),
-  proposedValue: z.string().min(1),
-  notes:         z.string().optional().nullable(),
+  changes: z.record(z.object({ from: z.unknown(), to: z.unknown() })),
+  notes:   z.string().optional().nullable(),
 })
 
 const ReviewAmendmentSchema = z.object({
-  amendmentId:      z.string().min(1),
-  decision:         z.string().min(1),
-  rejectionReason:  z.string().optional(),
+  amendmentId:     z.string().min(1),
+  decision:        z.string().min(1),
+  rejectionReason: z.string().optional(),
 })
 
 const AMEND_ROLES   = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const APPROVE_ROLES = new Set(['ADMIN', 'CONTROLLER', 'CFO'])
-
-const VALID_FIELDS = ['AMOUNT', 'ENTITY', 'BANK_ACCOUNT']
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -40,45 +49,41 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     const AMENDABLE = ['APPROVED', 'SENT_TO_ERP', 'AMENDMENT_PENDING']
     if (!AMENDABLE.includes(pi.status)) {
-      throw new ValidationError(`Amendments can only be requested on APPROVED or SENT_TO_ERP instructions (current: ${pi.status})`)
+      throw new ValidationError(
+        `Amendments can only be requested on APPROVED or SENT_TO_ERP instructions (current: ${pi.status})`,
+      )
     }
 
     const rawBody = await req.json()
-    const parsedPost = RequestAmendmentSchema.safeParse(rawBody)
-    if (!parsedPost.success) {
+    const parsed = RequestAmendmentSchema.safeParse(rawBody)
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: 'Validation failed', issues: parsedPost.error.issues },
+        { error: 'Validation failed', issues: parsed.error.issues },
         { status: 400 },
       )
     }
-    const field         = parsedPost.data.field
-    const proposedValue = sanitiseString(parsedPost.data.proposedValue ?? '')
-    const notes         = parsedPost.data.notes ? sanitiseString(parsedPost.data.notes) : null
+    const { changes, notes } = parsed.data
 
-    if (!VALID_FIELDS.includes(field)) throw new ValidationError('field must be AMOUNT, ENTITY, or BANK_ACCOUNT')
+    if (Object.keys(changes).length === 0) {
+      throw new ValidationError('changes must contain at least one field')
+    }
 
-    // Check no open amendment for same field
-    const openAmendment = await prisma.paymentInstructionAmendment.findFirst({
-      where: { paymentInstructionId: id, field: field as never, status: 'PENDING' },
+    // Enforce one PENDING amendment per instruction (mirrors the partial unique index)
+    const existing = await prisma.paymentInstructionAmendment.findFirst({
+      where: { paymentInstructionId: id, status: 'PENDING' },
     })
-    if (openAmendment) throw new ValidationError(`An open amendment for ${field} already exists`)
-
-    // Derive current value for the field
-    const previousValue =
-      field === 'AMOUNT'       ? String(pi.amount) :
-      field === 'ENTITY'       ? pi.entityId :
-      field === 'BANK_ACCOUNT' ? pi.bankAccountId : ''
+    if (existing) {
+      throw new ConflictError('A pending amendment already exists for this payment instruction')
+    }
 
     const amendment = await prisma.$transaction(async tx => {
       const a = await tx.paymentInstructionAmendment.create({
         data: {
           paymentInstructionId: id,
-          field:         field as never,
-          previousValue,
-          proposedValue,
-          status:        'PENDING',
-          requestedBy:   session.userId!,
-          notes,
+          changes:              changes as Prisma.InputJsonValue,
+          status:               'PENDING',
+          requestedBy:          session.userId!,
+          notes:                notes ? sanitiseString(notes) : null,
         },
       })
 
@@ -90,15 +95,13 @@ export async function POST(req: NextRequest, { params }: Params) {
       return a
     }, { timeout: 15000 })
 
-    return NextResponse.json(amendment, { status: 201 })
+    return NextResponse.json({ amendment }, { status: 201 })
   } catch (err) {
     return handleApiError(err, 'POST /api/payment-instructions/[id]/amendments')
   }
 }
 
 export async function PUT(req: NextRequest, { params }: Params) {
-  // Approve or reject a specific amendment
-  // Body: { amendmentId: string, decision: 'APPROVED' | 'REJECTED', rejectionReason?: string }
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
@@ -108,8 +111,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
     const pi = await prisma.paymentInstruction.findUnique({ where: { id } })
     if (!pi || pi.orgId !== session.orgId) throw new NotFoundError('Payment instruction not found')
 
-    const rawBody2 = await req.json()
-    const parsedPut = ReviewAmendmentSchema.safeParse(rawBody2)
+    const rawBody = await req.json()
+    const parsedPut = ReviewAmendmentSchema.safeParse(rawBody)
     if (!parsedPut.success) {
       return NextResponse.json(
         { error: 'Validation failed', issues: parsedPut.error.issues },
@@ -117,7 +120,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
       )
     }
     const { amendmentId, decision, rejectionReason } = parsedPut.data
-    if (!['APPROVED', 'REJECTED'].includes(decision)) throw new ValidationError('decision must be APPROVED or REJECTED')
+    if (!['APPROVED', 'REJECTED'].includes(decision)) {
+      throw new ValidationError('decision must be APPROVED or REJECTED')
+    }
 
     const amendment = await prisma.paymentInstructionAmendment.findUnique({ where: { id: amendmentId } })
     if (!amendment || amendment.paymentInstructionId !== id) throw new NotFoundError('Amendment not found')
@@ -135,40 +140,40 @@ export async function PUT(req: NextRequest, { params }: Params) {
       })
 
       if (decision === 'APPROVED') {
-        // Apply the amendment to the payment instruction
+        // Apply each changed field's `to` value to the payment instruction
+        const changes = amendment.changes as Record<string, { from: unknown; to: unknown }>
         const newVersion = pi.currentVersion + 1
-        const fieldData: Record<string, unknown> = { currentVersion: newVersion }
+        const piUpdates: Record<string, unknown> = { currentVersion: newVersion }
 
-        if (amendment.field === 'AMOUNT')       fieldData.amount       = Number(amendment.proposedValue)
-        if (amendment.field === 'ENTITY')       fieldData.entityId     = amendment.proposedValue
-        if (amendment.field === 'BANK_ACCOUNT') fieldData.bankAccountId= amendment.proposedValue
+        if ('amount'        in changes) piUpdates.amount        = Number(changes.amount.to)
+        if ('entityId'      in changes) piUpdates.entityId      = String(changes.entityId.to)
+        if ('bankAccountId' in changes) piUpdates.bankAccountId = String(changes.bankAccountId.to)
+        if ('currency'      in changes) piUpdates.currency      = String(changes.currency.to)
 
-        await tx.paymentInstruction.update({ where: { id }, data: fieldData })
+        await tx.paymentInstruction.update({ where: { id }, data: piUpdates })
 
-        // Snapshot the amendment-applied version
         await tx.paymentInstructionVersion.create({
           data: {
             paymentInstructionId: id,
             version:      newVersion,
-            entityId:     amendment.field === 'ENTITY'       ? amendment.proposedValue : pi.entityId,
-            bankAccountId:amendment.field === 'BANK_ACCOUNT' ? amendment.proposedValue : pi.bankAccountId,
-            amount:       amendment.field === 'AMOUNT'       ? Number(amendment.proposedValue) : Number(pi.amount),
-            currency:     pi.currency,
+            entityId:     'entityId'      in changes ? String(changes.entityId.to)      : pi.entityId,
+            bankAccountId:'bankAccountId' in changes ? String(changes.bankAccountId.to) : pi.bankAccountId,
+            amount:       'amount'        in changes ? Number(changes.amount.to)         : Number(pi.amount),
+            currency:     'currency'      in changes ? String(changes.currency.to)       : pi.currency,
             dueDate:      pi.dueDate,
             glCode:       pi.glCode,
             costCentre:   pi.costCentre,
             snapshotBy:   session.userId!,
-            changeReason: `Amendment approved: ${amendment.field} changed to ${amendment.proposedValue}`,
+            changeReason: `Amendment approved: ${Object.keys(changes).join(', ')} changed`,
           },
         })
       }
 
-      // Check if any other PENDING amendments remain
+      // Restore PI status once no PENDING amendments remain
       const remaining = await tx.paymentInstructionAmendment.count({
         where: { paymentInstructionId: id, status: 'PENDING' },
       })
       if (remaining === 0) {
-        // Restore previous status
         await tx.paymentInstruction.update({
           where: { id },
           data:  { status: pi.status === 'AMENDMENT_PENDING' ? 'APPROVED' : pi.status },

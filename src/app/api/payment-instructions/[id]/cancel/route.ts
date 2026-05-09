@@ -28,8 +28,9 @@ export async function POST(req: NextRequest, { params }: Params) {
     const pi = await prisma.paymentInstruction.findUnique({ where: { id } })
     if (!pi || pi.orgId !== session.orgId) throw new NotFoundError('Payment instruction not found')
 
-    const TERMINAL = ['CONFIRMED', 'CANCELLED', 'FAILED']
-    if (TERMINAL.includes(pi.status)) {
+    // APPROVED and beyond cannot be cancelled — payment has been formally authorised
+    const NON_CANCELLABLE = ['APPROVED', 'SENT_TO_ERP', 'CONFIRMED', 'RECONCILED', 'CANCELLED', 'FAILED']
+    if (NON_CANCELLABLE.includes(pi.status)) {
       throw new ValidationError(`Cannot cancel a ${pi.status} payment instruction`)
     }
 

@@ -248,14 +248,14 @@ async function testAC04(orgId: string): Promise<TestResult> {
 // ---------------------------------------------------------------------------
 async function testFI01(orgId: string): Promise<TestResult> {
   // Fetch all approved amendments in batches — must check 100% of records
-  const amendments = await findManyInBatches<{ id: string; requestedBy: string; reviewedBy: string | null; field: string }>(
+  const amendments = await findManyInBatches<{ id: string; requestedBy: string; reviewedBy: string | null }>(
     (cursorId) => prisma.paymentInstructionAmendment.findMany({
       where: {
         paymentInstruction: { orgId },
         status: 'APPROVED',
         reviewedBy: { not: null },
       },
-      select:  { id: true, requestedBy: true, reviewedBy: true, field: true },
+      select:  { id: true, requestedBy: true, reviewedBy: true },
       orderBy: { id: 'asc' },
       take:    1000,
       ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
@@ -272,7 +272,7 @@ async function testFI01(orgId: string): Promise<TestResult> {
       : `${violations.length} amendment(s) approved by their own requester`,
     details: {
       amendmentsChecked: amendments.length,
-      violations:        violations.map(v => ({ id: v.id, field: v.field, userId: v.requestedBy })),
+      violations:        violations.map(v => ({ id: v.id, userId: v.requestedBy })),
     },
   }
 }
