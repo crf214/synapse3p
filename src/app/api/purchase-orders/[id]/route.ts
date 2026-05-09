@@ -6,6 +6,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { writeAuditEvent } from '@/lib/audit'
 
 const LineItemSchema = z.object({
   description: z.string().min(1),
@@ -259,9 +260,27 @@ export async function PUT(
           })),
         })
         await tx.purchaseOrder.update({ where: { id }, data: updates })
+        await writeAuditEvent(tx, {
+          actorId:    session.userId!,
+          orgId:      session.orgId!,
+          action:     'UPDATE',
+          objectType: 'PURCHASE_ORDER',
+          objectId:   id,
+          after:      { changedFields: Object.keys(body) },
+        })
       }, { timeout: 15000 })
     } else {
-      await prisma.purchaseOrder.update({ where: { id }, data: updates })
+      await prisma.$transaction(async (tx) => {
+        await tx.purchaseOrder.update({ where: { id }, data: updates })
+        await writeAuditEvent(tx, {
+          actorId:    session.userId!,
+          orgId:      session.orgId!,
+          action:     'UPDATE',
+          objectType: 'PURCHASE_ORDER',
+          objectId:   id,
+          after:      { changedFields: Object.keys(body) },
+        })
+      })
     }
 
     const updated = await prisma.purchaseOrder.findUnique({

@@ -289,7 +289,7 @@ async function testFI02(orgId: string): Promise<TestResult> {
 
   // Check for general system activity — any mutations at all
   const mutationCount = await prisma.auditEvent.count({
-    where: { orgId, createdAt: { gte: since }, action: { in: ['create', 'update', 'delete', 'upsert'] } },
+    where: { orgId, createdAt: { gte: since }, action: { in: ['CREATE', 'UPDATE', 'DELETE'] } },
   })
 
   let status: TestResultStatus = 'PASS'

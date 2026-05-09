@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
+import { writeAuditEvent } from '@/lib/audit'
 
 const ApprovePaymentInstructionSchema = z.object({
   decision: z.string().min(1),
@@ -48,14 +49,23 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     const newStatus = decision === 'APPROVED' ? 'APPROVED' : 'DRAFT'
 
-    await prisma.paymentInstruction.update({
-      where: { id },
-      data: {
-        status:     newStatus,
-        approvedBy: decision === 'APPROVED' ? session.userId : null,
-        approvedAt: decision === 'APPROVED' ? new Date()     : null,
-        notes:      notes ? `${pi.notes ? pi.notes + '\n' : ''}Approval note: ${notes}` : pi.notes,
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.paymentInstruction.update({
+        where: { id },
+        data: {
+          status:     newStatus,
+          approvedBy: decision === 'APPROVED' ? session.userId : null,
+          approvedAt: decision === 'APPROVED' ? new Date()     : null,
+          notes:      notes ? `${pi.notes ? pi.notes + '\n' : ''}Approval note: ${notes}` : pi.notes,
+        },
+      })
+      await writeAuditEvent(tx, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'APPROVE',
+        objectType: 'PAYMENT',
+        objectId:   id,
+      })
     })
 
     return NextResponse.json({ ok: true, status: newStatus })

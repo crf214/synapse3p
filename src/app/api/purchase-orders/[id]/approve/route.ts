@@ -11,6 +11,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sendPODecisionEmail, sendPOSubmittedEmail } from '@/lib/resend'
+import { writeAuditEvent } from '@/lib/audit'
 
 const ApprovePurchaseOrderSchema = z.object({
   decision: z.string().min(1),
@@ -107,6 +108,14 @@ export async function POST(
           data:  { status: 'CANCELLED' as never },
         })
       }
+
+      await writeAuditEvent(tx, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'APPROVE',
+        objectType: 'PURCHASE_ORDER',
+        objectId:   id,
+      })
     }, { timeout: 15000 })
 
     // Audit log — non-critical follow-up write, outside transaction.

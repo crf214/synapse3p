@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
+import { writeAuditEvent } from '@/lib/audit'
 
 type Params = { params: Promise<{ id: string }> }
 
@@ -24,9 +25,18 @@ export async function POST(_req: NextRequest, { params }: Params) {
       throw new ForbiddenError('Only the creator or an admin can submit this payment instruction')
     }
 
-    await prisma.paymentInstruction.update({
-      where: { id },
-      data:  { status: 'PENDING_APPROVAL' },
+    await prisma.$transaction(async (tx) => {
+      await tx.paymentInstruction.update({
+        where: { id },
+        data:  { status: 'PENDING_APPROVAL' },
+      })
+      await writeAuditEvent(tx, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'SUBMIT',
+        objectType: 'PAYMENT',
+        objectId:   id,
+      })
     })
 
     return NextResponse.json({ ok: true })

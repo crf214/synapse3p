@@ -4,6 +4,7 @@ import { hash } from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { getSessionFromRequest } from '@/lib/session'
+import { writeAuditEvent } from '@/lib/audit'
 
 const schema = z.object({
   email: z.string().email(),
@@ -23,8 +24,18 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await hash(password, 12)
 
-    const user = await prisma.user.create({
-      data: { email, name: name ?? null, passwordHash },
+    const user = await prisma.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: { email, name: name ?? null, passwordHash },
+      })
+      await writeAuditEvent(tx, {
+        actorId:    created.id,
+        orgId:      '',
+        action:     'CREATE',
+        objectType: 'USER',
+        objectId:   created.id,
+      })
+      return created
     })
 
     const res = NextResponse.json({ data: { id: user.id, email: user.email, name: user.name } })

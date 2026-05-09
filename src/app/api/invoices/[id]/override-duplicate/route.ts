@@ -69,6 +69,15 @@ export async function POST(
         where: { id: invoice.id },
         data:  { status: 'PENDING_REVIEW' },
       }),
+      prisma.auditEvent.create({
+        data: {
+          orgId:      session.orgId!,
+          actorId:    session.userId!,
+          action:     'OVERRIDE',
+          entityType: 'INVOICE',
+          entityId:   invoice.id,
+        },
+      }),
     ])
 
     // The invoice will now appear in the main queue with DUPLICATE_FLAG signal triggered

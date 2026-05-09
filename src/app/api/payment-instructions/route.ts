@@ -6,6 +6,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { writeAuditEvent } from '@/lib/audit'
 
 const CreatePaymentInstructionSchema = z.object({
   invoiceId:     z.string().min(1),
@@ -181,6 +182,14 @@ export async function POST(req: NextRequest) {
           snapshotBy:           session.userId!,
           changeReason:         'Initial creation',
         },
+      })
+
+      await writeAuditEvent(tx, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'CREATE',
+        objectType: 'PAYMENT',
+        objectId:   payment.id,
       })
 
       return payment

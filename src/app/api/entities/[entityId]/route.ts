@@ -3,6 +3,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { writeAuditEvent } from '@/lib/audit'
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -146,9 +147,22 @@ export async function PATCH(
       return NextResponse.json({ entity: existing })
     }
 
-    const entity = await prisma.entity.update({
-      where: { id: entityId },
-      data:  updates,
+    const entity = await prisma.$transaction(async (tx) => {
+      const updated = await tx.entity.update({
+        where: { id: entityId },
+        data:  updates,
+      })
+
+      await writeAuditEvent(tx, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'UPDATE',
+        objectType: 'ENTITY',
+        objectId:   entityId,
+        after:      { changedFields },
+      })
+
+      return updated
     })
 
     // ── Activity log ─────────────────────────────────────────────────────────

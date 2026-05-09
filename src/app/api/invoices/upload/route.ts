@@ -9,6 +9,7 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { supabaseAdmin } from '@/lib/supabase'
 import { computeFingerprint, checkPreExtractionDuplicates, runInvoicePipeline } from '@/lib/invoice-pipeline'
+import { writeAuditEvent } from '@/lib/audit'
 
 const ALLOWED_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const INVOICE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? process.env.INVOICES_BUCKET ?? 'synapse3p-files'
@@ -118,6 +119,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await prisma.invoiceIngestionEvent.update({
       where: { id: ingestionEvent.id },
       data:  { invoiceId: invoice.id, processingStatus: 'PARSED' },
+    })
+
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      session.orgId!,
+      action:     'CREATE',
+      objectType: 'INVOICE',
+      objectId:   invoice.id,
     })
 
     // Run pipeline asynchronously (don't block response)

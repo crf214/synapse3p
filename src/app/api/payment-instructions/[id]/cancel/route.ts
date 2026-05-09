@@ -8,6 +8,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { writeAuditEvent } from '@/lib/audit'
 
 const CancelPaymentInstructionSchema = z.object({
   reason: z.string().min(1),
@@ -43,13 +44,22 @@ export async function POST(req: NextRequest, { params }: Params) {
     const reason = sanitiseString(parsed.data.reason ?? '')
     if (!reason) throw new ValidationError('Cancellation reason is required')
 
-    await prisma.paymentInstruction.update({
-      where: { id },
-      data: {
-        status:             'CANCELLED',
-        cancelledAt:        new Date(),
-        cancellationReason: reason,
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.paymentInstruction.update({
+        where: { id },
+        data: {
+          status:             'CANCELLED',
+          cancelledAt:        new Date(),
+          cancellationReason: reason,
+        },
+      })
+      await writeAuditEvent(tx, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'CANCEL',
+        objectType: 'PAYMENT',
+        objectId:   id,
+      })
     })
 
     return NextResponse.json({ ok: true })

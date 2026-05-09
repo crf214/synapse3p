@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { supabaseAdmin } from '@/lib/supabase'
+import { writeAuditEvent } from '@/lib/audit'
 
 const UpdateInvoiceSchema = z.object({
   fieldCorrections: z.array(z.object({
@@ -164,8 +165,32 @@ export async function PUT(
     if (body.contractId !== undefined) updates.contractId = body.contractId
     if (body.notes      !== undefined) updates.notes      = sanitiseString(body.notes, 2000)
 
+    const changedKeys = [
+      ...(body.fieldCorrections?.length ? ['fieldCorrections'] : []),
+      ...Object.keys(updates),
+    ]
+
     if (Object.keys(updates).length) {
-      await prisma.invoice.update({ where: { id: invoice.id }, data: updates })
+      await prisma.$transaction(async (tx) => {
+        await tx.invoice.update({ where: { id: invoice.id }, data: updates })
+        await writeAuditEvent(tx, {
+          actorId:    session.userId!,
+          orgId:      session.orgId!,
+          action:     'UPDATE',
+          objectType: 'INVOICE',
+          objectId:   invoice.id,
+          after:      { changedFields: changedKeys },
+        })
+      })
+    } else if (changedKeys.length) {
+      await writeAuditEvent(prisma, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'UPDATE',
+        objectType: 'INVOICE',
+        objectId:   invoice.id,
+        after:      { changedFields: changedKeys },
+      })
     }
 
     return NextResponse.json({ ok: true })

@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { writeAuditEvent } from '@/lib/audit'
 
 const CreateEntitySchema = z.object({
   name:              z.string().min(1),
@@ -144,30 +145,42 @@ export async function POST(req: NextRequest) {
     const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80)
       + '-' + Date.now().toString(36)
 
-    const entity = await prisma.entity.create({
-      data: {
-        masterOrgId:    session.orgId,
-        name,
-        slug,
-        legalStructure: legalStructure as never,
-        jurisdiction,
-        primaryCurrency,
-        registrationNo: registrationNo || null,
-        incorporationDate,
-        parentId:       parentId || null,
-        status:         'ACTIVE',
-        metadata:       notes ? { notes } : {},
-      },
-    })
+    const entity = await prisma.$transaction(async (tx) => {
+      const created = await tx.entity.create({
+        data: {
+          masterOrgId:    session.orgId!,
+          name,
+          slug,
+          legalStructure: legalStructure as never,
+          jurisdiction,
+          primaryCurrency,
+          registrationNo: registrationNo || null,
+          incorporationDate,
+          parentId:       parentId || null,
+          status:         'ACTIVE',
+          metadata:       notes ? { notes } : {},
+        },
+      })
 
-    await prisma.entityOrgRelationship.create({
-      data: {
-        entityId:        entity.id,
-        orgId:           session.orgId,
-        onboardingStatus: 'NOT_STARTED',
-        activeForBillPay: false,
-        portalAccess:    false,
-      },
+      await tx.entityOrgRelationship.create({
+        data: {
+          entityId:        created.id,
+          orgId:           session.orgId!,
+          onboardingStatus: 'NOT_STARTED',
+          activeForBillPay: false,
+          portalAccess:    false,
+        },
+      })
+
+      await writeAuditEvent(tx, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'CREATE',
+        objectType: 'ENTITY',
+        objectId:   created.id,
+      })
+
+      return created
     })
 
     return NextResponse.json({ entity }, { status: 201 })

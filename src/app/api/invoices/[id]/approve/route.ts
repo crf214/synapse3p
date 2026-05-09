@@ -9,6 +9,7 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { sendInvoiceAssignedEmail } from '@/lib/resend'
+import { writeAuditEvent } from '@/lib/audit'
 
 const RouteInvoiceSchema = z.object({
   assignedTo: z.string().min(1),
@@ -62,22 +63,34 @@ export async function POST(
       throw new ValidationError(`User with role ${assignee.role} cannot approve invoices`)
     }
 
-    const approval = await prisma.invoiceApproval.create({
-      data: {
-        invoiceId:  invoice.id,
-        orgId:      session.orgId,
-        assignedTo: body.assignedTo,
-        assignedBy: session.userId!,
-        role:       assignee.role,
-        status:     'PENDING',
-        notes:      body.notes ? sanitiseString(body.notes, 1000) : null,
-      },
-    })
+    const approval = await prisma.$transaction(async (tx) => {
+      const created = await tx.invoiceApproval.create({
+        data: {
+          invoiceId:  invoice.id,
+          orgId:      session.orgId!,
+          assignedTo: body.assignedTo,
+          assignedBy: session.userId!,
+          role:       assignee.role,
+          status:     'PENDING',
+          notes:      body.notes ? sanitiseString(body.notes, 1000) : null,
+        },
+      })
 
-    // Update invoice status
-    await prisma.invoice.update({
-      where: { id: invoice.id },
-      data:  { status: 'PENDING_REVIEW' },
+      // Update invoice status
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data:  { status: 'PENDING_REVIEW' },
+      })
+
+      await writeAuditEvent(tx, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'APPROVE',
+        objectType: 'INVOICE',
+        objectId:   invoice.id,
+      })
+
+      return created
     })
 
     // Send email notification if preference allows
@@ -253,6 +266,14 @@ export async function PATCH(
           }
         }
       }
+
+      await writeAuditEvent(tx, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'APPROVE',
+        objectType: 'INVOICE',
+        objectId:   invoice.id,
+      })
     }, { timeout: 15000 })
 
     return NextResponse.json({ ok: true })

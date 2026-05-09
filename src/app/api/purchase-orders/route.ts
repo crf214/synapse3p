@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { Prisma } from '@prisma/client'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { writeAuditEvent } from '@/lib/audit'
 
 const LineItemSchema = z.object({
   description: z.string().min(1),
@@ -225,6 +226,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           costCentre:  sanitiseString(item.costCentre ?? '', 100).trim() || null,
           notes:       sanitiseString(item.notes      ?? '', 500).trim() || null,
         })),
+      })
+
+      await writeAuditEvent(tx, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'CREATE',
+        objectType: 'PURCHASE_ORDER',
+        objectId:   created.id,
       })
 
       return created

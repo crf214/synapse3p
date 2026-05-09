@@ -14,6 +14,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sendPOSubmittedEmail } from '@/lib/resend'
+import { writeAuditEvent } from '@/lib/audit'
 
 const SUBMIT_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
@@ -129,6 +130,13 @@ export async function POST(
           status:             'PENDING_APPROVAL' as never,
           approvalWorkflowId: workflow?.id ?? null,
         },
+      })
+      await writeAuditEvent(tx, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'SUBMIT',
+        objectType: 'PURCHASE_ORDER',
+        objectId:   id,
       })
     }, { timeout: 15000 })
 
