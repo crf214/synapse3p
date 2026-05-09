@@ -4,12 +4,13 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
+import { resolveStepDependencies, DependencyType } from '@/lib/workflow/resolve-dependencies'
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
 const LEGAL_STRUCTURES = new Set(['INDIVIDUAL', 'COMPANY', 'FUND', 'TRUST', 'GOVERNMENT', 'OTHER'])
-const ENTITY_STATUSES  = new Set(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_REVIEW', 'OFFBOARDED'])
+const ENTITY_STATUSES  = new Set(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_REVIEW', 'OFFBOARDED', 'PROVISIONAL'])
 // Must stay in sync with prisma/schema.prisma EntityType enum
 const ENTITY_TYPES     = new Set(['VENDOR', 'CONTRACTOR', 'BROKER', 'PLATFORM', 'FUND_SVC_PROVIDER', 'OTHER'])
 
@@ -178,6 +179,16 @@ export async function PATCH(
 
       return updated
     })
+
+    // ── Resolve step dependencies when PROVISIONAL → confirmed ───────────────
+    const statusChanged   = changedFields.includes('status')
+    const wasProvisional  = existing.status === 'PROVISIONAL'
+    const isNowConfirmed  = statusChanged && entity.status !== 'PROVISIONAL'
+    if (wasProvisional && isNowConfirmed) {
+      resolveStepDependencies(DependencyType.ENTITY_CONFIRMED, entityId, prisma).catch(err => {
+        console.error('[entities/PATCH] resolveStepDependencies failed:', err)
+      })
+    }
 
     // ── Activity log ─────────────────────────────────────────────────────────
     const FIELD_LABEL: Record<string, string> = {

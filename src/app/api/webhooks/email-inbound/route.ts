@@ -9,6 +9,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { computeFingerprint, checkPreExtractionDuplicates, runInvoicePipeline } from '@/lib/invoice-pipeline'
 import { supabaseAdmin } from '@/lib/supabase'
+import { writeAuditEvent } from '@/lib/audit'
 
 const INVOICE_BUCKET = process.env.INVOICES_BUCKET ?? 'invoices'
 
@@ -208,17 +209,32 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
+  // Resolve entityId — use matched entity, or auto-create a PROVISIONAL entity
+  let resolvedEntityId: string
+  let provisionalEntityCreated = false
+  if (entityId) {
+    resolvedEntityId = entityId
+  } else {
+    const vendorName = fromName ?? fromEmail ?? null
+    const result = await getOrCreateProvisionalEntity(orgId, vendorName)
+    resolvedEntityId = result.id
+    provisionalEntityCreated = result.isNew
+  }
+
+  // Status UNMATCHED when no entity was identified from the inbound address
+  const invoiceStatus = entityId ? 'RECEIVED' : 'UNMATCHED'
+
   // Create draft invoice
   const invoice = await prisma.invoice.create({
     data: {
       orgId,
-      invoiceNo:     `DRAFT-${Date.now()}`,  // will be overwritten by AI extraction
-      entityId:      entityId ?? await getOrCreateUnknownEntity(orgId),
-      amount:        0,
-      currency:      'USD',
-      invoiceDate:   new Date(),
-      status:        'RECEIVED',
-      source:        'EMAIL',
+      invoiceNo:      `DRAFT-${Date.now()}`,  // will be overwritten by AI extraction
+      entityId:       resolvedEntityId,
+      amount:         0,
+      currency:       'USD',
+      invoiceDate:    new Date(),
+      status:         invoiceStatus,
+      source:         'EMAIL',
       emailMessageId: messageId,
       pdfFingerprint,
       documentId,
@@ -230,6 +246,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     where: { id: ingestionEvent.id },
     data:  { invoiceId: invoice.id, processingStatus: 'PARSED' },
   })
+
+  await writeAuditEvent(prisma, {
+    actorId:    'system',
+    orgId,
+    action:     'CREATE',
+    objectType: 'INVOICE',
+    objectId:   invoice.id,
+    after:      invoiceStatus === 'UNMATCHED' ? { status: 'UNMATCHED', provisionalEntityCreated } : undefined,
+  })
+
+  if (invoiceStatus === 'UNMATCHED') {
+    await writeAuditEvent(prisma, {
+      actorId:    'system',
+      orgId,
+      action:     'UPDATE',
+      objectType: 'ENTITY',
+      objectId:   resolvedEntityId,
+      after:      { provisionalLinked: true, invoiceId: invoice.id, reason: 'No entity match from inbound email address' },
+    })
+  }
 
   // Run pipeline (synchronous — see note in docs about serverless timeout)
   try {
@@ -251,21 +287,28 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 }
 
 // ---------------------------------------------------------------------------
-// Fallback: get or create a placeholder "Unknown" entity for unresolved sender
+// Get or create a PROVISIONAL entity for unresolved sender.
+// Re-uses the most recent PROVISIONAL entity for the org to avoid proliferation.
 // ---------------------------------------------------------------------------
-async function getOrCreateUnknownEntity(orgId: string): Promise<string> {
-  const slug = `unknown-vendor-${orgId.slice(-6)}`
-  const existing = await prisma.entity.findFirst({ where: { slug } })
-  if (existing) return existing.id
+async function getOrCreateProvisionalEntity(
+  orgId: string,
+  vendorName: string | null,
+): Promise<{ id: string; isNew: boolean }> {
+  const existing = await prisma.entity.findFirst({
+    where:   { masterOrgId: orgId, status: 'PROVISIONAL' },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (existing) return { id: existing.id, isNew: false }
 
+  const slug   = `provisional-${orgId.slice(-6)}-${Date.now()}`
   const entity = await prisma.entity.create({
     data: {
       masterOrgId:    orgId,
-      name:           'Unknown Vendor',
+      name:           vendorName ?? 'Unknown Vendor (Provisional)',
       slug,
       legalStructure: 'OTHER',
-      status:         'PENDING_REVIEW',
+      status:         'PROVISIONAL',
     },
   })
-  return entity.id
+  return { id: entity.id, isNew: true }
 }

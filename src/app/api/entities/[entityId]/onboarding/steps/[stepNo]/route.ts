@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { safeExternalFetch } from '@/lib/security/outbound'
+import { DependencyType } from '@prisma/client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'])
 
@@ -151,6 +152,35 @@ export async function PATCH(
     }
 
     const skippedSteps = (instance.skippedSteps as unknown as number[]) ?? []
+
+    // ── PROVISIONAL entity guard ───────────────────────────────────────────────
+    // If the entity is still PROVISIONAL, the workflow cannot advance — set status
+    // to WAITING and record a StepDependency so it can be unblocked later.
+    const fullEntity = await prisma.entity.findUnique({ where: { id: entityId }, select: { status: true } })
+    if (fullEntity?.status === 'PROVISIONAL') {
+      // Avoid creating duplicate unresolved dependencies for the same instance + subjectId
+      const existingDep = await prisma.stepDependency.findFirst({
+        where: { stepId: instance.id, dependencyType: DependencyType.ENTITY_CONFIRMED, subjectId: entityId, resolvedAt: null },
+      })
+      if (!existingDep) {
+        await prisma.stepDependency.create({
+          data: {
+            stepId:         instance.id,
+            dependencyType: DependencyType.ENTITY_CONFIRMED,
+            subjectId:      entityId,
+          },
+        })
+      }
+      await prisma.onboardingInstance.update({
+        where: { id: instance.id },
+        data:  { status: 'WAITING', blockedReason: 'Entity is PROVISIONAL — confirm entity before advancing workflow' },
+      })
+      return NextResponse.json({
+        instance:     { ...instance, status: 'WAITING' },
+        waiting:      true,
+        waitingOn:    { dependencyType: 'ENTITY_CONFIRMED', subjectId: entityId },
+      }, { status: 202 })
+    }
 
     // ── PROCESSING_RULE: auto-evaluate and route ───────────────────────────────
     if (stepDef.type === 'PROCESSING_RULE') {

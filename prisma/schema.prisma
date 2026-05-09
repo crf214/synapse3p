@@ -138,6 +138,7 @@ enum EntityStatus {
   SUSPENDED
   PENDING_REVIEW
   OFFBOARDED
+  PROVISIONAL
 }
 
 enum OnboardingStatus {
@@ -768,6 +769,7 @@ enum OnboardingInstanceStatus {
   NOT_STARTED
   IN_PROGRESS
   BLOCKED
+  WAITING               // step is blocked on an external dependency (see StepDependency)
   PENDING_APPROVAL
   PENDING_SUB_WORKFLOW  // parent instance waiting for a sub-workflow instance to complete
   COMPLETED
@@ -951,9 +953,32 @@ model OnboardingInstance {
   workflow        OnboardingWorkflow  @relation(fields: [workflowId], references: [id])
   parentInstance  OnboardingInstance? @relation("SubWorkflowInstances", fields: [parentInstanceId], references: [id])
   subInstances    OnboardingInstance[] @relation("SubWorkflowInstances")
+  dependencies    StepDependency[]
 
   @@unique([entityId, orgId, workflowId])
   @@map("onboarding_instances")
+}
+
+enum DependencyType {
+  ENTITY_CONFIRMED
+  RISK_SCORE_READY
+  ONBOARDING_COMPLETE
+  APPROVAL_COMPLETE
+}
+
+model StepDependency {
+  id             String         @id @default(cuid())
+  stepId         String         // references OnboardingInstance.id (the waiting instance)
+  dependencyType DependencyType
+  subjectId      String         // the ID of the thing being waited on (e.g. entityId)
+  resolvedAt     DateTime?      // null means still waiting
+  createdAt      DateTime       @default(now())
+
+  step           OnboardingInstance @relation(fields: [stepId], references: [id])
+
+  @@index([dependencyType, subjectId, resolvedAt])
+  @@index([stepId])
+  @@map("step_dependencies")
 }
 
 model ThirdPartyReview {

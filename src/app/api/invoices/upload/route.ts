@@ -97,10 +97,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       )
     }
 
-    // Resolve entityId — use provided or placeholder
-    const resolvedEntityId = entityId ?? await getOrCreateUnknownEntity(session.orgId)
+    // Resolve entityId — use provided, or auto-create a PROVISIONAL entity when none is supplied
+    let resolvedEntityId: string
+    let provisionalEntityCreated = false
+    if (entityId) {
+      resolvedEntityId = entityId
+    } else {
+      const result = await getOrCreateProvisionalEntity(session.orgId, null)
+      resolvedEntityId = result.id
+      provisionalEntityCreated = result.isNew
+    }
 
-    // Create draft invoice
+    // Create draft invoice — status UNMATCHED when no entity was supplied
+    const invoiceStatus = entityId ? 'RECEIVED' : 'UNMATCHED'
     const invoice = await prisma.invoice.create({
       data: {
         orgId:          session.orgId,
@@ -109,7 +118,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         amount:         amountHint ? parseFloat(amountHint) || 0 : 0,
         currency:       'USD',
         invoiceDate:    new Date(),
-        status:         'RECEIVED',
+        status:         invoiceStatus,
         source:         'PORTAL',
         pdfFingerprint,
         documentId:     null,
@@ -127,7 +136,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       action:     'CREATE',
       objectType: 'INVOICE',
       objectId:   invoice.id,
+      after:      invoiceStatus === 'UNMATCHED' ? { status: 'UNMATCHED', provisionalEntityCreated } : undefined,
     })
+
+    if (invoiceStatus === 'UNMATCHED') {
+      await writeAuditEvent(prisma, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     'UPDATE',
+        objectType: 'ENTITY',
+        objectId:   resolvedEntityId,
+        after:      { provisionalLinked: true, invoiceId: invoice.id, reason: 'No entity supplied at upload time' },
+      })
+    }
 
     // Run pipeline asynchronously (don't block response)
     runInvoicePipeline({ invoiceId: invoice.id, orgId: session.orgId, pdfBase64 }).catch(err => {
@@ -144,12 +165,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 }
 
-async function getOrCreateUnknownEntity(orgId: string): Promise<string> {
-  const slug = `unknown-vendor-${orgId.slice(-6)}`
-  const existing = await prisma.entity.findFirst({ where: { slug } })
-  if (existing) return existing.id
-  const entity = await prisma.entity.create({
-    data: { masterOrgId: orgId, name: 'Unknown Vendor', slug, legalStructure: 'OTHER', status: 'PENDING_REVIEW' },
+async function getOrCreateProvisionalEntity(
+  orgId: string,
+  vendorName: string | null,
+): Promise<{ id: string; isNew: boolean }> {
+  const slug = `provisional-${orgId.slice(-6)}-${Date.now()}`
+  // Try to find an existing unresolved PROVISIONAL entity for this org first
+  const existing = await prisma.entity.findFirst({
+    where: { masterOrgId: orgId, status: 'PROVISIONAL' },
+    orderBy: { createdAt: 'desc' },
   })
-  return entity.id
+  if (existing) return { id: existing.id, isNew: false }
+  const entity = await prisma.entity.create({
+    data: {
+      masterOrgId:    orgId,
+      name:           vendorName ?? 'Unknown Vendor (Provisional)',
+      slug,
+      legalStructure: 'OTHER',
+      status:         'PROVISIONAL',
+    },
+  })
+  return { id: entity.id, isNew: true }
 }
