@@ -6,6 +6,10 @@ import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } fr
 import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
 
+// All valid EntityType values (must stay in sync with prisma/schema.prisma EntityType enum)
+const ENTITY_TYPE_VALUES = ['VENDOR', 'CONTRACTOR', 'BROKER', 'PLATFORM', 'FUND_SVC_PROVIDER', 'OTHER'] as const
+type EntityTypeValue = typeof ENTITY_TYPE_VALUES[number]
+
 const CreateEntitySchema = z.object({
   name:              z.string().min(1),
   legalStructure:    z.string().min(1),
@@ -15,6 +19,8 @@ const CreateEntitySchema = z.object({
   notes:             z.string().optional(),
   parentId:          z.string().optional().nullable(),
   incorporationDate: z.string().optional().nullable(),
+  // Optional primary classification — validated against the enum to prevent stale values
+  entityType:        z.enum(ENTITY_TYPE_VALUES).optional(),
 })
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
@@ -161,6 +167,17 @@ export async function POST(req: NextRequest) {
           metadata:       notes ? { notes } : {},
         },
       })
+
+      // Create initial classification if entityType provided
+      if (body.entityType) {
+        await tx.entityClassification.create({
+          data: {
+            entityId:  created.id,
+            type:      body.entityType as EntityTypeValue,
+            isPrimary: true,
+          },
+        })
+      }
 
       await tx.entityOrgRelationship.create({
         data: {

@@ -10,6 +10,8 @@ const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
 const LEGAL_STRUCTURES = new Set(['INDIVIDUAL', 'COMPANY', 'FUND', 'TRUST', 'GOVERNMENT', 'OTHER'])
 const ENTITY_STATUSES  = new Set(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_REVIEW', 'OFFBOARDED'])
+// Must stay in sync with prisma/schema.prisma EntityType enum
+const ENTITY_TYPES     = new Set(['VENDOR', 'CONTRACTOR', 'BROKER', 'PLATFORM', 'FUND_SVC_PROVIDER', 'OTHER'])
 
 export async function GET(
   _req: NextRequest,
@@ -117,6 +119,18 @@ export async function PATCH(
         updates.status = v
         changedFields.push('status')
       }
+    }
+
+    // ── EntityType guard — reject stale/invalid values immediately ───────────
+    if ('entityType' in body) {
+      const v = String(body.entityType ?? '').toUpperCase()
+      if (!ENTITY_TYPES.has(v)) {
+        throw new ValidationError(
+          `Invalid entityType "${body.entityType}". Allowed values: ${[...ENTITY_TYPES].join(', ')}`,
+        )
+      }
+      // Note: classification updates are handled via /api/entities/[entityId]/classifications
+      // This guard prevents stale enum values from being submitted; callers should use that endpoint.
     }
 
     // ── Relation field (parentId) ────────────────────────────────────────────
