@@ -44,6 +44,7 @@ async function main() {
           passwordHash,
           orgId: org.id,
           role,
+          emailVerified: true,
         },
       })
 
