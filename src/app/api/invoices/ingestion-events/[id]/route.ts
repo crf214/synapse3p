@@ -109,7 +109,7 @@ export async function POST(req: NextRequest, { params }: Params) {
     if (action === 'dismiss') {
       await prisma.invoiceIngestionEvent.update({
         where: { id: event.id },
-        data:  { processingStatus: 'FAILED', errorDetails: event.errorDetails ?? 'Dismissed by user' },
+        data:  { processingStatus: 'DISMISSED', errorDetails: event.errorDetails ?? 'Dismissed by user' },
       })
       return NextResponse.json({ ok: true })
     }
