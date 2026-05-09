@@ -3,6 +3,12 @@
   "framework": "nextjs",
   "installCommand": "npm install",
   "regions": ["lhr1"],
+  "crons": [
+    {
+      "path": "/api/cron/recurring-invoices",
+      "schedule": "0 6 * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",

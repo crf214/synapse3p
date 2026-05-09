@@ -71,6 +71,15 @@ export function auditSecrets(): SecretsAuditResult {
   // WARNINGS — missing optional but important
   // -------------------------------------------------------------------------
 
+  // CRON_SECRET — required for the recurring invoice cron job to execute.
+  // Must be set in Vercel → Project Settings → Environment Variables.
+  // Use a random string of at least 32 characters.
+  if (!env.CRON_SECRET) {
+    warnings.push('CRON_SECRET is missing — recurring invoice cron job will refuse to run')
+  } else if (env.CRON_SECRET.length < 32) {
+    warnings.push(`CRON_SECRET is too short (${env.CRON_SECRET.length} chars, minimum 32)`)
+  }
+
   if (!env.NEWS_API_KEY) {
     warnings.push('NEWS_API_KEY is missing — external news signals will be disabled')
   }

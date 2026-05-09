@@ -825,6 +825,7 @@ enum InvoiceSource {
   PORTAL
   MANUAL
   EDI
+  RECURRING
 }
 
 enum MatchType {
@@ -1043,12 +1044,14 @@ model RecurringSchedule {
   lastInvoiceAt       DateTime?
   lastInvoiceAmount   Float?
   invoiceCount        Int          @default(0)
+  nextRunAt           DateTime?    // set after each run; null = never run (eligible immediately)
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
   org                 Organisation @relation(fields: [orgId], references: [id])
   entity              Entity       @relation(fields: [entityId], references: [id])
 
+  @@index([isActive, nextRunAt])
   @@map("recurring_schedules")
 }
 
