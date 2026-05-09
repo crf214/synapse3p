@@ -280,7 +280,7 @@ export default function MergedAuthDetailPage() {
                   <tr key={item.id}
                     style={{ borderBottom: i < ma.items.length - 1 ? '1px solid var(--border)' : undefined }}>
                     <td className="px-4 py-3">
-                      <Link href={`/dashboard/invoices/${item.invoice.id}`}
+                      <Link href={`/dashboard/invoices/${item.invoice.id}/review`}
                         className="font-mono text-xs font-medium hover:underline" style={{ color: '#2563eb' }}>
                         {item.invoice.invoiceNo}
                       </Link>

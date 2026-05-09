@@ -243,7 +243,7 @@ export default function PaymentDetailPage() {
           </div>
           <p className="text-sm" style={{ color: 'var(--muted)' }}>
             {pi.entity?.name} · Invoice{' '}
-            <Link href={`/dashboard/invoices/${pi.invoiceId}`}
+            <Link href={`/dashboard/invoices/${pi.invoiceId}/review`}
               className="hover:underline" style={{ color: '#2563eb' }}>
               {pi.invoice?.invoiceNo}
             </Link>

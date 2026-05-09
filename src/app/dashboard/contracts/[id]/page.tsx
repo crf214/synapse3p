@@ -296,7 +296,7 @@ export default function ContractDetailPage() {
               </h2>
               <div className="space-y-2">
                 {contract.invoices.map(inv => (
-                  <Link key={inv.id} href={`/dashboard/invoices/${inv.id}`}
+                  <Link key={inv.id} href={`/dashboard/invoices/${inv.id}/review`}
                     className="flex items-center justify-between px-3 py-2 rounded-xl hover:bg-blue-50 transition-colors"
                     style={{ border: '1px solid var(--border)' }}>
                     <div className="text-sm font-mono" style={{ color: 'var(--ink)' }}>{inv.invoiceNo}</div>

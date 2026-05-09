@@ -181,7 +181,7 @@ export default function PaymentsPage() {
                       className="cursor-pointer transition-colors hover:bg-blue-50"
                       style={{ borderBottom: i < rows.length - 1 ? '1px solid var(--border)' : undefined }}>
                       <td className="px-4 py-3">
-                        <Link href={`/dashboard/invoices/${r.invoice.id}`}
+                        <Link href={`/dashboard/invoices/${r.invoice.id}/review`}
                           onClick={e => e.stopPropagation()}
                           className="font-mono text-xs hover:underline" style={{ color: '#2563eb' }}>
                           {r.invoice.invoiceNo}

@@ -46,7 +46,7 @@ function fmtDate(iso: string) {
 
 function subjectHref(item: ApprovalItem) {
   if (item.type === 'PO')          return `/dashboard/purchase-orders/${item.subjectId}`
-  if (item.type === 'INVOICE')     return `/dashboard/invoices/${item.subjectId}`
+  if (item.type === 'INVOICE')     return `/dashboard/invoices/${item.subjectId}/review`
   if (item.type === 'MERGED_AUTH') return `/dashboard/invoices?batch=${item.subjectId}`
   return '#'
 }

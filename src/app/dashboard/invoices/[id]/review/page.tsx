@@ -417,7 +417,7 @@ export default function InvoiceReviewPage() {
                       <div className="p-2 rounded-lg text-xs"
                         style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
                         <span style={{ color: 'var(--muted)' }}>Original: </span>
-                        <a href={`/dashboard/invoices/${flag.duplicateOf.id}`}
+                        <a href={`/dashboard/invoices/${flag.duplicateOf.id}/review`}
                           className="font-medium underline" style={{ color: '#2563eb' }}>
                           {flag.duplicateOf.invoiceNo}
                         </a>

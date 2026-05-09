@@ -120,7 +120,7 @@ function OverrideModal({
             {flag.duplicateOf && (
               <div className="text-xs pt-1" style={{ color: 'var(--muted)' }}>
                 Flagged as duplicate of{' '}
-                <Link href={`/dashboard/invoices/${flag.duplicateOf.id}`}
+                <Link href={`/dashboard/invoices/${flag.duplicateOf.id}/review`}
                   className="underline" style={{ color: '#2563eb' }}>
                   {flag.duplicateOf.invoiceNo}
                 </Link>{' '}
@@ -199,7 +199,7 @@ function FlagRow({
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-0.5">
-            <Link href={`/dashboard/invoices/${flag.invoiceId}`}
+            <Link href={`/dashboard/invoices/${flag.invoiceId}/review`}
               className="text-sm font-semibold hover:underline" style={{ color: 'var(--ink)' }}>
               {flag.invoiceNo}
             </Link>
@@ -239,7 +239,7 @@ function FlagRow({
       {flag.duplicateOf && (
         <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
           <span>Original:</span>
-          <Link href={`/dashboard/invoices/${flag.duplicateOf.id}`}
+          <Link href={`/dashboard/invoices/${flag.duplicateOf.id}/review`}
             className="font-medium hover:underline" style={{ color: '#2563eb' }}>
             {flag.duplicateOf.invoiceNo}
           </Link>

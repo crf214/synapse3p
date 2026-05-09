@@ -233,7 +233,7 @@ export default function PaymentExecutionsPage() {
                       {/* Left */}
                       <div className="flex-1 min-w-0 space-y-1.5">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <Link href={`/dashboard/invoices/${e.invoiceId}`}
+                          <Link href={`/dashboard/invoices/${e.invoiceId}/review`}
                             className="text-sm font-semibold hover:underline" style={{ color: 'var(--ink)' }}>
                             {e.invoiceNo}
                           </Link>
