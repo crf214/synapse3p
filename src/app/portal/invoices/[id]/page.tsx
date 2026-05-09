@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { apiClient } from '@/lib/api-client'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -132,7 +133,7 @@ export default function PortalInvoiceDetailPage() {
     }
     setSubmittingDispute(true); setDisputeError(null)
     try {
-      const res = await fetch(`/api/portal/invoices/${invoiceId}/dispute`, {
+      const res = await apiClient(`/api/portal/invoices/${invoiceId}/dispute`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ disputeType, reason: disputeReason.trim() }),
@@ -154,7 +155,7 @@ export default function PortalInvoiceDetailPage() {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('title', file.name)
-      const res  = await fetch(`/api/portal/invoices/${invoiceId}/documents`, { method: 'POST', body: formData })
+      const res  = await apiClient(`/api/portal/invoices/${invoiceId}/documents`, { method: 'POST', body: formData })
       const json = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Upload failed')
       setUploadSuccess(true)

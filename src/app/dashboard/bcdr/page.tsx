@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'CISO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'CISO', 'CONTROLLER'])
@@ -271,7 +272,7 @@ export default function BcDrPage() {
 
   async function handleSave(data: Record<string, unknown>) {
     const editing = modal !== 'new' && modal !== null
-    const res = await fetch(
+    const res = await apiClient(
       editing ? `/api/bcdr/${(modal as BcDrRecord).id}` : '/api/bcdr',
       { method: editing ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) }
     )
@@ -287,7 +288,7 @@ export default function BcDrPage() {
     if (!toDelete) return
     setDeleting(true)
     try {
-      await fetch(`/api/bcdr/${toDelete.id}`, { method: 'DELETE' })
+      await apiClient(`/api/bcdr/${toDelete.id}`, { method: 'DELETE' })
       setToDelete(null)
       await load()
     } finally {

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useUser } from '@/context/UserContext'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES   = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const APPROVER_ROLES  = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -146,7 +147,7 @@ export default function PODetailPage() {
   async function submitForApproval() {
     setSubmitting(true); setSubmitError(null)
     try {
-      const res  = await fetch(`/api/purchase-orders/${poId}/submit`, { method: 'POST' })
+      const res  = await apiClient(`/api/purchase-orders/${poId}/submit`, { method: 'POST' })
       const json = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Submit failed')
       await fetchPO()
@@ -158,7 +159,7 @@ export default function PODetailPage() {
     if (!myPendingApproval) return
     setApproving(true); setApproveError(null)
     try {
-      const res  = await fetch(`/api/purchase-orders/${poId}/approve`, {
+      const res  = await apiClient(`/api/purchase-orders/${poId}/approve`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ decision, comments }),

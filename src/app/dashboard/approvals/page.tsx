@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
@@ -91,7 +92,7 @@ export default function ApprovalsPage() {
     if (!modal) return
     setDeciding(modal.item.id)
     try {
-      const res = await fetch(`/api/approvals/${modal.item.id}/decide`, {
+      const res = await apiClient(`/api/approvals/${modal.item.id}/decide`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: modal.item.type, decision: modal.decision, comments }),

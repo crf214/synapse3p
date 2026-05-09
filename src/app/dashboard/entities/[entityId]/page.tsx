@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES    = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES      = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -435,7 +436,7 @@ function ClassificationsTab({ entity, canWrite, onRefresh }: { entity: EntityDet
   async function addClassification() {
     setSaving(true); setError(null)
     try {
-      const res = await fetch(`/api/entities/${entity.id}/classifications`, {
+      const res = await apiClient(`/api/entities/${entity.id}/classifications`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: newType }),
       })
@@ -450,7 +451,7 @@ function ClassificationsTab({ entity, canWrite, onRefresh }: { entity: EntityDet
   }
 
   async function removeClassification(id: string) {
-    await fetch(`/api/entities/${entity.id}/classifications/${id}`, { method: 'DELETE' })
+    await apiClient(`/api/entities/${entity.id}/classifications/${id}`, { method: 'DELETE' })
     onRefresh()
   }
 
@@ -533,7 +534,7 @@ function BankAccountsTab({ entity, canWrite, onRefresh }: { entity: EntityDetail
   async function save(ev: React.FormEvent) {
     ev.preventDefault(); setSaving(true); setError(null)
     try {
-      const res = await fetch(`/api/entities/${entity.id}/bank-accounts`, {
+      const res = await apiClient(`/api/entities/${entity.id}/bank-accounts`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })

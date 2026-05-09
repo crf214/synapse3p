@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const READ_ROLES     = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const OVERRIDE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -83,7 +84,7 @@ function OverrideModal({
     }
     setSaving(true); setError(null)
     try {
-      const res = await fetch(`/api/invoices/${flag.invoiceId}/override-duplicate`, {
+      const res = await apiClient(`/api/invoices/${flag.invoiceId}/override-duplicate`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ flagId: flag.id, justification: justification.trim() }),

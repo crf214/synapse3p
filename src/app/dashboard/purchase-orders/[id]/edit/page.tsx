@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
@@ -154,7 +155,7 @@ export default function EditPurchaseOrderPage() {
   async function saveDraft() {
     setSaving(true); setError(null)
     try {
-      const res  = await fetch(`/api/purchase-orders/${poId}`, {
+      const res  = await apiClient(`/api/purchase-orders/${poId}`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(buildPayload()),
@@ -172,7 +173,7 @@ export default function EditPurchaseOrderPage() {
   async function saveAndSubmit() {
     setSubmitting(true); setError(null)
     try {
-      const res  = await fetch(`/api/purchase-orders/${poId}`, {
+      const res  = await apiClient(`/api/purchase-orders/${poId}`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(buildPayload()),
@@ -180,7 +181,7 @@ export default function EditPurchaseOrderPage() {
       const json = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to save')
 
-      const res2  = await fetch(`/api/purchase-orders/${poId}/submit`, { method: 'POST' })
+      const res2  = await apiClient(`/api/purchase-orders/${poId}/submit`, { method: 'POST' })
       const json2 = await res2.json() as { error?: { message: string } }
       if (!res2.ok) throw new Error(json2.error?.message ?? 'Failed to submit')
 

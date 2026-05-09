@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 
@@ -157,7 +158,7 @@ export default function InvoicesPage() {
     if (selected.size < 2) return
     setMerging(true); setMergeError(null)
     try {
-      const res  = await fetch('/api/invoices/merge', {
+      const res  = await apiClient('/api/invoices/merge', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ invoiceIds: [...selected] }),

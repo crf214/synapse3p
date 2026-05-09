@@ -4,6 +4,7 @@ import type { SessionData } from '@/lib/session'
 import { sessionOptions as SESSION_OPTIONS } from '@/lib/session-config'
 import { getSecurityHeaders } from '@/lib/security/headers'
 import { authLimiter, apiLimiter } from '@/lib/security/rateLimit'
+import { validateCsrfToken } from '@/lib/csrf'
 
 const PUBLIC_ROUTES = new Set([
   '/',
@@ -30,6 +31,18 @@ function isApiRoute(pathname: string) {
   return pathname.startsWith('/api/')
 }
 
+const CSRF_MUTATING   = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+const CSRF_EXCLUDED   = new Set(['/api/auth/csrf', '/api/health'])
+const CSRF_EXCL_PREFIX = ['/api/webhooks/']
+
+function needsCsrf(pathname: string, method: string): boolean {
+  if (!CSRF_MUTATING.has(method)) return false
+  if (!isApiRoute(pathname))       return false
+  if (CSRF_EXCLUDED.has(pathname)) return false
+  if (CSRF_EXCL_PREFIX.some(p => pathname.startsWith(p))) return false
+  return true
+}
+
 /** IP or forwarded-for header used as rate-limit identifier. */
 function getIdentifier(req: NextRequest): string {
   return (
@@ -49,6 +62,17 @@ function applySecurityHeaders(res: NextResponse): NextResponse {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
   const identifier = getIdentifier(req)
+
+  // ---------------------------------------------------------------------------
+  // CSRF validation — must run before rate limiting and session work
+  // ---------------------------------------------------------------------------
+  if (needsCsrf(pathname, req.method)) {
+    if (!validateCsrfToken(req)) {
+      return applySecurityHeaders(
+        NextResponse.json({ error: 'Invalid CSRF token' }, { status: 403 }),
+      )
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Rate limiting — applied before any session work

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AP_CLERK'])
 const REPLAY_ROLES  = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -248,7 +249,7 @@ export default function IngestionMonitorPage() {
   async function doAction(id: string, action: 'replay' | 'dismiss') {
     setActionId(id)
     try {
-      const res = await fetch(`/api/invoices/ingestion-events/${id}`, {
+      const res = await apiClient(`/api/invoices/ingestion-events/${id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action }),

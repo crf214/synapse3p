@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
@@ -72,7 +73,7 @@ export default function InvoiceUploadPage() {
     if (amount)    fd.append('amount',    amount.trim())
 
     try {
-      const res  = await fetch('/api/invoices/upload', { method: 'POST', body: fd })
+      const res  = await apiClient('/api/invoices/upload', { method: 'POST', body: fd })
       const json = await res.json() as { invoice?: { id: string }; error?: { message: string; code?: string } }
 
       if (!res.ok) {

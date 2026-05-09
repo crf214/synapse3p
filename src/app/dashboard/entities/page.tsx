@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'FINANCE_MANAGER'])
@@ -113,7 +114,7 @@ function AddEntityModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
     e.preventDefault()
     setSaving(true); setError(null)
     try {
-      const res = await fetch('/api/entities', {
+      const res = await apiClient('/api/entities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),

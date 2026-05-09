@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { apiClient } from '@/lib/api-client'
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -21,7 +22,7 @@ export default function RegisterPage() {
     setError('')
     setLoading(true)
     try {
-      const res = await fetch('/api/auth/register', {
+      const res = await apiClient('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password, inviteToken }),

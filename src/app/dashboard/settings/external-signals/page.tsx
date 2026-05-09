@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'CISO', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'CISO'])
@@ -102,7 +103,7 @@ export default function ExternalSignalsPage() {
   }, [tab, monitoredLoaded])
 
   async function dismissSignal(id: string, dismissed: boolean) {
-    await fetch(`/api/external-signals/${id}`, {
+    await apiClient(`/api/external-signals/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dismissed }),

@@ -1,6 +1,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { apiClient } from '@/lib/api-client'
 
 const NAV = [
   { href: '/portal',           label: 'Overview'  },
@@ -14,7 +15,7 @@ export default function PortalNav({ name }: { name: string }) {
   const pathname = usePathname()
 
   async function logout() {
-    await fetch('/api/auth/logout', { method: 'POST' })
+    await apiClient('/api/auth/logout', { method: 'POST' })
     router.push('/auth/login')
     router.refresh()
   }

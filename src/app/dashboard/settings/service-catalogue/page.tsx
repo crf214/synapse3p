@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 interface CatalogueNode {
   id:          string
@@ -249,19 +250,19 @@ export default function ServiceCataloguePage() {
 
   async function handleSave(data: { name: string; description: string | null }) {
     if (modal === 'root') {
-      const res = await fetch('/api/service-catalogue', {
+      const res = await apiClient('/api/service-catalogue', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...data, parentId: null }),
       })
       if (!res.ok) { const d = await res.json(); throw new Error(d.error?.message ?? 'Failed') }
     } else if (modal && 'addChild' in modal) {
-      const res = await fetch('/api/service-catalogue', {
+      const res = await apiClient('/api/service-catalogue', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...data, parentId: modal.addChild.id }),
       })
       if (!res.ok) { const d = await res.json(); throw new Error(d.error?.message ?? 'Failed') }
     } else if (modal && 'edit' in modal) {
-      const res = await fetch(`/api/service-catalogue/${modal.edit.id}`, {
+      const res = await apiClient(`/api/service-catalogue/${modal.edit.id}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       })
@@ -272,7 +273,7 @@ export default function ServiceCataloguePage() {
   }
 
   async function handleToggleActive(node: CatalogueNode) {
-    await fetch(`/api/service-catalogue/${node.id}`, {
+    await apiClient(`/api/service-catalogue/${node.id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isActive: !node.isActive }),
     })
@@ -281,7 +282,7 @@ export default function ServiceCataloguePage() {
 
   async function handleDelete(node: CatalogueNode) {
     if (!confirm(`Remove "${node.name}"?`)) return
-    await fetch(`/api/service-catalogue/${node.id}`, { method: 'DELETE' })
+    await apiClient(`/api/service-catalogue/${node.id}`, { method: 'DELETE' })
     await load()
   }
 

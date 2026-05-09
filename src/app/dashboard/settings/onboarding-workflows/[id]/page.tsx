@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
@@ -309,7 +310,7 @@ export default function WorkflowEditorPage({ params }: { params: Promise<{ id: s
 
     setSaving(true); setSaveErr(null)
     try {
-      const res = await fetch(`/api/onboarding-workflows/${id}`, {
+      const res = await apiClient(`/api/onboarding-workflows/${id}`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

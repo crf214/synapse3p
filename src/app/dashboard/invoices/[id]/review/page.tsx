@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const ROUTING_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -258,7 +259,7 @@ export default function InvoiceReviewPage() {
     setSaving(true)
     try {
       const fieldCorrections = Object.entries(corrections).map(([fieldName, reviewedValue]) => ({ fieldName, reviewedValue }))
-      await fetch(`/api/invoices/${invoiceId}`, {
+      await apiClient(`/api/invoices/${invoiceId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fieldCorrections }),
@@ -272,7 +273,7 @@ export default function InvoiceReviewPage() {
     if (!selectedApprover) return
     setRouting(true); setRouteError(null)
     try {
-      const res = await fetch(`/api/invoices/${invoiceId}/approve`, {
+      const res = await apiClient(`/api/invoices/${invoiceId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ assignedTo: selectedApprover, notes: routeNotes }),
@@ -292,7 +293,7 @@ export default function InvoiceReviewPage() {
     }
     setSubmittingDecision(true); setDecisionError(null)
     try {
-      const res = await fetch(`/api/invoices/${invoiceId}/approve`, {
+      const res = await apiClient(`/api/invoices/${invoiceId}/approve`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -315,7 +316,7 @@ export default function InvoiceReviewPage() {
     }
     setSubmittingOverride(true); setOverrideError(null)
     try {
-      const res = await fetch(`/api/invoices/${invoiceId}/override-duplicate`, {
+      const res = await apiClient(`/api/invoices/${invoiceId}/override-duplicate`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ flagId, justification: overrideJustification.trim() }),

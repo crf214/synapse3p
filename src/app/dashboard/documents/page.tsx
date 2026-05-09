@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR', 'AP_CLERK'])
 const DELETE_ROLES  = new Set(['ADMIN', 'CFO', 'LEGAL'])
@@ -106,7 +107,7 @@ export default function DocumentsPage() {
     if (!confirm('Mark this document as deleted?')) return
     setDeleting(id)
     try {
-      await fetch(`/api/documents/${id}`, { method: 'DELETE' })
+      await apiClient(`/api/documents/${id}`, { method: 'DELETE' })
       await load()
     } catch {
       setError('Failed to delete document.')

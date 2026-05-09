@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
@@ -352,7 +353,7 @@ export default function ProcessingRulesPage() {
 
   async function handleSave(data: Record<string, unknown>) {
     const editing = modal !== 'new' && modal !== null
-    const res = await fetch(
+    const res = await apiClient(
       editing ? `/api/processing-rules/${(modal as ProcessingRule).id}` : '/api/processing-rules',
       {
         method:  editing ? 'PUT' : 'POST',
@@ -369,7 +370,7 @@ export default function ProcessingRulesPage() {
   }
 
   async function handleToggle(rule: ProcessingRule) {
-    await fetch(`/api/processing-rules/${rule.id}`, {
+    await apiClient(`/api/processing-rules/${rule.id}`, {
       method:  'PUT',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ isActive: !rule.isActive }),
@@ -381,7 +382,7 @@ export default function ProcessingRulesPage() {
     if (!toDelete) return
     setDeleting(true)
     try {
-      await fetch(`/api/processing-rules/${toDelete.id}`, { method: 'DELETE' })
+      await apiClient(`/api/processing-rules/${toDelete.id}`, { method: 'DELETE' })
       setToDelete(null)
       await load()
     } finally {

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
@@ -287,7 +288,7 @@ export default function AutoApprovePoliciesPage() {
 
   async function handleSave(data: Record<string, unknown>) {
     const editing = modal !== 'new' && modal !== null
-    const res = await fetch(
+    const res = await apiClient(
       editing ? `/api/auto-approve-policies/${(modal as AutoApprovePolicy).id}` : '/api/auto-approve-policies',
       {
         method:  editing ? 'PUT' : 'POST',
@@ -304,7 +305,7 @@ export default function AutoApprovePoliciesPage() {
   }
 
   async function handleToggle(policy: AutoApprovePolicy) {
-    await fetch(`/api/auto-approve-policies/${policy.id}`, {
+    await apiClient(`/api/auto-approve-policies/${policy.id}`, {
       method:  'PUT',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ isActive: !policy.isActive }),
@@ -316,7 +317,7 @@ export default function AutoApprovePoliciesPage() {
     if (!toDelete) return
     setDeleting(true)
     try {
-      await fetch(`/api/auto-approve-policies/${toDelete.id}`, { method: 'DELETE' })
+      await apiClient(`/api/auto-approve-policies/${toDelete.id}`, { method: 'DELETE' })
       setToDelete(null)
       await load()
     } finally {

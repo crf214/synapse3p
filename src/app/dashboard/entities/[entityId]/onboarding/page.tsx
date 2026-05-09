@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
 import Link from 'next/link'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR', 'AP_CLERK'])
 
@@ -257,7 +258,7 @@ function Step2LegalPanel({ entityId, onComplete, saving, canComplete }: {
       fd.append('file',    file)
       fd.append('docType', docType)
       fd.append('title',   docTitle.trim() || file.name)
-      const res = await fetch(`/api/entities/${entityId}/onboarding/attachments`, { method: 'POST', body: fd })
+      const res = await apiClient(`/api/entities/${entityId}/onboarding/attachments`, { method: 'POST', body: fd })
       if (!res.ok) {
         const d = await res.json() as { error?: { message: string; code: string } }
         throw new Error(d.error?.message ?? `HTTP ${res.status}`)
@@ -275,7 +276,7 @@ function Step2LegalPanel({ entityId, onComplete, saving, canComplete }: {
   async function handleDelete(docId: string) {
     setDeleting(docId)
     try {
-      await fetch(`/api/entities/${entityId}/onboarding/attachments?docId=${docId}`, { method: 'DELETE' })
+      await apiClient(`/api/entities/${entityId}/onboarding/attachments?docId=${docId}`, { method: 'DELETE' })
       await loadDocs()
     } finally {
       setDeleting(null)
@@ -486,7 +487,7 @@ function Step6Panel({ entityId, entity, onComplete, saving, canComplete }: {
   async function confirmLink(erpVendorId: string, erpVendorName: string) {
     setLinking(erpVendorId)
     try {
-      const res = await fetch(`/api/entities/${entityId}/netsuite-match`, {
+      const res = await apiClient(`/api/entities/${entityId}/netsuite-match`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ erpVendorId, erpVendorName }),
@@ -685,7 +686,7 @@ export default function OnboardingPage() {
   async function startOnboarding() {
     setStarting(true); setError(null)
     try {
-      const res = await fetch(`/api/entities/${entityId}/onboarding`, { method: 'POST' })
+      const res = await apiClient(`/api/entities/${entityId}/onboarding`, { method: 'POST' })
       if (!res.ok) {
         const d = await res.json() as { error?: { message: string; code: string } }
         throw new Error(d.error?.message ?? `HTTP ${res.status}`)
@@ -701,7 +702,7 @@ export default function OnboardingPage() {
   async function completeStep(stepNo: number, notes: string) {
     setSaving(true); setError(null)
     try {
-      const res = await fetch(`/api/entities/${entityId}/onboarding/steps/${stepNo}`, {
+      const res = await apiClient(`/api/entities/${entityId}/onboarding/steps/${stepNo}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'COMPLETED', notes, completedBy: role ?? 'unknown' }),

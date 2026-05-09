@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'CFO', 'CONTROLLER'])
@@ -78,7 +79,7 @@ function NewPeriodForm({ onCreated, onCancel }: NewPeriodFormProps) {
     setError(null)
     setSubmitting(true)
     try {
-      const res = await fetch('/api/audit-periods', {
+      const res = await apiClient('/api/audit-periods', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ name, framework, periodStart, periodEnd }),
@@ -229,7 +230,7 @@ export default function AuditPeriodsPage() {
     setActing(prev => new Set([...prev, periodId]))
     setActionError(prev => { const n = { ...prev }; delete n[periodId]; return n })
     try {
-      const res = await fetch(`/api/audit-periods/${periodId}/${action}`, { method: 'POST' })
+      const res = await apiClient(`/api/audit-periods/${periodId}/${action}`, { method: 'POST' })
       if (!res.ok) {
         const d = await res.json() as { error?: { message: string; code: string } }
         throw new Error(d.error?.message ?? `HTTP ${res.status}`)

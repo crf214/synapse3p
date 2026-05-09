@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN'])
 
@@ -82,7 +83,7 @@ function WorkflowModal({
 
       const url    = initial ? `/api/approval-workflows/${initial.id}` : '/api/approval-workflows'
       const method = initial ? 'PUT' : 'POST'
-      const res    = await fetch(url, {
+      const res    = await apiClient(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(payload),
@@ -240,7 +241,7 @@ export default function ApprovalWorkflowsPage() {
   async function deactivate(id: string) {
     setDeleting(id)
     try {
-      await fetch(`/api/approval-workflows/${id}`, { method: 'DELETE' })
+      await apiClient(`/api/approval-workflows/${id}`, { method: 'DELETE' })
       setWorkflows(prev => prev.map(wf => wf.id === id ? { ...wf, isActive: false } : wf))
     } catch { /* ignore */ }
     finally { setDeleting(null) }

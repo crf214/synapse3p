@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL'])
@@ -140,7 +141,7 @@ export default function ServiceEngagementDetailPage() {
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch(`/api/service-engagements/${id}`, {
+      const res = await apiClient(`/api/service-engagements/${id}`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -170,7 +171,7 @@ export default function ServiceEngagementDetailPage() {
   async function markReviewed() {
     setSaving(true)
     try {
-      await fetch(`/api/service-engagements/${id}`, {
+      await apiClient(`/api/service-engagements/${id}`, {
         method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ markReviewed: true }),
@@ -184,7 +185,7 @@ export default function ServiceEngagementDetailPage() {
   async function handleDelete() {
     setDeleting(true)
     try {
-      const res = await fetch(`/api/service-engagements/${id}`, { method: 'DELETE' })
+      const res = await apiClient(`/api/service-engagements/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
         throw new Error(j.error?.message ?? 'Delete failed')

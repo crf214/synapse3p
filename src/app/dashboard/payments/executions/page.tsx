@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const READ_ROLES      = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const ACTION_ROLES    = new Set(['ADMIN', 'CONTROLLER', 'CFO', 'FINANCE_MANAGER'])
@@ -114,7 +115,7 @@ export default function PaymentExecutionsPage() {
   async function handleRetry(id: string) {
     setActioning(id); setActionError(null)
     try {
-      const res  = await fetch(`/api/payment-executions/${id}/retry`, { method: 'POST' })
+      const res  = await apiClient(`/api/payment-executions/${id}/retry`, { method: 'POST' })
       const json = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Retry failed')
       await load(page, statusFilter)
@@ -125,7 +126,7 @@ export default function PaymentExecutionsPage() {
   async function handleReconcile(id: string) {
     setActioning(id); setActionError(null)
     try {
-      const res  = await fetch(`/api/payment-executions/${id}/reconcile`, { method: 'POST' })
+      const res  = await apiClient(`/api/payment-executions/${id}/reconcile`, { method: 'POST' })
       const json = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Reconcile failed')
       await load(page, statusFilter)
@@ -136,7 +137,7 @@ export default function PaymentExecutionsPage() {
   async function handleProcessDue() {
     setProcessing(true); setActionError(null)
     try {
-      const res  = await fetch('/api/payment-executions', { method: 'POST' })
+      const res  = await apiClient('/api/payment-executions', { method: 'POST' })
       const json = await res.json() as { processed?: number; failed?: number; error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Process failed')
       await load(page, statusFilter)

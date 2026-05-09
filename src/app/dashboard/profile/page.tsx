@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import { apiClient } from '@/lib/api-client'
 
 const iCls = 'w-full px-3 py-2 rounded-xl text-sm'
 const iSty = { border: '1px solid var(--border)', background: '#fff', color: 'var(--ink)' }
@@ -49,7 +50,7 @@ export default function ProfilePage() {
     try {
       const fd = new FormData()
       fd.append('avatar', file)
-      const res = await fetch('/api/user', { method: 'POST', body: fd })
+      const res = await apiClient('/api/user', { method: 'POST', body: fd })
       if (res.ok) {
         setAvatarMsg('Avatar updated.')
         router.refresh()

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
 
@@ -99,7 +100,7 @@ export default function NewMergedAuthPage() {
         invoiceId,
         isCredit: creditSet.has(invoiceId),
       }))
-      const res = await fetch('/api/merged-authorizations', {
+      const res = await apiClient('/api/merged-authorizations', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ items, name: name || undefined, notes: notes || undefined }),

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 
@@ -115,7 +116,7 @@ export default function MergedAuthDetailPage() {
     setActing(true)
     setError(null)
     try {
-      const res = await fetch(path, {
+      const res = await apiClient(path, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -136,7 +137,7 @@ export default function MergedAuthDetailPage() {
     setActing(true)
     setError(null)
     try {
-      const res = await fetch(`/api/approvals/${id}/decide`, {
+      const res = await apiClient(`/api/approvals/${id}/decide`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'MERGED_AUTH', decision, comments: comments || undefined }),
@@ -159,7 +160,7 @@ export default function MergedAuthDetailPage() {
   async function doDelete() {
     setActing(true)
     try {
-      const res = await fetch(`/api/merged-authorizations/${id}`, { method: 'DELETE' })
+      const res = await apiClient(`/api/merged-authorizations/${id}`, { method: 'DELETE' })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
         throw new Error(j.error?.message ?? 'Delete failed')

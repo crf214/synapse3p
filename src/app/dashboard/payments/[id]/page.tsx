@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 type PIStatus =
   | 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'SENT_TO_ERP'
@@ -159,7 +160,7 @@ export default function PaymentDetailPage() {
     setActing(true)
     setError(null)
     try {
-      const res = await fetch(url, {
+      const res = await apiClient(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -179,7 +180,7 @@ export default function PaymentDetailPage() {
     setActing(true)
     setError(null)
     try {
-      const res = await fetch(`/api/payment-instructions/${id}/amendments`, {
+      const res = await apiClient(`/api/payment-instructions/${id}/amendments`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amendmentId: amendment.id, decision, rejectionReason: reason }),

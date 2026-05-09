@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'])
 const RUN_ROLES     = new Set(['ADMIN', 'CFO', 'CONTROLLER'])
@@ -157,7 +158,7 @@ export default function ControlsPage() {
   async function runOne(controlId: string) {
     setRunning(prev => new Set([...prev, controlId]))
     try {
-      await fetch(`/api/controls/${controlId}/run`, { method: 'POST' })
+      await apiClient(`/api/controls/${controlId}/run`, { method: 'POST' })
       fetchControls()
     } finally {
       setRunning(prev => { const s = new Set(prev); s.delete(controlId); return s })
@@ -167,7 +168,7 @@ export default function ControlsPage() {
   async function runAll() {
     setRunningAll(true)
     try {
-      await fetch('/api/controls', { method: 'POST' })
+      await apiClient('/api/controls', { method: 'POST' })
       fetchControls()
     } finally {
       setRunningAll(false)

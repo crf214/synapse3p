@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -200,7 +201,7 @@ export default function RecurringSchedulesPage() {
 
       const url    = editTarget ? `/api/invoices/recurring/${editTarget.id}` : '/api/invoices/recurring'
       const method = editTarget ? 'PUT' : 'POST'
-      const res    = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const res    = await apiClient(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const json   = await res.json() as { error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Save failed')
 
@@ -213,7 +214,7 @@ export default function RecurringSchedulesPage() {
   async function toggleActive(s: Schedule) {
     setToggling(s.id)
     try {
-      await fetch(`/api/invoices/recurring/${s.id}`, {
+      await apiClient(`/api/invoices/recurring/${s.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive: !s.isActive }),
@@ -226,7 +227,7 @@ export default function RecurringSchedulesPage() {
     if (!confirm(`Deactivate "${s.name}"? It will no longer match incoming invoices.`)) return
     setDeleting(s.id)
     try {
-      await fetch(`/api/invoices/recurring/${s.id}`, { method: 'DELETE' })
+      await apiClient(`/api/invoices/recurring/${s.id}`, { method: 'DELETE' })
       await load()
     } finally { setDeleting(null) }
   }

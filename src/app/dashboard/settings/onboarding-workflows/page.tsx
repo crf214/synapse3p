@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
+import { apiClient } from '@/lib/api-client'
 
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
@@ -129,7 +130,7 @@ export default function WorkflowsPage() {
     if (!newName.trim()) { setCreateErr('Name is required.'); return }
     setCreating(true); setCreateErr(null)
     try {
-      const res = await fetch('/api/onboarding-workflows', {
+      const res = await apiClient('/api/onboarding-workflows', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -156,7 +157,7 @@ export default function WorkflowsPage() {
   }
 
   async function toggleActive(w: WorkflowSummary) {
-    await fetch(`/api/onboarding-workflows/${w.id}`, {
+    await apiClient(`/api/onboarding-workflows/${w.id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ isActive: !w.isActive }),
     })
@@ -165,7 +166,7 @@ export default function WorkflowsPage() {
 
   async function remove(w: WorkflowSummary) {
     if (!confirm(`Remove "${w.name}"? If it has existing instances it will be deactivated instead.`)) return
-    await fetch(`/api/onboarding-workflows/${w.id}`, { method: 'DELETE' })
+    await apiClient(`/api/onboarding-workflows/${w.id}`, { method: 'DELETE' })
     await load()
   }
 
