@@ -22,21 +22,36 @@ enum OrgRole {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  name         String?
-  avatar       String?
-  passwordHash String
-  orgId        String?
-  role         OrgRole?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  email             String    @unique
+  name              String?
+  avatar            String?
+  passwordHash      String
+  orgId             String?
+  role              OrgRole?
+  emailVerified     Boolean   @default(false)
+  emailVerifyToken  String?   @unique
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   memberships             OrgMember[]
   notificationPreference  NotificationPreference?
   invoiceApprovals        InvoiceApproval[]       @relation("InvoiceAssignee")
 
   @@map("users")
+}
+
+model InviteToken {
+  id        String    @id @default(cuid())
+  token     String    @unique @default(cuid())
+  email     String?
+  usedAt    DateTime?
+  expiresAt DateTime
+  createdBy String
+  orgId     String
+  createdAt DateTime  @default(now())
+
+  @@map("invite_tokens")
 }
 
 model Organisation {

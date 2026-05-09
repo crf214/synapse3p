@@ -170,3 +170,24 @@ export async function sendInvoiceReminderEmail(p: InvoiceReminderEmailParams): P
     `,
   })
 }
+
+// ---------------------------------------------------------------------------
+// Email verification
+// ---------------------------------------------------------------------------
+
+export async function sendVerificationEmail(params: { to: string; name?: string | null; token: string }): Promise<void> {
+  const verifyUrl = `${APP_URL}/api/auth/verify-email?token=${params.token}`
+  await resend.emails.send({
+    from: FROM,
+    to: params.to,
+    subject: 'Verify your Synapse3P account',
+    html: `
+      <div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px 24px; background: #fff;">
+        <div style="font-size: 20px; font-weight: 600; color: #111; margin-bottom: 8px;">Verify your email</div>
+        <p style="color: #555; margin: 0 0 24px;">Hi${params.name ? ` ${params.name}` : ''}, click the button below to verify your Synapse3P account.</p>
+        <a href="${verifyUrl}" style="display: inline-block; background: #2563eb; color: #fff; font-size: 14px; font-weight: 500; padding: 12px 24px; border-radius: 8px; text-decoration: none;">Verify email</a>
+        <p style="color: #aaa; font-size: 12px; margin-top: 32px;">If you did not create an account, you can safely ignore this email.</p>
+      </div>
+    `,
+  })
+}

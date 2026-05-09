@@ -1,21 +1,34 @@
 // src/app/api/auth/register/route.ts
 import { NextRequest, NextResponse } from 'next/server'
 import { hash } from 'bcryptjs'
+import { randomBytes } from 'crypto'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { getSessionFromRequest } from '@/lib/session'
 import { writeAuditEvent } from '@/lib/audit'
+import { sendVerificationEmail } from '@/lib/resend'
 
 const schema = z.object({
   email: z.string().email(),
   password: z.string().min(8, 'Password must be at least 8 characters'),
   name: z.string().min(1).optional(),
+  inviteToken: z.string().min(1),
 })
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { email, password, name } = schema.parse(body)
+    const { email, password, name, inviteToken } = schema.parse(body)
+
+    // Validate invite token
+    const invite = await prisma.inviteToken.findUnique({ where: { token: inviteToken } })
+    if (
+      !invite ||
+      invite.usedAt != null ||
+      invite.expiresAt < new Date() ||
+      (invite.email != null && invite.email.toLowerCase() !== email.toLowerCase())
+    ) {
+      return NextResponse.json({ error: 'Invalid or expired invitation' }, { status: 403 })
+    }
 
     const existing = await prisma.user.findUnique({ where: { email } })
     if (existing) {
@@ -23,10 +36,15 @@ export async function POST(req: NextRequest) {
     }
 
     const passwordHash = await hash(password, 12)
+    const emailVerifyToken = randomBytes(32).toString('hex')
 
     const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
-        data: { email, name: name ?? null, passwordHash },
+        data: { email, name: name ?? null, passwordHash, emailVerified: false, emailVerifyToken },
+      })
+      await tx.inviteToken.update({
+        where: { token: inviteToken },
+        data: { usedAt: new Date() },
       })
       await writeAuditEvent(tx, {
         actorId:    created.id,
@@ -34,18 +52,22 @@ export async function POST(req: NextRequest) {
         action:     'CREATE',
         objectType: 'USER',
         objectId:   created.id,
+        after:      { inviteTokenUsed: true, emailVerificationSent: true },
       })
       return created
     })
 
-    const res = NextResponse.json({ data: { id: user.id, email: user.email, name: user.name } })
-    const session = await getSessionFromRequest(req, res)
-    session.userId = user.id
-    session.email = user.email
-    session.name = user.name
-    await session.save()
+    // Send verification email (non-blocking — log failure but don't fail registration)
+    try {
+      await sendVerificationEmail({ to: user.email, name: user.name, token: emailVerifyToken })
+    } catch (emailErr) {
+      console.error('[register] Failed to send verification email:', emailErr)
+    }
 
-    return res
+    return NextResponse.json(
+      { data: { message: 'Check your email to verify your account' } },
+      { status: 201 },
+    )
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: err.errors[0].message }, { status: 400 })
