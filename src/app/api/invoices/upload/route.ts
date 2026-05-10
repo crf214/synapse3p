@@ -10,6 +10,7 @@ import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } fr
 import { supabaseAdmin } from '@/lib/supabase'
 import { computeFingerprint, checkPreExtractionDuplicates, runInvoicePipeline } from '@/lib/invoice-pipeline'
 import { writeAuditEvent } from '@/lib/audit'
+import { WorkflowEngine, selectTemplate } from '@/lib/workflow-engine'
 
 const ALLOWED_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const INVOICE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? process.env.INVOICES_BUCKET ?? 'synapse3p-files'
@@ -149,6 +150,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         after:      { provisionalLinked: true, invoiceId: invoice.id, reason: 'No entity supplied at upload time' },
       })
     }
+
+    // Fire-and-forget workflow trigger (must not block invoice creation)
+    void (async () => {
+      try {
+        const engine = new WorkflowEngine(prisma)
+        const invoiceData = { invoice: { id: invoice.id, status: invoice.status, entityId: resolvedEntityId, orgId: session.orgId } }
+        const templateId = await selectTemplate('OBJECT_CREATED', 'INVOICE', invoiceData, session.orgId!, prisma)
+        if (templateId) {
+          await engine.startWorkflow(templateId, 'INVOICE', invoice.id, session.orgId!, invoiceData)
+        }
+      } catch (err) {
+        console.warn('[WorkflowEngine] Failed to start workflow for invoice upload:', err)
+      }
+    })()
 
     // Run pipeline asynchronously (don't block response)
     runInvoicePipeline({ invoiceId: invoice.id, orgId: session.orgId, pdfBase64 }).catch(err => {

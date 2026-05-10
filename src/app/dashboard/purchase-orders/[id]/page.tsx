@@ -55,7 +55,6 @@ interface PODetail {
   approvals: ApprovalRow[]
   amendments: AmendmentRow[]
   goodsReceipts: GoodsReceiptRow[]
-  approvalWorkflow: { id: string; name: string; steps: unknown } | null
   vendorContext: {
     spendHistory:    { period: string; totalAmount: number; avgAmount: number; invoiceCount: number }[]
     recentInvoices:  { id: string; invoiceNo: string; amount: number; currency: string; invoiceDate: string; status: string }[]

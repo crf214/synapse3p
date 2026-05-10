@@ -6,6 +6,7 @@ import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
 import { resolveStepDependencies, DependencyType } from '@/lib/workflow/resolve-dependencies'
 import { updateEntityRisk } from '@/lib/risk/update-entity-risk'
+import { WorkflowEngine, selectTemplate } from '@/lib/workflow-engine'
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -215,6 +216,22 @@ export async function PATCH(
 
     // Recompute risk band asynchronously after entity update
     void updateEntityRisk(entityId, prisma).catch(console.error)
+
+    // Fire-and-forget workflow trigger on status change
+    if (changedFields.includes('status')) {
+      void (async () => {
+        try {
+          const engine = new WorkflowEngine(prisma)
+          const entityData = { entity: { id: entity.id, name: entity.name, status: entity.status, legalStructure: entity.legalStructure } }
+          const templateId = await selectTemplate('STATUS_CHANGED', 'ENTITY', entityData, session.orgId!, prisma)
+          if (templateId) {
+            await engine.startWorkflow(templateId, 'ENTITY', entity.id, session.orgId!, entityData)
+          }
+        } catch (err) {
+          console.warn('[WorkflowEngine] Failed to start workflow for entity status change:', err)
+        }
+      })()
+    }
 
     return NextResponse.json({ entity })
   } catch (err) {

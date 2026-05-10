@@ -160,11 +160,12 @@ export async function getRiskDashboardData(orgId: string): Promise<RiskDashboard
         },
       }),
 
-      // Pending onboarding instances
-      prisma.onboardingInstance.count({
+      // Pending workflow instances (replaces legacy onboarding instance count)
+      prisma.workflowInstance.count({
         where: {
           orgId,
-          status: { in: ['IN_PROGRESS', 'BLOCKED'] },
+          status: { in: ['IN_PROGRESS', 'PAUSED'] },
+          targetObjectType: 'ENTITY',
         },
       }),
 

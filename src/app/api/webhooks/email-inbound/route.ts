@@ -10,6 +10,7 @@ import { prisma } from '@/lib/prisma'
 import { computeFingerprint, checkPreExtractionDuplicates, runInvoicePipeline } from '@/lib/invoice-pipeline'
 import { supabaseAdmin } from '@/lib/supabase'
 import { writeAuditEvent } from '@/lib/audit'
+import { WorkflowEngine, selectTemplate } from '@/lib/workflow-engine'
 
 const INVOICE_BUCKET = process.env.INVOICES_BUCKET ?? 'invoices'
 
@@ -266,6 +267,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       after:      { provisionalLinked: true, invoiceId: invoice.id, reason: 'No entity match from inbound email address' },
     })
   }
+
+  // Fire-and-forget workflow trigger (must not block webhook response)
+  void (async () => {
+    try {
+      const engine = new WorkflowEngine(prisma)
+      const invoiceData = { invoice: { id: invoice.id, status: invoiceStatus, entityId: resolvedEntityId, orgId } }
+      const templateId = await selectTemplate('OBJECT_CREATED', 'INVOICE', invoiceData, orgId, prisma)
+      if (templateId) {
+        await engine.startWorkflow(templateId, 'INVOICE', invoice.id, orgId, invoiceData)
+      }
+    } catch (err) {
+      console.warn('[WorkflowEngine] Failed to start workflow for email-inbound invoice:', err)
+    }
+  })()
 
   // Run pipeline (synchronous — see note in docs about serverless timeout)
   try {

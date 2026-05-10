@@ -8,6 +8,7 @@ import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } fr
 import { Prisma } from '@prisma/client'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
+import { WorkflowEngine, selectTemplate } from '@/lib/workflow-engine'
 
 const LineItemSchema = z.object({
   description: z.string().min(1),
@@ -238,6 +239,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       return created
     }, { timeout: 15000 })
+
+    // Fire-and-forget workflow trigger (must not block PO creation)
+    void (async () => {
+      try {
+        const engine = new WorkflowEngine(prisma)
+        const poData = { purchaseOrder: { id: po.id, status: po.status, entityId: po.entityId, totalAmount: po.totalAmount, currency: po.currency } }
+        const templateId = await selectTemplate('OBJECT_CREATED', 'PURCHASE_ORDER', poData, session.orgId!, prisma)
+        if (templateId) {
+          await engine.startWorkflow(templateId, 'PURCHASE_ORDER', po.id, session.orgId!, poData)
+        }
+      } catch (err) {
+        console.warn('[WorkflowEngine] Failed to start workflow for purchase order:', err)
+      }
+    })()
 
     return NextResponse.json({ purchaseOrder: { ...po, entity } }, { status: 201 })
   } catch (err) {

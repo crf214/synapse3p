@@ -70,9 +70,6 @@ export async function GET(
         approvals:    { orderBy: { step: 'asc' } },
         amendments:   { orderBy: { version: 'asc' } },
         goodsReceipts: { orderBy: { receivedAt: 'desc' } },
-        approvalWorkflow: {
-          select: { id: true, name: true, steps: true },
-        },
       },
     })
 

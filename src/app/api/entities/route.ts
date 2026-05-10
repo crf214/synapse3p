@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
+import { WorkflowEngine, selectTemplate } from '@/lib/workflow-engine'
 
 // All valid EntityType values (must stay in sync with prisma/schema.prisma EntityType enum)
 const ENTITY_TYPE_VALUES = ['VENDOR', 'CONTRACTOR', 'BROKER', 'PLATFORM', 'FUND_SVC_PROVIDER', 'OTHER'] as const
@@ -214,6 +215,20 @@ export async function POST(req: NextRequest) {
 
       return created
     })
+
+    // Fire-and-forget workflow trigger (must not block entity creation)
+    void (async () => {
+      try {
+        const engine = new WorkflowEngine(prisma)
+        const entityData = { entity: { id: entity.id, name: entity.name, status: entity.status, legalStructure: entity.legalStructure } }
+        const templateId = await selectTemplate('OBJECT_CREATED', 'ENTITY', entityData, session.orgId!, prisma)
+        if (templateId) {
+          await engine.startWorkflow(templateId, 'ENTITY', entity.id, session.orgId!, entityData)
+        }
+      } catch (err) {
+        console.warn('[WorkflowEngine] Failed to start workflow for entity:', err)
+      }
+    })()
 
     return NextResponse.json({ entity }, { status: 201 })
   } catch (err) {

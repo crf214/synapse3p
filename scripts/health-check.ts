@@ -225,9 +225,7 @@ async function checkEntityMasterTables(): Promise<string> {
 
 async function checkPhase3Tables(): Promise<string> {
   const tables: Array<[string, () => Promise<unknown>]> = [
-    ['processing_rules',             () => prisma.processingRule.count()],
     ['processing_rule_evaluations',  () => prisma.processingRuleEvaluation.count()],
-    ['approval_workflows',           () => prisma.approvalWorkflow.count()],
     ['purchase_orders',              () => prisma.purchaseOrder.count()],
     ['po_line_items',                () => prisma.pOLineItem.count()],
     ['po_approvals',                 () => prisma.pOApproval.count()],
@@ -250,8 +248,6 @@ async function checkPhase3Tables(): Promise<string> {
 
 async function checkPhase4Tables(): Promise<string> {
   const tables: Array<[string, () => Promise<unknown>]> = [
-    ['onboarding_workflows',    () => prisma.onboardingWorkflow.count()],
-    ['onboarding_instances',    () => prisma.onboardingInstance.count()],
     ['third_party_reviews',     () => prisma.thirdPartyReview.count()],
     ['review_cadences',         () => prisma.reviewCadence.count()],
     ['entity_activity_logs',    () => prisma.entityActivityLog.count()],

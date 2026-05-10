@@ -53,7 +53,6 @@ export async function POST(
       include: {
         entity:    { select: { id: true, name: true } },
         approvals: { orderBy: { step: 'asc' } },
-        approvalWorkflow: { select: { steps: true } },
       },
     })
     if (!po) throw new NotFoundError('Purchase order not found')
@@ -144,8 +143,6 @@ export async function POST(
         : null
 
       if (nextApprover && (!pref || pref.emailOnInvoiceRouted)) {
-        const steps = (po.approvalWorkflow?.steps ?? []) as { step: number; label: string }[]
-        const stepDef = steps.find(s => s.step === nextApproval.step)
         await sendPOSubmittedEmail({
           to:           nextApprover.email,
           assigneeName: nextApprover.name ?? nextApprover.email,
@@ -154,7 +151,7 @@ export async function POST(
           totalAmount:  po.totalAmount,
           currency:     po.currency,
           poId:         id,
-          stepLabel:    stepDef?.label ?? `Step ${nextApproval.step}`,
+          stepLabel:    `Step ${nextApproval.step}`,
         }).catch(e => console.error('[po-approve] next approver email failed:', e))
       }
     } else {

@@ -5,17 +5,18 @@
 // Sequence:
 //   extractFromPdf/Text → post-extraction duplicate check →
 //   recurring schedule match → contract match →
-//   risk scoring → auto-approve evaluation → notification routing
+//   risk scoring → decision routing
+//
+// Note: AutoApprovePolicy removed in Phase 3A. Auto-approve logic is now
+//       configured via workflow engine templates (AUTO_RULE steps).
+//       For now, all non-duplicate invoices are routed to PENDING_REVIEW.
 
 import crypto from 'crypto'
-import { Prisma, RiskBand } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { extractFromPdf, extractFromText, persistExtractionFields } from '@/lib/invoice-ai'
 import { sendInvoiceReminderEmail } from '@/lib/resend'
 import { scoreToBand } from '@/lib/risk/compute-risk-band'
-
-// Band ordering for maxRiskBand comparison
-const BAND_ORDER: Record<RiskBand, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 }
 
 // ---------------------------------------------------------------------------
 // Types
@@ -312,9 +313,9 @@ export async function runInvoicePipeline(opts: {
     })
 
     // -----------------------------------------------------------------------
-    // 6. Auto-approve evaluation
+    // 6. Decision routing (auto-approve policies replaced by workflow engine)
     // -----------------------------------------------------------------------
-    await evaluateAutoApprove(invoiceId, orgId, invoice.entityId, signals, tier, invoice.amount)
+    await routeInvoiceDecision(invoiceId, orgId, signals, tier, invoice.amount)
   } catch (err) {
     console.error(`[invoice-pipeline] error processing invoice ${invoiceId}:`, err)
     // Mark invoice as needing human review
@@ -489,19 +490,9 @@ async function buildRiskSignals(
     detail:    isUncontracted ? 'No purchase order or contract linked' : undefined,
   })
 
-  // AMOUNT_OVER_THRESHOLD: check against AutoApprovePolicy
-  const policy = await prisma.autoApprovePolicy.findFirst({
-    where: { orgId, OR: [{ entityId: invoice.entityId }, { entityId: null }], isActive: true },
-    orderBy: { entityId: 'desc' }, // entity-specific takes priority
-  })
-  const threshold = policy?.maxAmount ? Number(policy.maxAmount) : null
-  const overThreshold = threshold !== null && invoice.amount > threshold
-  signals.push({
-    type:      'AMOUNT_OVER_THRESHOLD',
-    triggered: overThreshold,
-    value:     threshold ?? undefined,
-    detail:    overThreshold ? `Amount ${invoice.amount} exceeds policy threshold ${threshold}` : undefined,
-  })
+  // AMOUNT_OVER_THRESHOLD: legacy policy check removed in Phase 3A.
+  // Threshold rules are now configured as AUTO_RULE steps in workflow templates.
+  signals.push({ type: 'AMOUNT_OVER_THRESHOLD', triggered: false })
 
   // FREQUENCY_ANOMALY: invoice arrived outside expected window for recurring schedule
   if (invoice.recurringScheduleId) {
@@ -598,132 +589,42 @@ function scoreRisk(
 }
 
 // ---------------------------------------------------------------------------
-// Auto-approve evaluation
+// Decision routing
+// Auto-approve policy logic removed in Phase 3A — now handled by workflow engine.
+// All non-duplicate invoices are routed to PENDING_REVIEW by default.
 // ---------------------------------------------------------------------------
 
-async function evaluateAutoApprove(
+async function routeInvoiceDecision(
   invoiceId: string,
   orgId:     string,
-  entityId:  string,
   signals:   Signal[],
   tier:      'LOW' | 'MEDIUM' | 'HIGH',
   amount:    number,
 ): Promise<void> {
-  // Fetch entity-specific policy first, fall back to org-wide (entityId = null)
-  const policy = await prisma.autoApprovePolicy.findFirst({
-    where: { orgId, isActive: true, OR: [{ entityId }, { entityId: null }] },
-    orderBy: { entityId: 'desc' },
-  })
-
-  const invoice = await prisma.invoice.findUniqueOrThrow({
-    where: { id: invoiceId },
-    include: { extractedFields: true, duplicateFlags: true },
-  })
-
-  let autoApprove = true
-  const failedConditions: string[] = []
-
-  if (!policy) {
-    autoApprove = false
-    failedConditions.push('No auto-approve policy configured')
-  } else {
-    // maxRiskBand: if policy specifies a max band, look up entity's current riskBand
-    if (policy.maxRiskBand) {
-      const entityRecord = await prisma.entity.findUnique({
-        where:  { id: entityId },
-        select: { riskBand: true },
-      })
-      const entityBand = entityRecord?.riskBand ?? null
-      if (entityBand && BAND_ORDER[entityBand] > BAND_ORDER[policy.maxRiskBand]) {
-        autoApprove = false
-        failedConditions.push(
-          `Entity risk band ${entityBand} exceeds policy max ${policy.maxRiskBand}`,
-        )
-      }
-    }
-
-    // Risk tier check
-    if (!policy.allowedRiskTiers.includes(tier as never)) {
-      autoApprove = false
-      failedConditions.push(`Risk tier ${tier} not in allowed tiers [${policy.allowedRiskTiers.join(', ')}]`)
-    }
-
-    // Amount threshold
-    if (policy.maxAmount !== null && amount > Number(policy.maxAmount)) {
-      autoApprove = false
-      failedConditions.push(`Amount ${amount} exceeds policy max ${policy.maxAmount}`)
-    }
-
-    // Contract / recurring match requirement
-    if (policy.requireContractMatch) {
-      const contractOk   = !!invoice.contractId
-      const recurringOk  = policy.requireRecurringMatch && !!invoice.recurringScheduleId
-      if (!contractOk && !recurringOk) {
-        autoApprove = false
-        failedConditions.push('No active contract or recurring schedule matched')
-      }
-    }
-
-    // No duplicate flag
-    if (policy.noDuplicateFlag) {
-      const hasActiveDupFlag = invoice.duplicateFlags.some(
-        f => f.status === 'QUARANTINED' || f.status === 'OVERRIDE_APPROVED',
-      )
-      if (hasActiveDupFlag) {
-        autoApprove = false
-        failedConditions.push('Invoice has an active duplicate flag')
-      }
-    }
-
-    // No anomaly flags
-    if (policy.noAnomalyFlag) {
-      const hasAnomaly = signals.some(
-        s => s.triggered && (s.type === 'FREQUENCY_ANOMALY' || s.type === 'AMOUNT_VARIANCE'),
-      )
-      if (hasAnomaly) {
-        autoApprove = false
-        failedConditions.push('Anomaly signal (frequency or amount variance) triggered')
-      }
-    }
-
-    // All fields extracted with high confidence
-    if (policy.allFieldsExtracted) {
-      const needsReview = invoice.extractedFields.some(f => f.needsReview)
-      if (needsReview) {
-        autoApprove = false
-        failedConditions.push('One or more extracted fields require human review')
-      }
-    }
-  }
-
-  const decision: 'AUTO_APPROVE' | 'REVIEW' | 'ESCALATE' | 'REJECT' = autoApprove ? 'AUTO_APPROVE' : 'REVIEW'
+  const riskScore = signals.filter(s => s.triggered).reduce((sum, s) => sum + (WEIGHTS[s.type] ?? 0), 0)
 
   await prisma.invoiceDecision.upsert({
     where:  { invoiceId },
     create: {
       invoiceId,
-      decision,
-      riskScore:  signals.filter(s => s.triggered).reduce((sum, s) => sum + (WEIGHTS[s.type] ?? 0), 0),
-      reasoning:  autoApprove
-        ? { result: 'auto-approved', policy: policy?.name ?? null, tier, amount }
-        : { result: 'routed-for-review', failedConditions, tier, amount },
-      decidedAt:  new Date(),
-      decidedBy:  'system',
+      decision:  'REVIEW',
+      riskScore,
+      reasoning: { result: 'routed-for-review', reason: 'workflow-engine-pending', tier, amount },
+      decidedAt: new Date(),
+      decidedBy: 'system',
     },
     update: {
-      decision,
-      riskScore:  signals.filter(s => s.triggered).reduce((sum, s) => sum + (WEIGHTS[s.type] ?? 0), 0),
-      reasoning:  autoApprove
-        ? { result: 'auto-approved', policy: policy?.name ?? null, tier, amount }
-        : { result: 'routed-for-review', failedConditions, tier, amount },
-      decidedAt:  new Date(),
-      decidedBy:  'system',
+      decision:  'REVIEW',
+      riskScore,
+      reasoning: { result: 'routed-for-review', reason: 'workflow-engine-pending', tier, amount },
+      decidedAt: new Date(),
+      decidedBy: 'system',
     },
   })
 
   await prisma.invoice.update({
     where: { id: invoiceId },
-    data:  { status: autoApprove ? 'APPROVED' : 'PENDING_REVIEW' },
+    data:  { status: 'PENDING_REVIEW' },
   })
 }
 

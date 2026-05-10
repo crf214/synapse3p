@@ -18,9 +18,9 @@ interface ApprovalConfig {
 // 1. getApprovalConfig
 // ---------------------------------------------------------------------------
 
-// TODO: Drive this from ProcessingRule configuration in a future iteration.
-// The ProcessingRule model has a `conditions` JSON field that can encode
-// approval thresholds, four-eyes requirements, and STP limits per org/entity/track.
+// TODO: Drive this from WorkflowTemplate configuration (workflow engine Phase 3A+).
+// AUTO_RULE steps in workflow templates can encode approval thresholds,
+// four-eyes requirements, and STP limits per org/entity/track.
 // For now this returns org-wide defaults that work for all payment types.
 export async function getApprovalConfig(_orgId: string): Promise<ApprovalConfig> {
   return {

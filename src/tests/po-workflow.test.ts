@@ -1,6 +1,9 @@
 // src/tests/po-workflow.test.ts
-// Tests for PO workflow assignment and approval step creation via the submit route.
+// Tests for PO submission and approval step creation via the submit route.
 // All Prisma, session, and email calls are mocked — no real DB or email required.
+//
+// Note: Phase 3A removed legacy ApprovalWorkflow lookup.
+//       The submit route now falls back directly to the first CONTROLLER/CFO member.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NextRequest } from 'next/server'
@@ -17,13 +20,11 @@ const { mockPrisma, mockGetSession, mockSendPOSubmittedEmail } = vi.hoisted(() =
       update:     vi.fn(),
       count:      vi.fn(),
     },
-    approvalWorkflow: {
-      findMany: vi.fn(),
-    },
     orgMember: {
       findFirst: vi.fn(),
     },
     pOApproval: {
+      create:     vi.fn(),
       createMany: vi.fn(),
     },
     user: {
@@ -57,8 +58,8 @@ const { mockPrisma, mockGetSession, mockSendPOSubmittedEmail } = vi.hoisted(() =
 vi.mock('@/lib/prisma',  () => ({ prisma: mockPrisma }))
 vi.mock('@/lib/session', () => ({ getSession: mockGetSession }))
 vi.mock('@/lib/resend',  () => ({
-  sendPOSubmittedEmail:  mockSendPOSubmittedEmail,
-  sendPODecisionEmail:   vi.fn().mockResolvedValue(undefined),
+  sendPOSubmittedEmail:     mockSendPOSubmittedEmail,
+  sendPODecisionEmail:      vi.fn().mockResolvedValue(undefined),
   sendInvoiceDecisionEmail: vi.fn().mockResolvedValue(undefined),
   sendInvoiceReminderEmail: vi.fn().mockResolvedValue(undefined),
   sendInvoiceAssignedEmail: vi.fn().mockResolvedValue(undefined),
@@ -90,27 +91,6 @@ const DRAFT_PO = {
   lineItems:    [{ id: 'li-1' }],  // at least one item
 }
 
-const WORKFLOW = {
-  id:           'wf-1',
-  orgId:        'org-1',
-  name:         'Standard PO Approval',
-  isActive:     true,
-  thresholdMin: 0,
-  thresholdMax: null,
-  spendCategories: [],
-  departments:   [],
-  steps: [
-    { step: 1, role: 'FINANCE_MANAGER', label: 'Finance Review' },
-    { step: 2, role: 'CFO',             label: 'CFO Sign-off'   },
-  ],
-}
-
-const FINANCE_MEMBER = {
-  userId: 'user-fm-1',
-  role:   'FINANCE_MANAGER',
-  user:   { id: 'user-fm-1' },
-}
-
 const CFO_MEMBER = {
   userId: 'user-cfo-1',
   role:   'CFO',
@@ -118,9 +98,9 @@ const CFO_MEMBER = {
 }
 
 const APPROVER_USER = {
-  id:    'user-fm-1',
-  name:  'Finance Manager',
-  email: 'fm@example.com',
+  id:    'user-cfo-1',
+  name:  'CFO User',
+  email: 'cfo@example.com',
 }
 
 // ---------------------------------------------------------------------------
@@ -143,7 +123,7 @@ function setupTransaction() {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('PO workflow assignment (submit route)', () => {
+describe('PO submission (submit route)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setupTransaction()
@@ -153,25 +133,17 @@ describe('PO workflow assignment (submit route)', () => {
     mockPrisma.user.findUnique.mockResolvedValue(APPROVER_USER)
   })
 
-  // ── Happy path: workflow matched ──────────────────────────────────────────
+  // ── Happy path ────────────────────────────────────────────────────────────
 
-  it('assigns workflow and creates approval steps on submit → PO becomes PENDING_APPROVAL', async () => {
+  it('creates approval step and sets PO to PENDING_APPROVAL', async () => {
     mockPrisma.purchaseOrder.findFirst.mockResolvedValue(DRAFT_PO)
-    mockPrisma.approvalWorkflow.findMany.mockResolvedValue([WORKFLOW])
-    // orgMember.findFirst called once per workflow step
-    mockPrisma.orgMember.findFirst
-      .mockResolvedValueOnce(FINANCE_MEMBER)
-      .mockResolvedValueOnce(CFO_MEMBER)
-    mockPrisma.pOApproval.createMany.mockResolvedValue({ count: 2 })
+    mockPrisma.orgMember.findFirst.mockResolvedValue(CFO_MEMBER)
+    mockPrisma.pOApproval.create.mockResolvedValue({ id: 'appr-1' })
     mockPrisma.purchaseOrder.update.mockResolvedValue({ ...DRAFT_PO, status: 'PENDING_APPROVAL' })
     mockPrisma.purchaseOrder.findUnique.mockResolvedValue({
       ...DRAFT_PO,
       status: 'PENDING_APPROVAL',
-      approvalWorkflowId: 'wf-1',
-      approvals: [
-        { id: 'appr-1', step: 1, approverId: 'user-fm-1', status: 'PENDING' },
-        { id: 'appr-2', step: 2, approverId: 'user-cfo-1', status: 'PENDING' },
-      ],
+      approvals: [{ id: 'appr-1', step: 1, approverId: 'user-cfo-1', status: 'PENDING' }],
       lineItems: [],
     })
 
@@ -181,38 +153,18 @@ describe('PO workflow assignment (submit route)', () => {
     const json = await res.json()
     expect(json.purchaseOrder.status).toBe('PENDING_APPROVAL')
 
-    // Approval records were created for both steps
-    expect(mockPrisma.pOApproval.createMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.arrayContaining([
-          expect.objectContaining({ step: 1, approverId: 'user-fm-1', status: 'PENDING' }),
-          expect.objectContaining({ step: 2, approverId: 'user-cfo-1', status: 'PENDING' }),
-        ]),
-      }),
-    )
-
     // PO status was set to PENDING_APPROVAL
     expect(mockPrisma.purchaseOrder.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ status: 'PENDING_APPROVAL' }),
       }),
     )
-
-    // Workflow was linked
-    expect(mockPrisma.purchaseOrder.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ approvalWorkflowId: 'wf-1' }),
-      }),
-    )
   })
 
-  it('notifies the first-step approver by email after submit', async () => {
+  it('notifies the approver by email after submit', async () => {
     mockPrisma.purchaseOrder.findFirst.mockResolvedValue(DRAFT_PO)
-    mockPrisma.approvalWorkflow.findMany.mockResolvedValue([WORKFLOW])
-    mockPrisma.orgMember.findFirst
-      .mockResolvedValueOnce(FINANCE_MEMBER)
-      .mockResolvedValueOnce(CFO_MEMBER)
-    mockPrisma.pOApproval.createMany.mockResolvedValue({ count: 2 })
+    mockPrisma.orgMember.findFirst.mockResolvedValue(CFO_MEMBER)
+    mockPrisma.pOApproval.create.mockResolvedValue({ id: 'appr-1' })
     mockPrisma.purchaseOrder.update.mockResolvedValue({ ...DRAFT_PO, status: 'PENDING_APPROVAL' })
     mockPrisma.purchaseOrder.findUnique.mockResolvedValue({
       ...DRAFT_PO, status: 'PENDING_APPROVAL', approvals: [], lineItems: [],
@@ -229,31 +181,16 @@ describe('PO workflow assignment (submit route)', () => {
     )
   })
 
-  // ── Fallback: no workflow configured ──────────────────────────────────────
+  // ── Guard: no CONTROLLER/CFO in org ──────────────────────────────────────
 
-  it('falls back to first CONTROLLER/CFO member when no workflow matches', async () => {
+  it('returns 400 when no CONTROLLER or CFO member exists', async () => {
     mockPrisma.purchaseOrder.findFirst.mockResolvedValue(DRAFT_PO)
-    mockPrisma.approvalWorkflow.findMany.mockResolvedValue([])  // no workflows
-    mockPrisma.orgMember.findFirst
-      .mockResolvedValueOnce(CFO_MEMBER)   // fallback member search
-      .mockResolvedValueOnce(CFO_MEMBER)   // step member resolution
-    mockPrisma.pOApproval.createMany.mockResolvedValue({ count: 1 })
-    mockPrisma.purchaseOrder.update.mockResolvedValue({ ...DRAFT_PO, status: 'PENDING_APPROVAL' })
-    mockPrisma.purchaseOrder.findUnique.mockResolvedValue({
-      ...DRAFT_PO, status: 'PENDING_APPROVAL', approvals: [], lineItems: [],
-    })
+    mockPrisma.orgMember.findFirst.mockResolvedValue(null)  // no member found
 
-    const res = await submitPO(makePost(), { params: Promise.resolve({ id: 'po-1' }) })
-    expect(res.status).toBe(200)
-
-    // Exactly one approval step was created (the fallback single-step)
-    expect(mockPrisma.pOApproval.createMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.arrayContaining([
-          expect.objectContaining({ step: 1, status: 'PENDING' }),
-        ]),
-      }),
-    )
+    const res  = await submitPO(makePost(), { params: Promise.resolve({ id: 'po-1' }) })
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error.message).toContain('CONTROLLER or CFO')
   })
 
   // ── Guard: non-DRAFT PO ────────────────────────────────────────────────────
@@ -276,19 +213,6 @@ describe('PO workflow assignment (submit route)', () => {
     expect(res.status).toBe(400)
     const json = await res.json()
     expect(json.error.message).toContain('no line items')
-  })
-
-  // ── Guard: missing approver role in org ────────────────────────────────────
-
-  it('returns 400 when no member holds the required approver role', async () => {
-    mockPrisma.purchaseOrder.findFirst.mockResolvedValue(DRAFT_PO)
-    mockPrisma.approvalWorkflow.findMany.mockResolvedValue([WORKFLOW])
-    mockPrisma.orgMember.findFirst.mockResolvedValue(null)  // no member found
-
-    const res  = await submitPO(makePost(), { params: Promise.resolve({ id: 'po-1' }) })
-    expect(res.status).toBe(400)
-    const json = await res.json()
-    expect(json.error.message).toContain('no active user with role')
   })
 
   // ── Guard: PO not found ─────────────────────────────────────────────────────

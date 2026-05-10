@@ -391,12 +391,18 @@ async function testVR01(orgId: string): Promise<TestResult> {
 
   const entityIds = billPayEntities.map(e => e.entityId)
 
-  const completedOnboarding = await prisma.onboardingInstance.findMany({
-    where: { orgId, entityId: { in: entityIds }, status: 'COMPLETED' },
-    select: { entityId: true },
+  // Phase 3A: check WorkflowInstance completions for ENTITY onboarding workflows
+  const completedWorkflows = await prisma.workflowInstance.findMany({
+    where: {
+      orgId,
+      targetObjectType: 'ENTITY',
+      targetObjectId:   { in: entityIds },
+      status:           'COMPLETED',
+    },
+    select: { targetObjectId: true },
   })
 
-  const completedEntityIds = new Set(completedOnboarding.map(o => o.entityId))
+  const completedEntityIds = new Set(completedWorkflows.map(w => w.targetObjectId))
   const gaps = entityIds.filter(id => !completedEntityIds.has(id))
   const status: TestResultStatus = gaps.length > 0 ? 'FAIL' : 'PASS'
 

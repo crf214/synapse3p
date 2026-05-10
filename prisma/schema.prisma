@@ -66,13 +66,9 @@ model Organisation {
   members                  OrgMember[]
   entityRelationships      EntityOrgRelationship[]
   serviceEngagements       ServiceEngagement[]
-  processingRules          ProcessingRule[]
-  approvalWorkflows        ApprovalWorkflow[]
   purchaseOrders           PurchaseOrder[]
   documents                Document[]
   contracts                Contract[]
-  onboardingWorkflows      OnboardingWorkflow[]
-  onboardingInstances      OnboardingInstance[]
   thirdPartyReviews        ThirdPartyReview[]
   reviewCadences           ReviewCadence[]
   entityActivityLogs       EntityActivityLog[]
@@ -81,7 +77,6 @@ model Organisation {
   paymentInstructions      PaymentInstruction[]
   invoiceIngestionEvents   InvoiceIngestionEvent[]
   invoiceApprovals         InvoiceApproval[]
-  autoApprovePolicies      AutoApprovePolicy[]
   mergedAuthorizations     MergedAuthorization[]
   notificationPreferences  NotificationPreference[]
 
@@ -231,7 +226,6 @@ model Entity {
   serviceEngagements        ServiceEngagement[]
   processingRuleEvaluations ProcessingRuleEvaluation[]
   purchaseOrders            PurchaseOrder[]
-  onboardingInstances       OnboardingInstance[]
   thirdPartyReviews         ThirdPartyReview[]
   entityActivityLogs        EntityActivityLog[]
   recurringSchedules        RecurringSchedule[]
@@ -506,30 +500,6 @@ enum ContractType {
   OTHER
 }
 
-model ProcessingRule {
-  id                   String          @id @default(cuid())
-  orgId                String
-  name                 String
-  description          String?
-  priority             Int
-  isActive             Boolean         @default(true)
-  conditions           Json
-  track                ProcessingTrack
-  requiresGoodsReceipt Boolean         @default(false)
-  requiresContract     Boolean         @default(false)
-  notes                String?
-  createdBy            String
-  updatedBy            String?
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
-
-  org                  Organisation              @relation(fields: [orgId], references: [id])
-  evaluations          ProcessingRuleEvaluation[]
-  purchaseOrders       PurchaseOrder[]
-
-  @@index([orgId, priority])
-  @@map("processing_rules")
-}
 
 model ProcessingRuleEvaluation {
   id                 String           @id @default(cuid())
@@ -546,7 +516,6 @@ model ProcessingRuleEvaluation {
   sourceType         String
   sourceId           String
 
-  rule               ProcessingRule?  @relation(fields: [ruleId], references: [id])
   entity             Entity           @relation(fields: [entityId], references: [id])
 
   @@index([sourceType, sourceId])
@@ -554,27 +523,6 @@ model ProcessingRuleEvaluation {
   @@map("processing_rule_evaluations")
 }
 
-model ApprovalWorkflow {
-  id              String        @id @default(cuid())
-  orgId           String
-  name            String
-  description     String?
-  spendCategories String[]
-  departments     String[]
-  thresholdMin    Float         @default(0)
-  thresholdMax    Float?
-  steps           Json
-  isActive        Boolean       @default(true)
-  createdBy       String
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-
-  org             Organisation   @relation(fields: [orgId], references: [id])
-  purchaseOrders  PurchaseOrder[]
-  poApprovals     POApproval[]
-
-  @@map("approval_workflows")
-}
 
 model PurchaseOrder {
   id                     String           @id @default(cuid())
@@ -609,8 +557,6 @@ model PurchaseOrder {
 
   org              Organisation      @relation(fields: [orgId], references: [id])
   entity           Entity            @relation(fields: [entityId], references: [id])
-  processingRule   ProcessingRule?   @relation(fields: [processingRuleId], references: [id])
-  approvalWorkflow ApprovalWorkflow? @relation(fields: [approvalWorkflowId], references: [id])
   lineItems        POLineItem[]
   approvals        POApproval[]
   amendments       POAmendment[]
@@ -656,7 +602,6 @@ model POApproval {
   updatedAt   DateTime         @updatedAt
 
   po          PurchaseOrder     @relation(fields: [poId], references: [id])
-  workflow    ApprovalWorkflow? @relation(fields: [workflowId], references: [id])
 
   @@map("po_approvals")
 }
@@ -766,26 +711,6 @@ model Contract {
 // Onboarding, Reviews, Invoicing & Signals — Phase 4
 // ============================================================
 
-enum OnboardingStepType {
-  DOCUMENT
-  REVIEW
-  APPROVAL
-  EXTERNAL_CHECK
-  INFORMATION
-  PROCESSING_RULE  // auto-evaluated decision point; routes to different next steps based on entity data
-  SUB_WORKFLOW     // triggers execution of another workflow as a child instance
-}
-
-enum OnboardingInstanceStatus {
-  NOT_STARTED
-  IN_PROGRESS
-  BLOCKED
-  WAITING               // step is blocked on an external dependency (see StepDependency)
-  PENDING_APPROVAL
-  PENDING_SUB_WORKFLOW  // parent instance waiting for a sub-workflow instance to complete
-  COMPLETED
-  REJECTED
-}
 
 enum ReviewType {
   ONBOARDING
@@ -930,52 +855,6 @@ enum SignalSeverity {
   CRITICAL
 }
 
-model OnboardingWorkflow {
-  id           String       @id @default(cuid())
-  orgId        String
-  name         String
-  description  String?
-  workflowType WorkflowType @default(ENTITY)
-  entityTypes  EntityType[]
-  steps        Json
-  isActive     Boolean      @default(true)
-  createdBy    String
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-
-  org         Organisation        @relation(fields: [orgId], references: [id])
-  instances   OnboardingInstance[]
-
-  @@map("onboarding_workflows")
-}
-
-model OnboardingInstance {
-  id               String                   @id @default(cuid())
-  entityId         String
-  orgId            String
-  workflowId       String
-  status           OnboardingInstanceStatus @default(NOT_STARTED)
-  currentStep      Int                      @default(1)
-  completedSteps   Json                     @default("[]")
-  skippedSteps     Json                     @default("[]")  // step numbers skipped by PROCESSING_RULE routing
-  parentInstanceId String?                                  // set when this is a sub-workflow spawned by another instance
-  startedAt        DateTime?
-  completedAt      DateTime?
-  blockedReason    String?
-  assignedTo       String?
-  createdAt        DateTime                 @default(now())
-  updatedAt        DateTime                 @updatedAt
-
-  entity          Entity              @relation(fields: [entityId], references: [id])
-  org             Organisation        @relation(fields: [orgId], references: [id])
-  workflow        OnboardingWorkflow  @relation(fields: [workflowId], references: [id])
-  parentInstance  OnboardingInstance? @relation("SubWorkflowInstances", fields: [parentInstanceId], references: [id])
-  subInstances    OnboardingInstance[] @relation("SubWorkflowInstances")
-  dependencies    StepDependency[]
-
-  @@unique([entityId, orgId, workflowId])
-  @@map("onboarding_instances")
-}
 
 enum DependencyType {
   ENTITY_CONFIRMED
@@ -986,13 +865,13 @@ enum DependencyType {
 
 model StepDependency {
   id             String         @id @default(cuid())
-  stepId         String         // references OnboardingInstance.id (the waiting instance)
+  stepId         String         // references WorkflowStepInstance.id (the waiting step instance)
   dependencyType DependencyType
   subjectId      String         // the ID of the thing being waited on (e.g. entityId)
   resolvedAt     DateTime?      // null means still waiting
   createdAt      DateTime       @default(now())
 
-  step           OnboardingInstance @relation(fields: [stepId], references: [id])
+  step           WorkflowStepInstance @relation(fields: [stepId], references: [id])
 
   @@index([dependencyType, subjectId, resolvedAt])
   @@index([stepId])
@@ -1849,41 +1728,6 @@ model InvoiceDuplicateFlag {
   @@map("invoice_duplicate_flags")
 }
 
-// Configurable auto-approval policy. Scoped to org (entityId = null) or
-// overridden per entity. ALL conditions must be satisfied for auto-approval.
-model AutoApprovePolicy {
-  id                    String     @id @default(cuid())
-  orgId                 String
-  // null = org-wide default; set = per-entity override
-  entityId              String?
-  name                  String
-  isActive              Boolean    @default(true)
-
-  maxAmount             Decimal?   @db.Decimal(18, 4)
-  currency              String     @default("USD")
-  requireContractMatch  Boolean    @default(true)
-  // If true, a matched recurring schedule satisfies requireContractMatch
-  requireRecurringMatch Boolean    @default(false)
-  allowedRiskTiers      RiskTier[]
-  noDuplicateFlag       Boolean    @default(true)
-  noAnomalyFlag         Boolean    @default(true)
-  // Require all extracted fields to have confidence >= org threshold
-  allFieldsExtracted    Boolean    @default(false)
-  // If set, the policy will not apply to invoices from entities whose riskBand exceeds this value
-  maxRiskBand           RiskBand?
-
-  createdBy             String
-  updatedBy             String?
-  createdAt             DateTime   @default(now())
-  updatedAt             DateTime   @updatedAt
-
-  org                   Organisation @relation(fields: [orgId], references: [id])
-
-  // One policy per org/entity combination (null entityId = org default)
-  @@unique([orgId, entityId])
-  @@index([orgId, isActive])
-  @@map("auto_approve_policies")
-}
 
 // Approver assignment and decision record for an invoice.
 // This is the source of truth for approver state; Invoice holds only a
@@ -1997,4 +1841,161 @@ model VendorSpendSnapshot {
   @@unique([entityId, orgId, period, currency])
   @@index([entityId, orgId, period])
   @@map("vendor_spend_snapshots")
+}
+
+// ============================================================
+// Unified Workflow Engine — Phase 3A
+// ============================================================
+
+enum WorkflowTargetType {
+  ENTITY
+  INVOICE
+  PURCHASE_ORDER
+}
+
+enum WorkflowInstanceStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  PAUSED
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum StepType {
+  APPROVAL
+  AUTO_RULE
+  CONDITION_BRANCH
+  NOTIFICATION
+  WAIT_FOR
+  SUB_WORKFLOW
+}
+
+enum StepExecutionMode {
+  SYNC
+  ASYNC
+  PARALLEL
+}
+
+enum StepInstanceStatus {
+  PENDING
+  IN_PROGRESS
+  WAITING
+  COMPLETED
+  SKIPPED
+  FAILED
+}
+
+enum StepResult {
+  PASS
+  FAIL
+}
+
+enum OnMissingContext {
+  WAIT
+  SKIP
+  FAIL
+}
+
+model WorkflowTemplate {
+  id               String             @id @default(cuid())
+  name             String
+  description      String?
+  targetObjectType WorkflowTargetType
+  isActive         Boolean            @default(false)
+  isValid          Boolean            @default(false)
+  version          Int                @default(1)
+  createdBy        String
+  orgId            String
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  steps            WorkflowStepDefinition[]
+  selectionRules   TemplateSelectionRule[]
+  instances        WorkflowInstance[]
+
+  @@map("workflow_templates")
+}
+
+model WorkflowStepDefinition {
+  id               String            @id @default(cuid())
+  templateId       String
+  name             String
+  description      String?
+  stepType         StepType
+  executionMode    StepExecutionMode @default(SYNC)
+  parallelGroupId  String?
+  config           Json
+  nextSteps        Json
+  dependencies     Json              @default("[]")
+  onMissingContext OnMissingContext  @default(FAIL)
+  order            Int               @default(0)
+
+  template         WorkflowTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  instances        WorkflowStepInstance[]
+
+  @@map("workflow_step_definitions")
+}
+
+model WorkflowInstance {
+  id                   String                 @id @default(cuid())
+  templateId           String
+  templateVersion      Int
+  orgId                String
+  targetObjectType     WorkflowTargetType
+  targetObjectId       String
+  status               WorkflowInstanceStatus @default(NOT_STARTED)
+  parentInstanceId     String?
+  parentStepInstanceId String?
+  context              Json                   @default("{}")
+  startedAt            DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  cancelledBy          String?
+  createdAt            DateTime               @default(now())
+
+  template             WorkflowTemplate       @relation(fields: [templateId], references: [id])
+  stepInstances        WorkflowStepInstance[]
+
+  @@index([targetObjectType, targetObjectId])
+  @@index([status])
+  @@map("workflow_instances")
+}
+
+model WorkflowStepInstance {
+  id                 String              @id @default(cuid())
+  workflowInstanceId String
+  stepDefinitionId   String
+  status             StepInstanceStatus  @default(PENDING)
+  result             StepResult?
+  assignedTo         String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  completedBy        String?
+  notes              String?
+  metadata           Json                @default("{}")
+  createdAt          DateTime            @default(now())
+
+  workflowInstance   WorkflowInstance    @relation(fields: [workflowInstanceId], references: [id], onDelete: Cascade)
+  stepDefinition     WorkflowStepDefinition @relation(fields: [stepDefinitionId], references: [id])
+  dependencies       StepDependency[]
+
+  @@map("workflow_step_instances")
+}
+
+model TemplateSelectionRule {
+  id               String             @id @default(cuid())
+  templateId       String
+  orgId            String
+  priority         Int
+  triggerEvent     String
+  targetObjectType WorkflowTargetType
+  conditions       Json               @default("[]")
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+
+  template         WorkflowTemplate   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([targetObjectType, triggerEvent, priority])
+  @@map("template_selection_rules")
 }
