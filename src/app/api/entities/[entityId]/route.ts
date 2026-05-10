@@ -34,7 +34,7 @@ export async function GET(
         dueDiligence:    true,
         financial:       true,
         riskScores: {
-          orderBy: { scoredAt: 'desc' },
+          orderBy: { computedAt: 'desc' },
           take:    1,
         },
         orgRelationships: {

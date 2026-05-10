@@ -42,12 +42,17 @@ export async function GET(req: NextRequest) {
     const status      = sanitiseString(searchParams.get('status') ?? '', 50).trim() || null
     const entityTypes = searchParams.get('types')?.split(',').filter(Boolean) ?? []
     const highRisk    = searchParams.get('highRisk') === 'true'
+    const riskBandParam = sanitiseString(searchParams.get('riskBand') ?? '', 20).trim() || null
+
+    const VALID_RISK_BANDS = new Set(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'])
+    const riskBandFilter = riskBandParam && VALID_RISK_BANDS.has(riskBandParam) ? riskBandParam : null
 
     const where = {
       masterOrgId: session.orgId,
       ...(status ? { status: status as never } : {}),
       ...(entityTypes.length > 0 ? { classifications: { some: { type: { in: entityTypes as never[] }, isPrimary: true } } } : {}),
       ...(highRisk ? { riskScore: { gte: 7 } } : {}),
+      ...(riskBandFilter ? { riskBand: riskBandFilter as never } : {}),
       ...(search ? {
         OR: [
           { name:         { contains: search, mode: 'insensitive' as const } },
@@ -86,7 +91,16 @@ export async function GET(req: NextRequest) {
       }),
     ])
 
-    const data = entities.map(e => ({
+    // Sort by risk band priority: CRITICAL → HIGH → MEDIUM → LOW → null last
+    const BAND_ORDER: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 }
+    const sorted = [...entities].sort((a, b) => {
+      const aOrd = a.riskBand ? (BAND_ORDER[a.riskBand] ?? 4) : 4
+      const bOrd = b.riskBand ? (BAND_ORDER[b.riskBand] ?? 4) : 4
+      if (aOrd !== bOrd) return aOrd - bOrd
+      return a.name.localeCompare(b.name)
+    })
+
+    const data = sorted.map(e => ({
       id:               e.id,
       name:             e.name,
       slug:             e.slug,
@@ -95,6 +109,7 @@ export async function GET(req: NextRequest) {
       jurisdiction:     e.jurisdiction,
       primaryCurrency:  e.primaryCurrency,
       riskScore:        e.riskScore,
+      riskBand:         e.riskBand ?? null,
       primaryType:      e.classifications[0]?.type ?? null,
       latestRiskScore:  e.riskScores[0] ?? null,
       orgRelationship:  e.orgRelationships[0] ?? null,

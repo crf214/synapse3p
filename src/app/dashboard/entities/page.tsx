@@ -17,6 +17,7 @@ type EntityStatus      = 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'PENDING_REVIEW' 
 type EntityType        = 'VENDOR' | 'CONTRACTOR' | 'BROKER' | 'PLATFORM' | 'FUND_SVC_PROVIDER' | 'OTHER'
 type OnboardingStatus  = 'NOT_STARTED' | 'IN_PROGRESS' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED'
 type LegalStructure    = 'INDIVIDUAL' | 'COMPANY' | 'FUND' | 'TRUST' | 'GOVERNMENT' | 'OTHER'
+type RiskBand          = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 
 interface EntityRow {
   id:               string
@@ -27,6 +28,7 @@ interface EntityRow {
   jurisdiction:     string | null
   primaryCurrency:  string
   riskScore:        number
+  riskBand:         RiskBand | null
   primaryType:      EntityType | null
   orgRelationship:  { onboardingStatus: OnboardingStatus; activeForBillPay: boolean } | null
   bankAccountCount: number
@@ -42,11 +44,19 @@ interface Pagination {
   hasPrev:    boolean
 }
 
-type FilterKey = 'ALL' | 'ACTIVE' | 'PENDING_REVIEW' | 'HIGH_RISK'
+type FilterKey     = 'ALL' | 'ACTIVE' | 'PENDING_REVIEW' | 'HIGH_RISK'
+type RiskBandFilter = 'ALL' | RiskBand
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+const RISK_BAND_STYLE: Record<RiskBand, { bg: string; color: string; border: string }> = {
+  LOW:      { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22' },
+  MEDIUM:   { bg: '#fffbeb', color: '#d97706', border: '#d9770622' },
+  HIGH:     { bg: '#fff7ed', color: '#ea580c', border: '#ea580c22' },
+  CRITICAL: { bg: '#fef2f2', color: '#dc2626', border: '#dc262622' },
+}
+
 function riskColor(score: number): { bg: string; color: string; border: string } {
   if (score >= 7) return { bg: '#fef2f2', color: '#dc2626', border: '#dc262622' }
   if (score >= 4) return { bg: '#fffbeb', color: '#d97706', border: '#d9770622' }
@@ -86,6 +96,19 @@ function Badge({ bg, color, border, label }: { bg: string; color: string; border
     <span className="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap"
       style={{ background: bg, color, border: `1px solid ${border}` }}>
       {label}
+    </span>
+  )
+}
+
+function RiskBandBadge({ band }: { band: RiskBand | null }) {
+  if (!band) {
+    return <span className="text-xs" style={{ color: 'var(--muted)' }}>—</span>
+  }
+  const s = RISK_BAND_STYLE[band]
+  return (
+    <span className="text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap"
+      style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+      {band}
     </span>
   )
 }
@@ -208,6 +231,7 @@ export default function EntitiesPage() {
   const [search,          setSearch]          = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [filter,          setFilter]          = useState<FilterKey>('ALL')
+  const [riskBandFilter,  setRiskBandFilter]  = useState<RiskBandFilter>('ALL')
   const [page,            setPage]            = useState(1)
   const [showAdd,         setShowAdd]         = useState(false)
   const debounceTimer  = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -215,7 +239,7 @@ export default function EntitiesPage() {
 
   const canWrite = WRITE_ROLES.has(role ?? '')
 
-  const fetchEntities = useCallback((p: number, q: string, f: FilterKey) => {
+  const fetchEntities = useCallback((p: number, q: string, f: FilterKey, rb: RiskBandFilter) => {
     // First fetch shows full loading state; subsequent fetches (search/filter/page) just dim the table
     if (!hasFetched.current) { setLoading(true) } else { setFetching(true) }
     const params = new URLSearchParams({ page: String(p), limit: String(PAGE_LIMIT) })
@@ -223,6 +247,7 @@ export default function EntitiesPage() {
     if (f === 'ACTIVE')         params.set('status', 'ACTIVE')
     if (f === 'PENDING_REVIEW') params.set('status', 'PENDING_REVIEW')
     if (f === 'HIGH_RISK')      params.set('highRisk', 'true')
+    if (rb !== 'ALL')           params.set('riskBand', rb)
 
     fetch(`/api/entities?${params.toString()}`)
       .then(r => r.json())
@@ -239,8 +264,8 @@ export default function EntitiesPage() {
   useEffect(() => {
     if (!role) return  // wait for user context to resolve
     if (!ALLOWED_ROLES.has(role)) { router.replace('/dashboard'); return }
-    fetchEntities(page, debouncedSearch, filter)
-  }, [role, router, fetchEntities, page, debouncedSearch, filter])
+    fetchEntities(page, debouncedSearch, filter, riskBandFilter)
+  }, [role, router, fetchEntities, page, debouncedSearch, filter, riskBandFilter])
 
   // Debounce search — update debouncedSearch 300ms after last keystroke
   function handleSearch(val: string) {
@@ -257,6 +282,11 @@ export default function EntitiesPage() {
     setPage(1)
   }
 
+  function handleRiskBandFilter(rb: RiskBandFilter) {
+    setRiskBandFilter(rb)
+    setPage(1)
+  }
+
   if (!role || !ALLOWED_ROLES.has(role)) return null
   if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
   if (error)   return <div className="p-8 text-sm text-red-600">{error}</div>
@@ -266,6 +296,14 @@ export default function EntitiesPage() {
     { key: 'ACTIVE',         label: 'Active'        },
     { key: 'PENDING_REVIEW', label: 'Pending Review'},
     { key: 'HIGH_RISK',      label: 'High Risk'     },
+  ]
+
+  const RISK_BAND_OPTIONS: { key: RiskBandFilter; label: string }[] = [
+    { key: 'ALL',      label: 'All bands'  },
+    { key: 'LOW',      label: 'Low'        },
+    { key: 'MEDIUM',   label: 'Medium'     },
+    { key: 'HIGH',     label: 'High'       },
+    { key: 'CRITICAL', label: 'Critical'   },
   ]
 
   const th = 'px-3 py-3 text-left text-xs font-medium uppercase tracking-wide'
@@ -315,6 +353,22 @@ export default function EntitiesPage() {
             )
           })}
         </div>
+
+        {/* Risk Band dropdown filter */}
+        <select
+          value={riskBandFilter}
+          onChange={e => handleRiskBandFilter(e.target.value as RiskBandFilter)}
+          className="text-xs px-3 py-1.5 rounded-lg outline-none"
+          style={{
+            background: riskBandFilter !== 'ALL' ? '#fffbeb' : 'var(--surface)',
+            color:      riskBandFilter !== 'ALL' ? '#d97706'  : 'var(--muted)',
+            border:     riskBandFilter !== 'ALL' ? '1px solid #d9770622' : '1px solid var(--border)',
+          }}>
+          {RISK_BAND_OPTIONS.map(o => (
+            <option key={o.key} value={o.key}>{o.label}</option>
+          ))}
+        </select>
+
         {pagination && (
           <span className="text-xs ml-auto flex items-center gap-2" style={{ color: 'var(--muted)' }}>
             {fetching && <span className="text-xs" style={{ color: '#2563eb' }}>Searching…</span>}
@@ -325,10 +379,10 @@ export default function EntitiesPage() {
 
       {/* Table */}
       <div className="rounded-2xl overflow-x-auto" style={{ border: '1px solid var(--border)', opacity: fetching ? 0.6 : 1, transition: 'opacity 0.15s' }}>
-        <table className="w-full min-w-[900px]">
+        <table className="w-full min-w-[1000px]">
           <thead style={{ background: 'var(--surface)' }}>
             <tr>
-              {['Name', 'Type', 'Jurisdiction', 'Risk Score', 'Review Status', 'Onboarding'].map(h => (
+              {['Name', 'Type', 'Jurisdiction', 'Risk', 'Review Status', 'Onboarding'].map(h => (
                 <th key={h} className={th}
                   style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
                   {h}
@@ -379,12 +433,15 @@ export default function EntitiesPage() {
                     </span>
                   </td>
 
-                  {/* Risk Score */}
+                  {/* Risk — band badge + score */}
                   <td className={td}>
-                    <span className="text-xs font-medium px-2 py-0.5 rounded-full tabular-nums"
-                      style={{ background: rc.bg, color: rc.color, border: `1px solid ${rc.border}` }}>
-                      {e.riskScore.toFixed(1)}
-                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      <RiskBandBadge band={e.riskBand} />
+                      <span className="text-xs tabular-nums"
+                        style={{ color: rc.color }}>
+                        {e.riskScore.toFixed(1)}
+                      </span>
+                    </div>
                   </td>
 
                   {/* Status */}
@@ -430,7 +487,7 @@ export default function EntitiesPage() {
       {showAdd && (
         <AddEntityModal
           onClose={() => setShowAdd(false)}
-          onSaved={() => { setShowAdd(false); setPage(1); fetchEntities(1, debouncedSearch, filter) }}
+          onSaved={() => { setShowAdd(false); setPage(1); fetchEntities(1, debouncedSearch, filter, riskBandFilter) }}
         />
       )}
     </div>

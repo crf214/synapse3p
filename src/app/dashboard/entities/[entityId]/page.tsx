@@ -8,6 +8,7 @@ import { apiClient } from '@/lib/api-client'
 const ALLOWED_ROLES    = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES      = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 const ONBOARDING_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'LEGAL', 'CISO', 'CFO', 'CONTROLLER'])
+const OVERRIDE_ROLES   = new Set(['ADMIN', 'FINANCE_MANAGER'])
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,12 +22,13 @@ type SanctionsStatus  = 'CLEAR' | 'FLAGGED' | 'UNDER_REVIEW' | 'BLOCKED'
 type SlaStatus        = 'ON_TRACK' | 'AT_RISK' | 'BREACHED' | 'NOT_APPLICABLE'
 type ActivityType     = 'ONBOARDING' | 'REVIEW' | 'PAYMENT' | 'STATUS_CHANGE' | 'INCIDENT' | 'DOCUMENT' | 'NOTE' | 'EXTERNAL_SIGNAL' | 'RISK_SCORE_CHANGE'
 type PaymentRail      = 'ACH' | 'BACS' | 'SWIFT' | 'SEPA' | 'WIRE' | 'STRIPE' | 'ERP' | 'OTHER'
+type RiskBand         = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 
 interface EntityRef         { id: string; name: string; slug: string }
 interface Classification    { id: string; type: EntityType; isPrimary: boolean; startDate: string | null; notes: string | null }
 interface BankAccount       { id: string; label: string; accountName: string; accountNo: string; routingNo: string | null; swiftBic: string | null; iban: string | null; currency: string; paymentRail: PaymentRail; isPrimary: boolean; status: string }
 interface DueDiligence      { ddLevel: number; kycStatus: KycStatus; kybStatus: KybStatus; sanctionsStatus: SanctionsStatus; pepStatus: boolean; nextReviewDate: string | null; reviewedAt: string | null; internalFactors: Record<string, unknown>; externalFactors: Record<string, unknown> }
-interface RiskScore         { computedScore: number; ddScore: number; behaviorScore: number; sanctionsScore: number; paymentHistoryScore: number; weights: Record<string, number>; scoredAt: string; notes: string | null }
+interface RiskScore         { computedScore: number; ddScore: number; behaviorScore: number; sanctionsScore: number; paymentHistoryScore: number; weights: Record<string, number>; scoredAt: string; score: number | null; band: RiskBand | null; computedAt: string | null; factors: unknown; notes: string | null }
 interface OrgRelationship   { onboardingStatus: string; activeForBillPay: boolean; portalAccess: boolean; approvedSpendLimit: number | null; contractStart: string | null; contractEnd: string | null }
 interface ServiceEngagement { id: string; status: string; contractStart: string | null; contractEnd: string | null; slaStatus: SlaStatus; serviceCatalogue: { name: string; parentId: string | null } }
 interface ActivityLog       { id: string; activityType: ActivityType; title: string; description: string | null; performedBy: string | null; occurredAt: string }
@@ -36,6 +38,13 @@ interface EntityDetail {
   jurisdiction: string | null; registrationNo: string | null; incorporationDate: string | null
   primaryCurrency: string; riskScore: number; riskOverride: boolean
   stockTicker: string | null
+  // Risk band fields
+  riskBand:               RiskBand | null
+  riskBandUpdatedAt:      string | null
+  riskBandOverride:       RiskBand | null
+  riskBandOverrideReason: string | null
+  riskBandOverrideBy:     string | null
+  riskBandOverrideAt:     string | null
   parent:         EntityRef | null
   classifications:    Classification[]
   bankAccounts:       BankAccount[]
@@ -47,7 +56,17 @@ interface EntityDetail {
   entityActivityLogs: ActivityLog[]
 }
 
-type TabKey = 'overview' | 'classifications' | 'bank-accounts' | 'due-diligence' | 'services' | 'activity'
+interface RiskHistoryRecord {
+  id:           string
+  entityId:     string
+  computedScore: number
+  score:        number | null
+  band:         RiskBand | null
+  computedAt:   string | null
+  factors:      unknown
+}
+
+type TabKey = 'overview' | 'classifications' | 'bank-accounts' | 'due-diligence' | 'services' | 'activity' | 'risk-history'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -73,6 +92,26 @@ function riskColor(score: number) {
   if (score >= 7) return { bg: '#fef2f2', color: '#dc2626', border: '#dc262622' }
   if (score >= 4) return { bg: '#fffbeb', color: '#d97706', border: '#d9770622' }
   return              { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22' }
+}
+
+const RISK_BAND_STYLE: Record<RiskBand, { bg: string; color: string; border: string }> = {
+  LOW:      { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22' },
+  MEDIUM:   { bg: '#fffbeb', color: '#d97706', border: '#d9770622' },
+  HIGH:     { bg: '#fff7ed', color: '#ea580c', border: '#ea580c22' },
+  CRITICAL: { bg: '#fef2f2', color: '#dc2626', border: '#dc262622' },
+}
+
+function RiskBandBadge({ band }: { band: RiskBand | null }) {
+  if (!band) {
+    return <span className="text-xs" style={{ color: 'var(--muted)' }}>No band</span>
+  }
+  const s = RISK_BAND_STYLE[band]
+  return (
+    <span className="text-sm font-semibold px-3 py-1 rounded-xl"
+      style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+      {band}
+    </span>
+  )
 }
 
 function Badge({ label, bg, color, border }: { label: string; bg: string; color: string; border: string }) {
@@ -175,14 +214,124 @@ function EntityPicker({
 }
 
 // ---------------------------------------------------------------------------
+// Risk Override Modal
+// ---------------------------------------------------------------------------
+function RiskOverrideModal({
+  entityId, onClose, onSaved,
+}: {
+  entityId: string
+  onClose:  () => void
+  onSaved:  () => void
+}) {
+  const [band,      setBand]      = useState<RiskBand>('HIGH')
+  const [reason,    setReason]    = useState('')
+  const [saving,    setSaving]    = useState(false)
+  const [error,     setError]     = useState<string | null>(null)
+
+  const MIN_REASON = 20
+  const valid = reason.trim().length >= MIN_REASON
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!valid) return
+    setSaving(true); setError(null)
+    try {
+      const res = await apiClient(`/api/entities/${entityId}/risk-override`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ band, reason: reason.trim() }),
+      })
+      const d = await res.json() as { error?: { message: string } }
+      if (!res.ok) throw new Error(d.error?.message ?? 'Save failed')
+      onSaved()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const BANDS: RiskBand[] = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.4)' }}>
+      <div className="w-full max-w-md rounded-2xl p-6 space-y-4"
+        style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
+        <h2 className="font-display text-lg" style={{ color: 'var(--ink)' }}>Override Risk Band</h2>
+        <p className="text-sm" style={{ color: 'var(--muted)' }}>
+          Manually set the risk band for this entity. This overrides the computed value until cleared.
+        </p>
+        <form onSubmit={submit} className="space-y-4">
+          {/* Band selector */}
+          <div>
+            <span style={labelStyle}>Risk band *</span>
+            <div className="flex gap-2 flex-wrap mt-1">
+              {BANDS.map(b => {
+                const s = RISK_BAND_STYLE[b]
+                const active = band === b
+                return (
+                  <button key={b} type="button" onClick={() => setBand(b)}
+                    className="text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                    style={{
+                      background: active ? s.bg : 'var(--surface)',
+                      color:      active ? s.color : 'var(--muted)',
+                      border:     active ? `2px solid ${s.color}` : '1px solid var(--border)',
+                    }}>
+                    {b}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* Justification */}
+          <div>
+            <span style={labelStyle}>Justification * (min {MIN_REASON} characters)</span>
+            <textarea
+              className={inputCls}
+              style={inputStyle}
+              rows={4}
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="Explain the reason for this override…"
+            />
+            <div className="text-xs mt-1 text-right"
+              style={{ color: reason.trim().length >= MIN_REASON ? '#16a34a' : 'var(--muted)' }}>
+              {reason.trim().length} / {MIN_REASON}
+            </div>
+          </div>
+
+          {error && <p className="text-xs text-red-600">{error}</p>}
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose}
+              className="text-sm px-4 py-2 rounded-xl"
+              style={{ background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+              Cancel
+            </button>
+            <button type="submit" disabled={saving || !valid}
+              className="text-sm font-medium px-4 py-2 rounded-xl disabled:opacity-50"
+              style={{ background: '#2563eb', color: '#fff', border: '1px solid #2563eb' }}>
+              {saving ? 'Saving…' : 'Apply override'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Overview Tab — full editable form
 // ---------------------------------------------------------------------------
 function OverviewTab({
-  entity, canWrite, onRefresh,
+  entity, canWrite, canOverride, onRefresh,
 }: {
-  entity: EntityDetail
-  canWrite: boolean
-  onRefresh: () => void
+  entity:      EntityDetail
+  canWrite:    boolean
+  canOverride: boolean
+  onRefresh:   () => void
 }) {
   const [form, setForm] = useState({
     name:             entity.name,
@@ -195,12 +344,26 @@ function OverviewTab({
     stockTicker:      entity.stockTicker       ?? '',
     parent:           entity.parent            as EntityRef | null,
   })
-  const [saving, setSaving] = useState(false)
-  const [saved,  setSaved]  = useState(false)
-  const [error,  setError]  = useState<string | null>(null)
+  const [saving,         setSaving]         = useState(false)
+  const [saved,          setSaved]          = useState(false)
+  const [error,          setError]          = useState<string | null>(null)
+  const [showOverride,   setShowOverride]   = useState(false)
+  const [clearingOverride, setClearingOverride] = useState(false)
 
-  const rc          = riskColor(entity.riskScore)
-  const latestRisk  = entity.riskScores[0] ?? null
+  const latestRisk = entity.riskScores[0] ?? null
+
+  // Parse factors from latest risk score
+  const factors = (() => {
+    if (!latestRisk?.factors) return null
+    if (typeof latestRisk.factors !== 'object' || latestRisk.factors === null) return null
+    const f = latestRisk.factors as Record<string, unknown>
+    type Pillar = { score?: number; weight?: number; inputs?: unknown }
+    const ec  = (f.entityCharacteristics  as Pillar | undefined) ?? null
+    const fe  = (f.financialExposure       as Pillar | undefined) ?? null
+    const qd  = (f.qualitativeDetermination as Pillar | undefined) ?? null
+    if (!ec && !fe && !qd) return null
+    return { ec, fe, qd }
+  })()
 
   function setF(k: keyof typeof form) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -236,6 +399,20 @@ function OverviewTab({
       setError(err instanceof Error ? err.message : 'Save failed')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function clearOverride() {
+    setClearingOverride(true)
+    try {
+      const res = await apiClient(`/api/entities/${entity.id}/risk-override`, { method: 'DELETE' })
+      const d = await res.json() as { error?: { message: string } }
+      if (!res.ok) throw new Error(d.error?.message ?? 'Failed to clear override')
+      onRefresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear override')
+    } finally {
+      setClearingOverride(false)
     }
   }
 
@@ -358,35 +535,97 @@ function OverviewTab({
       {/* ── Risk score ──────────────────────────────────────────────────── */}
       <div className="rounded-2xl p-5 space-y-4" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>Risk score</h3>
-          <span className="text-2xl font-display tabular-nums px-3 py-1 rounded-xl"
-            style={{ background: rc.bg, color: rc.color, border: `1px solid ${rc.border}` }}>
-            {entity.riskScore.toFixed(1)}
-          </span>
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>Risk</h3>
+          {canOverride && (
+            <div className="flex items-center gap-2">
+              {entity.riskBandOverride && (
+                <button
+                  onClick={clearOverride}
+                  disabled={clearingOverride}
+                  className="text-xs px-3 py-1.5 rounded-lg disabled:opacity-50"
+                  style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #dc262622' }}>
+                  {clearingOverride ? 'Clearing…' : 'Clear override'}
+                </button>
+              )}
+              <button
+                onClick={() => setShowOverride(true)}
+                className="text-xs px-3 py-1.5 rounded-lg"
+                style={{ background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                Override band
+              </button>
+            </div>
+          )}
         </div>
-        {latestRisk ? (
-          <div className="space-y-2">
-            {[
-              { label: 'Due diligence',   score: latestRisk.ddScore,              weight: latestRisk.weights['dd']       },
-              { label: 'Behavior',        score: latestRisk.behaviorScore,        weight: latestRisk.weights['behavior'] },
-              { label: 'Sanctions',       score: latestRisk.sanctionsScore,       weight: latestRisk.weights['sanctions']},
-              { label: 'Payment history', score: latestRisk.paymentHistoryScore,  weight: null                           },
-            ].map(({ label, score, weight }) => (
-              <div key={label} className="flex items-center gap-3">
-                <span className="text-xs w-28" style={{ color: 'var(--muted)' }}>{label}</span>
-                <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--border)' }}>
-                  <div className="h-full rounded-full" style={{ width: `${(score / 10) * 100}%`, background: '#2563eb' }} />
+
+        {/* Override banner */}
+        {entity.riskBandOverride && (
+          <div className="flex items-start gap-3 px-4 py-3 rounded-xl"
+            style={{ background: '#fffbeb', border: '1px solid #d9770622' }}>
+            <span className="text-sm" style={{ color: '#d97706' }}>&#9888;</span>
+            <div className="text-xs" style={{ color: '#92400e' }}>
+              <span className="font-semibold">Manual override active</span>
+              {entity.riskBandOverrideReason && (
+                <span> — {entity.riskBandOverrideReason}</span>
+              )}
+              {entity.riskBandOverrideBy && (
+                <div className="mt-0.5" style={{ color: '#b45309' }}>
+                  Set by {entity.riskBandOverrideBy}
+                  {entity.riskBandOverrideAt && ` on ${fmt(entity.riskBandOverrideAt)}`}
                 </div>
-                <span className="text-xs tabular-nums w-8 text-right" style={{ color: 'var(--ink)' }}>{score.toFixed(1)}</span>
-                {weight != null && (
-                  <span className="text-xs w-8 text-right" style={{ color: 'var(--muted)' }}>{(weight * 100).toFixed(0)}%</span>
-                )}
-              </div>
-            ))}
-            <p className="text-xs pt-1" style={{ color: 'var(--muted)' }}>Scored {relativeTime(latestRisk.scoredAt)}</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Band badge + score */}
+        <div className="flex items-center gap-3">
+          <RiskBandBadge band={entity.riskBand} />
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>
+            Score: <span className="font-mono tabular-nums" style={{ color: 'var(--ink)' }}>
+              {entity.riskScore.toFixed(1)}
+            </span>
+          </div>
+          {entity.riskBandUpdatedAt && (
+            <div className="text-xs" style={{ color: 'var(--muted)' }}>
+              Updated {relativeTime(entity.riskBandUpdatedAt)}
+            </div>
+          )}
+        </div>
+
+        {/* Factor breakdown */}
+        {factors ? (
+          <div>
+            <div className="text-xs font-medium mb-2" style={{ color: 'var(--muted)' }}>Factor breakdown</div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  {['Pillar', 'Score', 'Weight'].map(h => (
+                    <th key={h} className="text-left text-xs font-medium pb-2"
+                      style={{ color: 'var(--muted)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {([
+                  { key: 'entityCharacteristics',   label: 'Entity Characteristics',    pillar: factors.ec  },
+                  { key: 'financialExposure',        label: 'Financial Exposure',         pillar: factors.fe  },
+                  { key: 'qualitativeDetermination', label: 'Qualitative Determination',  pillar: factors.qd  },
+                ] as { key: string; label: string; pillar: { score?: number; weight?: number } | null }[]).map(({ key, label, pillar }) => (
+                  <tr key={key} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td className="py-2 text-xs" style={{ color: 'var(--ink)' }}>{label}</td>
+                    <td className="py-2 text-xs tabular-nums" style={{ color: 'var(--ink)' }}>
+                      {pillar?.score != null ? pillar.score.toFixed(1) : '—'}
+                    </td>
+                    <td className="py-2 text-xs tabular-nums" style={{ color: 'var(--muted)' }}>
+                      {pillar?.weight != null ? `${(pillar.weight * 100).toFixed(0)}%` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         ) : (
-          <p className="text-xs" style={{ color: 'var(--muted)' }}>No risk score computed yet.</p>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>Risk score not yet computed.</p>
         )}
       </div>
 
@@ -413,6 +652,14 @@ function OverviewTab({
           </div>
         )
       })()}
+
+      {showOverride && (
+        <RiskOverrideModal
+          entityId={entity.id}
+          onClose={() => setShowOverride(false)}
+          onSaved={() => { setShowOverride(false); onRefresh() }}
+        />
+      )}
     </div>
   )
 }
@@ -800,6 +1047,87 @@ function ActivityTab({ entity }: { entity: EntityDetail }) {
 }
 
 // ---------------------------------------------------------------------------
+// Risk History Tab
+// ---------------------------------------------------------------------------
+function SmallBandBadge({ band }: { band: RiskBand | null }) {
+  if (!band) return <span className="text-xs" style={{ color: 'var(--muted)' }}>—</span>
+  const s = RISK_BAND_STYLE[band]
+  return (
+    <span className="text-xs font-medium px-2 py-0.5 rounded-full"
+      style={{ background: s.bg, color: s.color, border: `1px solid ${s.border}` }}>
+      {band}
+    </span>
+  )
+}
+
+function RiskHistoryTab({ entityId }: { entityId: string }) {
+  const [history, setHistory] = useState<RiskHistoryRecord[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    fetch(`/api/entities/${entityId}/risk-history`)
+      .then(r => r.json())
+      .then((d: { history: RiskHistoryRecord[]; error?: { message: string } }) => {
+        if (d.error) throw new Error(d.error.message)
+        setHistory(d.history ?? [])
+      })
+      .catch(e => setError((e as Error).message))
+      .finally(() => setLoading(false))
+  }, [entityId])
+
+  if (loading) return <div className="py-10 text-sm text-center" style={{ color: 'var(--muted)' }}>Loading…</div>
+  if (error)   return <div className="py-10 text-sm text-center text-red-600">{error}</div>
+  if (history.length === 0)
+    return <div className="py-10 text-sm text-center" style={{ color: 'var(--muted)' }}>No risk score history yet.</div>
+
+  const th = 'px-4 py-2 text-left text-xs font-medium uppercase tracking-wide'
+  const td = 'px-4 py-3 text-sm'
+
+  return (
+    <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+      <table className="w-full">
+        <thead style={{ background: 'var(--surface)' }}>
+          <tr>
+            {['Date', 'Band', 'Score'].map(h => (
+              <th key={h} className={th}
+                style={{ color: 'var(--muted)', borderBottom: '1px solid var(--border)' }}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {history.map((row, i) => {
+            const prevBand = i + 1 < history.length ? history[i + 1].band : null
+            const bandChanged = row.band !== prevBand && i > 0 ? true : false
+            const score = row.score ?? row.computedScore
+            return (
+              <tr key={row.id}
+                style={{
+                  borderTop: i > 0 ? '1px solid var(--border)' : undefined,
+                  background: bandChanged ? 'var(--surface)' : 'transparent',
+                }}>
+                <td className={td} style={{ color: 'var(--muted)' }}>
+                  {row.computedAt ? fmt(row.computedAt) : '—'}
+                </td>
+                <td className={td}>
+                  <SmallBandBadge band={row.band} />
+                </td>
+                <td className={td} style={{ color: 'var(--ink)' }}>
+                  <span className="tabular-nums font-mono text-xs">{score.toFixed(1)}</span>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 const TABS: { key: TabKey; label: string }[] = [
@@ -809,6 +1137,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'due-diligence',   label: 'Due Diligence'   },
   { key: 'services',        label: 'Services'        },
   { key: 'activity',        label: 'History'         },
+  { key: 'risk-history',    label: 'Risk History'    },
 ]
 
 export default function EntityDetailPage() {
@@ -822,7 +1151,8 @@ export default function EntityDetailPage() {
   const [error,   setError]   = useState<string | null>(null)
   const [tab,     setTab]     = useState<TabKey>('overview')
 
-  const canWrite = WRITE_ROLES.has(role ?? '')
+  const canWrite    = WRITE_ROLES.has(role ?? '')
+  const canOverride = OVERRIDE_ROLES.has(role ?? '')
 
   const fetchEntity = useCallback(() => {
     setLoading(true)
@@ -845,8 +1175,6 @@ export default function EntityDetailPage() {
   if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
   if (error)   return <div className="p-8 text-sm text-red-600">{error}</div>
   if (!entity) return null
-
-  const rc = riskColor(entity.riskScore)
 
   return (
     <div className="p-8 max-w-4xl space-y-6">
@@ -871,7 +1199,7 @@ export default function EntityDetailPage() {
               )}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {ONBOARDING_ROLES.has(role ?? '') && (
               <button onClick={() => router.push(`/dashboard/entities/${entityId}/onboarding`)}
                 className="text-sm font-medium px-4 py-2 rounded-xl"
@@ -879,10 +1207,13 @@ export default function EntityDetailPage() {
                 Onboarding
               </button>
             )}
-            <span className="text-lg font-display tabular-nums px-3 py-1.5 rounded-xl"
-              style={{ background: rc.bg, color: rc.color, border: `1px solid ${rc.border}` }}>
-              {entity.riskScore.toFixed(1)}
-            </span>
+            {/* Risk band display in header */}
+            <div className="flex flex-col items-end gap-0.5">
+              <RiskBandBadge band={entity.riskBand} />
+              <span className="text-xs tabular-nums" style={{ color: 'var(--muted)' }}>
+                Score {entity.riskScore.toFixed(1)}
+              </span>
+            </div>
           </div>
         </div>
       </div>
@@ -913,12 +1244,13 @@ export default function EntityDetailPage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'overview'        && <OverviewTab        entity={entity} canWrite={canWrite} onRefresh={fetchEntity} />}
+      {tab === 'overview'        && <OverviewTab        entity={entity} canWrite={canWrite} canOverride={canOverride} onRefresh={fetchEntity} />}
       {tab === 'classifications' && <ClassificationsTab entity={entity} canWrite={canWrite} onRefresh={fetchEntity} />}
       {tab === 'bank-accounts'   && <BankAccountsTab    entity={entity} canWrite={canWrite} onRefresh={fetchEntity} />}
       {tab === 'due-diligence'   && <DueDiligenceTab    entity={entity} />}
       {tab === 'services'        && <ServicesTab        entity={entity} />}
       {tab === 'activity'        && <ActivityTab        entity={entity} />}
+      {tab === 'risk-history'    && <RiskHistoryTab     entityId={entityId} />}
     </div>
   )
 }
