@@ -1,5 +1,17 @@
 // src/app/api/external-signals/route.ts
 // GET — paginated incoming signal feed with type/severity/dismissed filters
+//
+// Status check (2.17):
+//   ExternalSignal creation:           no  — signals are created by the nightly batch (scripts/external-signals.ts),
+//                                           not via a manual POST. No POST handler exists in this file.
+//   Review workflow (status transitions): yes — PUT /api/external-signals/[id] sets reviewedBy/reviewedAt
+//                                           when dismissed is toggled; the [id] route was extended (2.18) to
+//                                           treat dismissed=false + reviewedBy set as "confirmed" and trigger
+//                                           risk recomputation for HIGH/CRITICAL signals.
+//   Dismiss workflow:                  yes — PUT /api/external-signals/[id] accepts { dismissed: boolean }
+//                                           and writes reviewedBy + reviewedAt.
+//
+// TODO Phase 5: wire automated news/stock ingestion scripts here
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
