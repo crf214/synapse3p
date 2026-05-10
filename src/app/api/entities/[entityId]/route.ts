@@ -5,6 +5,7 @@ import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, Valid
 import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
 import { resolveStepDependencies, DependencyType } from '@/lib/workflow/resolve-dependencies'
+import { updateEntityRisk } from '@/lib/risk/update-entity-risk'
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -211,6 +212,9 @@ export async function PATCH(
         occurredAt:   new Date(),
       },
     })
+
+    // Recompute risk band asynchronously after entity update
+    void updateEntityRisk(entityId, prisma).catch(console.error)
 
     return NextResponse.json({ entity })
   } catch (err) {

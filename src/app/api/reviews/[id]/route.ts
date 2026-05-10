@@ -6,6 +6,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { updateEntityRisk } from '@/lib/risk/update-entity-risk'
 
 const UpdateReviewSchema = z.object({
   status:          z.string().optional(),
@@ -158,6 +159,9 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
         occurredAt:    new Date(),
       },
     })
+
+    // Recompute risk band asynchronously after review update
+    void updateEntityRisk(review.entityId, prisma).catch(console.error)
 
     return NextResponse.json({
       ...updated,

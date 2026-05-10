@@ -207,6 +207,12 @@ model Entity {
   primaryCurrency    String        @default("USD")
   riskScore          Float         @default(0)
   riskOverride       Boolean       @default(false)
+  riskBand           RiskBand?
+  riskBandUpdatedAt  DateTime?
+  riskBandOverride   RiskBand?
+  riskBandOverrideReason String?
+  riskBandOverrideBy String?
+  riskBandOverrideAt DateTime?
   parentId           String?
   stockTicker        String?
   metadata           Json          @default("{}")
@@ -329,6 +335,11 @@ model EntityRiskScore {
   notes                String?
   scoredAt             DateTime  @default(now())
   scoredBy             String?
+  // 2A risk band fields
+  score                Float?
+  band                 RiskBand?
+  computedAt           DateTime?
+  factors              Json?
 
   entity               Entity    @relation(fields: [entityId], references: [id])
 
@@ -847,6 +858,13 @@ enum RiskTier {
   LOW
   MEDIUM
   HIGH
+}
+
+enum RiskBand {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
 }
 
 enum RiskSignalType {

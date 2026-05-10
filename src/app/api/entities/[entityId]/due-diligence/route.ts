@@ -21,6 +21,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { writeAuditEvent } from '@/lib/audit'
+import { updateEntityRisk } from '@/lib/risk/update-entity-risk'
 
 // ---------------------------------------------------------------------------
 // Transition table — only these moves are valid
@@ -197,6 +198,9 @@ export async function PATCH(
         occurredAt:   new Date(),
       },
     })
+
+    // Recompute risk band asynchronously after due diligence update
+    void updateEntityRisk(entityId, prisma).catch(console.error)
 
     return NextResponse.json({ dueDiligence })
   } catch (err) {
