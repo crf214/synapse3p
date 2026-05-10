@@ -69,6 +69,16 @@ export const queryKeys = {
     },
   },
 
+  reviews: {
+    all:    ['reviews']                                                  as const,
+    list:   (p: Record<string, unknown>) => ['reviews', 'list', p]       as const,
+    overdue: ['reviews', 'overdue']                                      as const,
+  },
+
+  reviewCadences: {
+    all: ['review-cadences'] as const,
+  },
+
   dashboard: {
     stats: ['dashboard', 'stats'] as const,
   },

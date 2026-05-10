@@ -111,6 +111,7 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
     children: [
       { href: '/dashboard/settings/onboarding-workflows', label: 'Onboarding Workflows', icon: '◫', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'FINANCE_MANAGER'] },
       { href: '/dashboard/settings/external-signals',     label: 'External Signals',     icon: '◉', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'FINANCE_MANAGER'] },
+      { href: '/dashboard/settings/review-cadences',      label: 'Review Cadences',      icon: '◉', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'FINANCE_MANAGER'] },
     ],
   },
   {

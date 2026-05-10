@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import { useUser } from '@/context/UserContext'
 import { apiClient } from '@/lib/api-client'
+import { queryKeys } from '@/lib/query-keys'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'])
 const WRITE_ROLES   = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'])
@@ -30,12 +32,28 @@ interface ReviewRow {
 
 interface EntityOption { id: string; name: string }
 
+interface OverdueEntity {
+  entityId:     string
+  entityName:   string
+  riskBand:     string | null
+  lastReviewAt: string | null
+  daysOverdue:  number
+  cadenceDays:  number
+}
+
 const STATUS_COLOR: Record<ReviewStatus, { bg: string; text: string }> = {
   SCHEDULED:   { bg: '#eff6ff', text: '#2563eb' },
   IN_PROGRESS: { bg: '#fff7ed', text: '#ea580c' },
   COMPLETED:   { bg: '#f0fdf4', text: '#16a34a' },
   OVERDUE:     { bg: '#fef2f2', text: '#dc2626' },
   CANCELLED:   { bg: '#f8fafc', text: '#64748b' },
+}
+
+const BAND_COLOR: Record<string, { bg: string; text: string }> = {
+  LOW:      { bg: '#f0fdf4', text: '#16a34a' },
+  MEDIUM:   { bg: '#fff7ed', text: '#ea580c' },
+  HIGH:     { bg: '#fef2f2', text: '#dc2626' },
+  CRITICAL: { bg: '#450a0a', text: '#fca5a5' },
 }
 
 function fmtDate(iso: string | null) {
@@ -64,6 +82,19 @@ export default function ReviewsPage() {
   const [showNew,   setShowNew]   = useState(false)
   const [newForm,   setNewForm]   = useState({ entityId: '', reviewType: 'PERIODIC', notes: '', scheduledAt: '' })
   const [creating,  setCreating]  = useState(false)
+
+  // Overdue entities banner via react-query
+  const { data: overdueData } = useQuery({
+    queryKey: queryKeys.reviews.overdue,
+    queryFn:  async () => {
+      const res = await fetch('/api/reviews/overdue')
+      if (!res.ok) return { overdue: [] as OverdueEntity[] }
+      return res.json() as Promise<{ overdue: OverdueEntity[] }>
+    },
+    enabled: ALLOWED_ROLES.has(user.role ?? ''),
+  })
+
+  const overdueList: OverdueEntity[] = overdueData?.overdue ?? []
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -140,6 +171,55 @@ export default function ReviewsPage() {
           </button>
         )}
       </div>
+
+      {/* Overdue banner */}
+      {overdueList.length > 0 && (
+        <div className="mb-6 rounded-2xl p-5"
+          style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e' }}>
+          <p className="text-sm font-semibold mb-3">
+            {overdueList.length} {overdueList.length === 1 ? 'entity is' : 'entities are'} overdue for review
+          </p>
+          <div className="space-y-2">
+            {overdueList.map(ent => {
+              const bandCol = ent.riskBand ? (BAND_COLOR[ent.riskBand] ?? BAND_COLOR.MEDIUM) : null
+              return (
+                <div key={ent.entityId}
+                  className="flex items-center justify-between gap-4 py-2 px-3 rounded-xl"
+                  style={{ background: 'rgba(255,251,235,0.7)', border: '1px solid #fde68a' }}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Link href={`/dashboard/entities/${ent.entityId}`}
+                      className="text-sm font-medium hover:underline truncate"
+                      style={{ color: '#92400e' }}>
+                      {ent.entityName}
+                    </Link>
+                    {bandCol && ent.riskBand && (
+                      <span className="px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0"
+                        style={{ background: bandCol.bg, color: bandCol.text }}>
+                        {ent.riskBand}
+                      </span>
+                    )}
+                    <span className="text-xs flex-shrink-0" style={{ color: '#b45309' }}>
+                      {ent.daysOverdue} day{ent.daysOverdue !== 1 ? 's' : ''} overdue
+                    </span>
+                  </div>
+                  {WRITE_ROLES.has(user.role ?? '') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewForm(f => ({ ...f, entityId: ent.entityId, reviewType: 'PERIODIC' }))
+                        setShowNew(true)
+                      }}
+                      className="flex-shrink-0 px-3 py-1 rounded-xl text-xs font-medium"
+                      style={{ background: '#d97706', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                      Start Review
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-3 mb-6 flex-wrap">
