@@ -8,10 +8,14 @@
 //   risk scoring → auto-approve evaluation → notification routing
 
 import crypto from 'crypto'
-import { Prisma } from '@prisma/client'
+import { Prisma, RiskBand } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { extractFromPdf, extractFromText, persistExtractionFields } from '@/lib/invoice-ai'
 import { sendInvoiceReminderEmail } from '@/lib/resend'
+import { scoreToBand } from '@/lib/risk/compute-risk-band'
+
+// Band ordering for maxRiskBand comparison
+const BAND_ORDER: Record<RiskBand, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 }
 
 // ---------------------------------------------------------------------------
 // Types
@@ -298,6 +302,13 @@ export async function runInvoicePipeline(opts: {
         weight:            WEIGHTS[s.type],
         detail:            s.detail ?? null,
       })),
+    })
+
+    // Stamp the invoice with its risk band derived from the overall score
+    const invoiceRiskBand = scoreToBand(evaluation.overallScore * 10) // overallScore is 0–10, scoreToBand expects 0–100
+    await prisma.invoice.update({
+      where: { id: invoiceId },
+      data:  { riskBand: invoiceRiskBand },
     })
 
     // -----------------------------------------------------------------------
@@ -616,6 +627,21 @@ async function evaluateAutoApprove(
     autoApprove = false
     failedConditions.push('No auto-approve policy configured')
   } else {
+    // maxRiskBand: if policy specifies a max band, look up entity's current riskBand
+    if (policy.maxRiskBand) {
+      const entityRecord = await prisma.entity.findUnique({
+        where:  { id: entityId },
+        select: { riskBand: true },
+      })
+      const entityBand = entityRecord?.riskBand ?? null
+      if (entityBand && BAND_ORDER[entityBand] > BAND_ORDER[policy.maxRiskBand]) {
+        autoApprove = false
+        failedConditions.push(
+          `Entity risk band ${entityBand} exceeds policy max ${policy.maxRiskBand}`,
+        )
+      }
+    }
+
     // Risk tier check
     if (!policy.allowedRiskTiers.includes(tier as never)) {
       autoApprove = false

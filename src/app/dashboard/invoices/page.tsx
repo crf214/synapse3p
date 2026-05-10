@@ -10,6 +10,7 @@ const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLL
 
 type InvoiceStatus = 'RECEIVED' | 'MATCHED' | 'UNMATCHED' | 'PENDING_REVIEW' | 'APPROVED' | 'REJECTED' | 'PAID' | 'CANCELLED'
 type RiskTier      = 'LOW' | 'MEDIUM' | 'HIGH'
+type RiskBand      = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 type Source        = 'EMAIL' | 'PORTAL' | 'MANUAL' | 'EDI'
 
 interface InvoiceRow {
@@ -23,6 +24,7 @@ interface InvoiceRow {
   status:             InvoiceStatus
   source:             Source
   isRecurring:        boolean
+  riskBand:           RiskBand | null
   riskTier:           RiskTier | null
   riskScore:          number | null
   riskFlags:          string[]
@@ -45,6 +47,17 @@ function tierBadge(tier: RiskTier | null) {
     MEDIUM: { bg: '#fffbeb', color: '#d97706', border: '#d9770622', label: 'Medium' },
     HIGH:   { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'High'   },
   }[tier]
+}
+
+function riskBandBadge(band: RiskBand | null) {
+  if (!band) return null
+  const map: Record<RiskBand, { bg: string; color: string; border: string; label: string }> = {
+    LOW:      { bg: '#f0fdf4', color: '#16a34a', border: '#16a34a22', label: 'LOW'      },
+    MEDIUM:   { bg: '#fffbeb', color: '#d97706', border: '#d9770622', label: 'MEDIUM'   },
+    HIGH:     { bg: '#fff7ed', color: '#ea580c', border: '#ea580c22', label: 'HIGH'     },
+    CRITICAL: { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'CRITICAL' },
+  }
+  return map[band]
 }
 
 function statusBadge(s: InvoiceStatus) {
@@ -102,6 +115,7 @@ export default function InvoicesPage() {
   // Filters
   const [status,    setStatus]    = useState('')
   const [tier,      setTier]      = useState('')
+  const [riskBand,  setRiskBand]  = useState('')
   const [dateFrom,  setDateFrom]  = useState('')
   const [dateTo,    setDateTo]    = useState('')
   const [page,      setPage]      = useState(1)
@@ -116,6 +130,7 @@ export default function InvoicesPage() {
       const sp = new URLSearchParams({ page: String(page), limit: '50' })
       if (status)   sp.set('status',   status)
       if (tier)     sp.set('tier',     tier)
+      if (riskBand) sp.set('riskBand', riskBand)
       if (dateFrom) sp.set('dateFrom', dateFrom)
       if (dateTo)   sp.set('dateTo',   dateTo)
 
@@ -129,7 +144,7 @@ export default function InvoicesPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, status, tier, dateFrom, dateTo])
+  }, [page, status, tier, riskBand, dateFrom, dateTo])
 
   useEffect(() => { void fetchInvoices() }, [fetchInvoices])
 
@@ -222,6 +237,15 @@ export default function InvoicesPage() {
           <option value="MEDIUM">Medium</option>
           <option value="HIGH">High</option>
         </select>
+        <select value={riskBand} onChange={e => { setRiskBand(e.target.value); setPage(1) }}
+          className="text-sm px-3 py-1.5 rounded-lg border"
+          style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--ink)' }}>
+          <option value="">All Risk Bands</option>
+          <option value="LOW">Band: Low</option>
+          <option value="MEDIUM">Band: Medium</option>
+          <option value="HIGH">Band: High</option>
+          <option value="CRITICAL">Band: Critical</option>
+        </select>
         <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(1) }}
           className="text-sm px-3 py-1.5 rounded-lg border"
           style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--ink)' }}
@@ -230,8 +254,8 @@ export default function InvoicesPage() {
           className="text-sm px-3 py-1.5 rounded-lg border"
           style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--ink)' }}
           placeholder="To" />
-        {(status || tier || dateFrom || dateTo) && (
-          <button onClick={() => { setStatus(''); setTier(''); setDateFrom(''); setDateTo(''); setPage(1) }}
+        {(status || tier || riskBand || dateFrom || dateTo) && (
+          <button onClick={() => { setStatus(''); setTier(''); setRiskBand(''); setDateFrom(''); setDateTo(''); setPage(1) }}
             className="text-sm px-3 py-1.5 rounded-lg"
             style={{ color: '#dc2626' }}>
             Clear filters
@@ -282,13 +306,15 @@ export default function InvoicesPage() {
                 <th className="px-4 py-3 text-right font-medium" style={{ color: 'var(--muted)' }}>Amount</th>
                 <th className="px-4 py-3 text-left font-medium" style={{ color: 'var(--muted)' }}>Invoice #</th>
                 <th className="px-4 py-3 text-left font-medium" style={{ color: 'var(--muted)' }}>Date</th>
-                <th className="px-4 py-3 text-left font-medium" style={{ color: 'var(--muted)' }}>Risk</th>
+                <th className="px-4 py-3 text-left font-medium" style={{ color: 'var(--muted)' }}>Risk Band</th>
+                <th className="px-4 py-3 text-left font-medium" style={{ color: 'var(--muted)' }}>Risk Tier</th>
                 <th className="px-4 py-3 text-left font-medium" style={{ color: 'var(--muted)' }}>Status</th>
                 <th className="px-4 py-3 text-left font-medium" style={{ color: 'var(--muted)' }}>Context</th>
               </tr>
             </thead>
             <tbody>
               {invoices.map((inv, i) => {
+                const band  = riskBandBadge(inv.riskBand)
                 const tier  = tierBadge(inv.riskTier)
                 const stat  = statusBadge(inv.status)
                 const src   = sourceBadge(inv.source)
@@ -325,6 +351,9 @@ export default function InvoicesPage() {
                     </td>
                     <td className="px-4 py-3" style={{ color: 'var(--muted)' }}>
                       {new Date(inv.invoiceDate).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      {band ? <Badge {...band} /> : <span style={{ color: 'var(--muted)' }}>—</span>}
                     </td>
                     <td className="px-4 py-3">
                       {inv.riskTier ? <Badge {...tier} /> : <span style={{ color: 'var(--muted)' }}>—</span>}

@@ -7,11 +7,19 @@ import { apiClient } from '@/lib/api-client'
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
 type RiskTier = 'LOW' | 'MEDIUM' | 'HIGH'
+type RiskBand = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 
 const TIER_COLOR: Record<RiskTier, { bg: string; text: string }> = {
   LOW:    { bg: '#f0fdf4', text: '#16a34a' },
   MEDIUM: { bg: '#fff7ed', text: '#ea580c' },
   HIGH:   { bg: '#fef2f2', text: '#dc2626' },
+}
+
+const BAND_COLOR: Record<RiskBand, { bg: string; text: string }> = {
+  LOW:      { bg: '#f0fdf4', text: '#16a34a' },
+  MEDIUM:   { bg: '#fffbeb', text: '#d97706' },
+  HIGH:     { bg: '#fff7ed', text: '#ea580c' },
+  CRITICAL: { bg: '#fef2f2', text: '#dc2626' },
 }
 
 interface AutoApprovePolicy {
@@ -28,6 +36,7 @@ interface AutoApprovePolicy {
   noDuplicateFlag:       boolean
   noAnomalyFlag:         boolean
   allFieldsExtracted:    boolean
+  maxRiskBand:           RiskBand | null
   createdAt:             string
   updatedAt:             string
   creator:               { id: string; name: string | null; email: string } | null
@@ -58,6 +67,7 @@ function PolicyModal({ initial, entities, onSave, onClose }: ModalProps) {
   const [noDup,         setNoDup]         = useState(initial?.noDuplicateFlag       ?? true)
   const [noAnomaly,     setNoAnomaly]     = useState(initial?.noAnomalyFlag         ?? true)
   const [allFields,     setAllFields]     = useState(initial?.allFieldsExtracted    ?? false)
+  const [maxRiskBand,   setMaxRiskBand]   = useState<RiskBand | ''>(initial?.maxRiskBand ?? '')
   const [isActive,      setIsActive]      = useState(initial?.isActive              ?? true)
   const [saving,        setSaving]        = useState(false)
   const [error,         setError]         = useState<string | null>(null)
@@ -88,6 +98,7 @@ function PolicyModal({ initial, entities, onSave, onClose }: ModalProps) {
         noDuplicateFlag:       noDup,
         noAnomalyFlag:         noAnomaly,
         allFieldsExtracted:    allFields,
+        maxRiskBand:           maxRiskBand || null,
         ...(isEdit ? { isActive } : {}),
       })
     } catch (err: unknown) {
@@ -191,6 +202,30 @@ function PolicyModal({ initial, entities, onSave, onClose }: ModalProps) {
             {tiers.size === 0 && (
               <p className="text-xs mt-1" style={{ color: '#ea580c' }}>
                 No tiers selected — risk tier will not be checked.
+              </p>
+            )}
+          </div>
+
+          {/* Max entity risk band */}
+          <div>
+            <label className="text-xs font-medium block mb-1" style={{ color: 'var(--muted)' }}>
+              Max Entity Risk Band
+            </label>
+            <p className="text-xs mb-2" style={{ color: 'var(--muted)' }}>
+              If set, the policy will not auto-approve invoices from entities whose risk band exceeds this value.
+            </p>
+            <select value={maxRiskBand} onChange={e => setMaxRiskBand(e.target.value as RiskBand | '')}
+              className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+              style={{ border: '1px solid var(--border)', color: 'var(--ink)', background: 'var(--surface)' }}>
+              <option value="">None (no restriction)</option>
+              {(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as RiskBand[]).map(b => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+            {maxRiskBand && (
+              <p className="text-xs mt-1"
+                style={{ color: BAND_COLOR[maxRiskBand].text }}>
+                Only entities with band ≤ {maxRiskBand} will be eligible for auto-approval.
               </p>
             )}
           </div>
@@ -493,6 +528,7 @@ function PolicyCard({ policy, isAdmin, fmtAmt, fmtDate, onEdit, onToggle, onDele
     { label: 'No anomaly flag',            active: policy.noAnomalyFlag },
     { label: 'All fields extracted',       active: policy.allFieldsExtracted },
   ]
+  const bandCol = policy.maxRiskBand ? BAND_COLOR[policy.maxRiskBand] : null
 
   return (
     <div className="rounded-2xl p-5"
@@ -538,6 +574,12 @@ function PolicyCard({ policy, isAdmin, fmtAmt, fmtDate, onEdit, onToggle, onDele
                   style={{ background: '#f8fafc', color: '#94a3b8' }}>Any risk tier</span>
               )
             }
+            {bandCol && policy.maxRiskBand && (
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                style={{ background: bandCol.bg, color: bandCol.text }}>
+                Band ≤ {policy.maxRiskBand}
+              </span>
+            )}
           </div>
 
           {/* Condition checklist */}

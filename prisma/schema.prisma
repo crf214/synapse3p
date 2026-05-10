@@ -1119,6 +1119,7 @@ model Invoice {
   emailMessageId      String?       @unique           // inbound email Message-ID header, for dedup
   pdfFingerprint      String?                        // SHA-256 of raw PDF bytes, for dedup
   rawExtraction       Json          @default("{}")
+  riskBand            RiskBand?
   notes               String?
   createdAt           DateTime      @default(now())
   updatedAt           DateTime      @updatedAt
@@ -1868,6 +1869,8 @@ model AutoApprovePolicy {
   noAnomalyFlag         Boolean    @default(true)
   // Require all extracted fields to have confidence >= org threshold
   allFieldsExtracted    Boolean    @default(false)
+  // If set, the policy will not apply to invoices from entities whose riskBand exceeds this value
+  maxRiskBand           RiskBand?
 
   createdBy             String
   updatedBy             String?

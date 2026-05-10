@@ -20,6 +20,7 @@ const UpdateAutoApprovePolicySchema = z.object({
   noAnomalyFlag:         z.boolean().optional(),
   allFieldsExtracted:    z.boolean().optional(),
   allowedRiskTiers:      z.array(z.string()).optional(),
+  maxRiskBand:           z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).nullable().optional(),
 })
 
 const VALID_TIERS = ['LOW', 'MEDIUM', 'HIGH'] as const
@@ -64,6 +65,8 @@ export async function PUT(req: NextRequest, { params }: Params) {
       }
       data.allowedRiskTiers = body.allowedRiskTiers
     }
+
+    if (body.maxRiskBand !== undefined) data.maxRiskBand = body.maxRiskBand ?? null
 
     await prisma.autoApprovePolicy.update({ where: { id }, data })
     return NextResponse.json({ ok: true })

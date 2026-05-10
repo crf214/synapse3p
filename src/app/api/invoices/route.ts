@@ -11,8 +11,9 @@ const READ_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER'
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT     = 100
 
-const VALID_STATUSES = new Set(['RECEIVED', 'MATCHED', 'UNMATCHED', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'PAID', 'CANCELLED', 'DUPLICATE'])
-const VALID_TIERS    = new Set(['LOW', 'MEDIUM', 'HIGH'])
+const VALID_STATUSES   = new Set(['RECEIVED', 'MATCHED', 'UNMATCHED', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'PAID', 'CANCELLED', 'DUPLICATE'])
+const VALID_TIERS      = new Set(['LOW', 'MEDIUM', 'HIGH'])
+const VALID_RISK_BANDS = new Set(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'])
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const limit     = Math.min(MAX_LIMIT, Math.max(1, parseInt(sp.get('limit') ?? String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT))
     const status    = sanitiseString(sp.get('status') ?? '', 50).trim() || null
     const tier      = sanitiseString(sp.get('tier') ?? '', 20).trim() || null
+    const riskBand  = sanitiseString(sp.get('riskBand') ?? '', 20).trim() || null
     const entityId  = sanitiseString(sp.get('entityId') ?? '', 50).trim() || null
     const source    = sanitiseString(sp.get('source') ?? '', 20).trim() || null
     const dateFrom  = sp.get('dateFrom') || null
@@ -35,6 +37,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
     if (tier && !VALID_TIERS.has(tier)) {
       return NextResponse.json({ error: { message: 'Invalid tier filter', code: 'VALIDATION_ERROR' } }, { status: 400 })
+    }
+    if (riskBand && !VALID_RISK_BANDS.has(riskBand)) {
+      return NextResponse.json({ error: { message: 'Invalid riskBand filter', code: 'VALIDATION_ERROR' } }, { status: 400 })
     }
 
     // Build where clause — exclude DUPLICATE status from main queue (quarantine has its own endpoint)
@@ -55,6 +60,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           some: { tier: tier as never },
         },
       } : {}),
+      // Filter by invoice-level risk band
+      ...(riskBand ? { riskBand: riskBand as never } : {}),
     }
 
     const [total, invoices] = await Promise.all([
@@ -99,6 +106,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       source:          inv.source,
       isRecurring:     inv.isRecurring,
       createdAt:       inv.createdAt,
+      riskBand:        inv.riskBand ?? null,
       riskTier:        inv.riskEvaluations[0]?.tier ?? null,
       riskScore:       inv.riskEvaluations[0]?.overallScore ?? null,
       riskFlags:       inv.riskEvaluations[0]?.flags ?? [],

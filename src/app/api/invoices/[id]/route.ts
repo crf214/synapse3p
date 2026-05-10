@@ -1,4 +1,16 @@
 // src/app/api/invoices/[id]/route.ts — GET single invoice detail + PUT field corrections
+//
+// RiskSignal / RiskEvaluation population status (2.9 audit):
+//   POPULATED by pipeline:  overallScore, tier, amountScore, frequencyScore, vendorScore,
+//                           duplicateScore, toleranceScore, weights, flags, explanation,
+//                           withinTolerance, deviation, deviationPct, effectiveTolerance
+//   ALWAYS NULL / ZERO:     (no fields are always null — all score sub-fields default to 0)
+//   RiskSignal rows:        all 11 RiskSignalType values are written via riskSignal.createMany
+//                           after every pipeline run; signalType, triggered, value, weight,
+//                           detail are all populated. 'value' is null for boolean-only signals.
+//   NOTE: signals are only created when runInvoicePipeline succeeds. Invoices ingested before
+//         the pipeline was deployed (or that failed mid-pipeline) will have riskEvaluations=[].
+//         The review page handles this gracefully (latestRisk = null).
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'

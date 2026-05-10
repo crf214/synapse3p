@@ -48,7 +48,7 @@ interface InvoiceDetail {
   isRecurring:  boolean
   contractId:   string | null
   pdfSignedUrl: string | null
-  entity:       { id: string; name: string; slug: string }
+  entity:       { id: string; name: string; slug: string; status: string; riskBand: string | null; riskBandOverride: string | null }
   contract:     { contractNo: string; status: string; endDate: string | null; type: string } | null
   extractedFields: ExtractedField[]
   riskEvaluations: Array<{
@@ -126,6 +126,37 @@ const SIGNAL_LABELS: Record<string, string> = {
   AMOUNT_OVER_THRESHOLD:  'Over approval threshold',
   FREQUENCY_ANOMALY:      'Frequency anomaly',
   SANCTION_FLAG:          'Sanctions flag',
+}
+
+const RISK_BAND_STYLE: Record<string, { color: string; bg: string; label: string }> = {
+  LOW:      { color: '#16a34a', bg: '#f0fdf4', label: 'LOW' },
+  MEDIUM:   { color: '#d97706', bg: '#fffbeb', label: 'MEDIUM' },
+  HIGH:     { color: '#ea580c', bg: '#fff7ed', label: 'HIGH' },
+  CRITICAL: { color: '#dc2626', bg: '#fef2f2', label: 'CRITICAL' },
+}
+
+function EntityRiskBadge({ entity }: { entity: InvoiceDetail['entity'] }) {
+  if (entity.status === 'PROVISIONAL') {
+    return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full"
+        style={{ background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a' }}>
+        Provisional entity
+      </span>
+    )
+  }
+  if (entity.riskBand) {
+    const style = RISK_BAND_STYLE[entity.riskBand] ?? { color: '#6b7280', bg: '#f9fafb', label: entity.riskBand }
+    return (
+      <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full"
+        style={{ background: style.bg, color: style.color, border: `1px solid ${style.color}22` }}>
+        {style.label}
+        {entity.riskBandOverride && (
+          <span className="text-xs opacity-70" title={`Override: ${entity.riskBandOverride}`}>⚙</span>
+        )}
+      </span>
+    )
+  }
+  return null
 }
 
 function tryParseLineItems(raw: string | null): LineItem[] | null {
@@ -361,6 +392,9 @@ export default function InvoiceReviewPage() {
           <span className="text-sm font-medium" style={{ color: 'var(--ink)' }}>
             Review: {invoice.invoiceNo}
           </span>
+          <span className="text-sm" style={{ color: 'var(--muted)' }}>·</span>
+          <span className="text-sm" style={{ color: 'var(--ink)' }}>{invoice.entity.name}</span>
+          <EntityRiskBadge entity={invoice.entity} />
         </div>
 
         {pdfBlobUrl ? (

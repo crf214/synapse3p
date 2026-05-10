@@ -23,6 +23,7 @@ const CreateAutoApprovePolicySchema = z.object({
   noDuplicateFlag:       z.boolean().optional(),
   noAnomalyFlag:         z.boolean().optional(),
   allFieldsExtracted:    z.boolean().optional(),
+  maxRiskBand:           z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']).optional().nullable(),
 })
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -74,6 +75,7 @@ export async function GET() {
         noDuplicateFlag:       p.noDuplicateFlag,
         noAnomalyFlag:         p.noAnomalyFlag,
         allFieldsExtracted:    p.allFieldsExtracted,
+        maxRiskBand:           p.maxRiskBand ?? null,
         createdAt:             p.createdAt.toISOString(),
         updatedAt:             p.updatedAt.toISOString(),
         creator:               userMap[p.createdBy]  ?? null,
@@ -103,6 +105,7 @@ export async function POST(req: NextRequest) {
       name, entityId, maxAmount, currency,
       requireContractMatch, requireRecurringMatch,
       allowedRiskTiers, noDuplicateFlag, noAnomalyFlag, allFieldsExtracted,
+      maxRiskBand,
     } = parsed.data
 
     const tiers = (allowedRiskTiers ?? []) as string[]
@@ -145,6 +148,7 @@ export async function POST(req: NextRequest) {
         noDuplicateFlag:       noDuplicateFlag  ?? true,
         noAnomalyFlag:         noAnomalyFlag    ?? true,
         allFieldsExtracted:    allFieldsExtracted ?? false,
+        maxRiskBand:           maxRiskBand ?? null,
         createdBy:             session.userId,
         isActive:              true,
       },
