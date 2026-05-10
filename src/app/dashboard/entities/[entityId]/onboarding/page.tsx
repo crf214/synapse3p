@@ -1,6 +1,7 @@
 import Link from 'next/link'
 
-export default function EntityOnboardingPage({ params }: { params: { entityId: string } }) {
+export default async function EntityOnboardingPage({ params }: { params: Promise<{ entityId: string }> }) {
+  const { entityId } = await params
   return (
     <div className="p-8 max-w-2xl">
       <h1 className="text-2xl font-semibold text-gray-900 mb-4">Entity Onboarding</h1>
@@ -11,7 +12,7 @@ export default function EntityOnboardingPage({ params }: { params: { entityId: s
           Legacy onboarding step management is no longer available here.
         </p>
       </div>
-      <Link href={`/dashboard/entities/${params.entityId}`} className="text-sm text-blue-600 hover:underline">
+      <Link href={`/dashboard/entities/${entityId}`} className="text-sm text-blue-600 hover:underline">
         ← Back to Entity
       </Link>
     </div>
