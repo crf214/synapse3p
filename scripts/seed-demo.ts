@@ -13,6 +13,7 @@ import { resolve } from 'path'
 import { prisma } from '@/lib/prisma'
 import { seedInvoiceTemplates } from '@/lib/workflow-engine/templates/invoice-templates'
 import { seedEntityTemplates } from '@/lib/workflow-engine/templates/entity-templates'
+import { seedPOTemplates } from '@/lib/workflow-engine/templates/po-templates'
 
 // ---------------------------------------------------------------------------
 // Load .env.local in development
@@ -646,6 +647,7 @@ async function main() {
   await Promise.all([
     seedInvoiceTemplates(orgId, adminId, prisma),
     seedEntityTemplates(orgId, adminId, prisma),
+    seedPOTemplates(orgId, adminId, prisma),
   ]).catch(err => console.warn('[WorkflowEngine] Failed to seed templates:', err))
 
   console.log('  ✔ Workflow templates seeded (idempotent)')

@@ -243,8 +243,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Fire-and-forget workflow trigger (must not block PO creation)
     void (async () => {
       try {
-        const engine = new WorkflowEngine(prisma)
-        const poData = { purchaseOrder: { id: po.id, status: po.status, entityId: po.entityId, totalAmount: po.totalAmount, currency: po.currency } }
+        const engine    = new WorkflowEngine(prisma)
+        const poEntity  = await prisma.entity.findUnique({
+          where:  { id: po.entityId },
+          select: { status: true, riskBand: true },
+        })
+        const poData = {
+          po: {
+            id:               po.id,
+            status:           po.status,
+            entityId:         po.entityId,
+            totalAmount:      po.totalAmount,
+            currency:         po.currency,
+            hasActiveContract: body.contractId ? true : false,
+          },
+          entity: {
+            status:   poEntity?.status  ?? null,
+            riskBand: poEntity?.riskBand ?? null,
+          },
+        }
         const templateId = await selectTemplate('OBJECT_CREATED', 'PURCHASE_ORDER', poData, session.orgId!, prisma)
         if (templateId) {
           await engine.startWorkflow(templateId, 'PURCHASE_ORDER', po.id, session.orgId!, poData)

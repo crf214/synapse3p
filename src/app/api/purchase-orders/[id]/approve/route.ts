@@ -2,16 +2,19 @@
 // POST — record an approver decision on a PO.
 //
 // decision: APPROVED | REJECTED | CHANGES_REQUESTED
-// CHANGES_REQUESTED maps to POApproval.status = REJECTED but resets PO to DRAFT
-// so the requester can edit and re-submit.
+// CHANGES_REQUESTED resets PO to DRAFT so the requester can edit and re-submit.
+//
+// Phase 3D: wired to workflow engine — finds the active APPROVAL step instance
+// and calls engine.completeStep() to advance the workflow.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
-import { sendPODecisionEmail, sendPOSubmittedEmail } from '@/lib/resend'
+import { sendPODecisionEmail } from '@/lib/resend'
 import { writeAuditEvent } from '@/lib/audit'
+import { WorkflowEngine } from '@/lib/workflow-engine'
 
 const ApprovePurchaseOrderSchema = z.object({
   decision: z.string().min(1),
@@ -50,64 +53,32 @@ export async function POST(
 
     const po = await prisma.purchaseOrder.findFirst({
       where:   { id, orgId: session.orgId },
-      include: {
-        entity:    { select: { id: true, name: true } },
-        approvals: { orderBy: { step: 'asc' } },
-      },
+      include: { entity: { select: { id: true, name: true } } },
     })
     if (!po) throw new NotFoundError('Purchase order not found')
     if (po.status !== 'PENDING_APPROVAL') {
       throw new ValidationError('This PO is not currently pending approval')
     }
 
-    // Find the current pending approval step for this user
-    const pendingApproval = po.approvals.find(
-      a => a.approverId === session.userId && a.status === 'PENDING'
-    )
-    if (!pendingApproval) {
-      throw new ForbiddenError('You are not an approver for this purchase order, or the PO is waiting on a prior step')
-    }
-
-    // Determine the next step (if any)
-    const sortedApprovals  = [...po.approvals].sort((a, b) => a.step - b.step)
-    const currentStepIndex = sortedApprovals.findIndex(a => a.id === pendingApproval.id)
-    const nextApproval     = sortedApprovals[currentStepIndex + 1] ?? null
-
-    const comments    = body.comments?.trim() || null
-    const isApproved  = body.decision === 'APPROVED'
+    const comments     = body.comments?.trim() || null
+    const isApproved   = body.decision === 'APPROVED'
     const isChangesReq = body.decision === 'CHANGES_REQUESTED'
+    const actionLabel  = isApproved ? 'approved' : isChangesReq ? 'returned for changes' : 'rejected'
 
-    const actionLabel = isApproved ? 'approved' : isChangesReq ? 'returned for changes' : 'rejected'
+    // Determine new PO status
+    const newPoStatus = isApproved ? 'APPROVED' : isChangesReq ? 'DRAFT' : 'REJECTED'
 
-    // Atomic: record decision + update PO/approval statuses together.
+    // Atomic: update PO status + audit event
     await prisma.$transaction(async (tx) => {
-      await tx.pOApproval.update({
-        where: { id: pendingApproval.id },
-        data:  {
-          status:    (isApproved ? 'APPROVED' : 'REJECTED') as never,
-          decidedAt: new Date(),
-          comments,
-        },
+      await tx.purchaseOrder.update({
+        where: { id },
+        data:  { status: newPoStatus as never },
       })
-
-      if (isApproved && nextApproval) {
-        // More steps to go — next step is already PENDING, no PO status change needed
-      } else if (isApproved && !nextApproval) {
-        await tx.purchaseOrder.update({ where: { id }, data: { status: 'APPROVED' as never } })
-      } else if (isChangesReq) {
-        await tx.purchaseOrder.update({ where: { id }, data: { status: 'DRAFT' as never } })
-        await tx.pOApproval.updateMany({
-          where: { poId: id, status: 'PENDING' as never },
-          data:  { status: 'CANCELLED' as never },
-        })
-      } else {
-        await tx.purchaseOrder.update({ where: { id }, data: { status: 'REJECTED' as never } })
-        await tx.pOApproval.updateMany({
-          where: { poId: id, status: 'PENDING' as never },
-          data:  { status: 'CANCELLED' as never },
-        })
-      }
-
+      // Cancel any legacy POApproval records still in PENDING
+      await tx.pOApproval.updateMany({
+        where: { poId: id, status: 'PENDING' as never },
+        data:  { status: 'CANCELLED' as never },
+      })
       await writeAuditEvent(tx, {
         actorId:    session.userId!,
         orgId:      session.orgId!,
@@ -117,69 +88,82 @@ export async function POST(
       })
     }, { timeout: 15000 })
 
-    // Audit log — non-critical follow-up write, outside transaction.
+    // Advance workflow engine — find active APPROVAL step instance
+    void (async () => {
+      try {
+        const workflowInstance = await prisma.workflowInstance.findFirst({
+          where: {
+            targetObjectType: 'PURCHASE_ORDER',
+            targetObjectId:   id,
+            orgId:            session.orgId!,
+            status:           { notIn: ['CANCELLED', 'COMPLETED', 'FAILED'] },
+          },
+          orderBy: { createdAt: 'desc' },
+          include: {
+            stepInstances: {
+              include: { stepDefinition: { select: { stepType: true } } },
+              where:   { status: 'IN_PROGRESS' },
+            },
+          },
+        })
+
+        if (workflowInstance) {
+          const approvalStep = workflowInstance.stepInstances.find(
+            si => si.stepDefinition.stepType === 'APPROVAL',
+          )
+          if (approvalStep) {
+            const engine = new WorkflowEngine(prisma)
+            await engine.completeStep(
+              approvalStep.id,
+              isApproved ? 'PASS' : 'FAIL',
+              session.userId!,
+              comments ?? undefined,
+            )
+          }
+        }
+      } catch (err) {
+        console.warn('[WorkflowEngine] Failed to advance PO approval workflow:', err)
+      }
+    })()
+
+    // Activity log — non-critical
     await prisma.entityActivityLog.create({
       data: {
-        entityId:    po.entityId,
-        orgId:       session.orgId!,
+        entityId:     po.entityId,
+        orgId:        session.orgId!,
         activityType: 'STATUS_CHANGE' as never,
-        title:       `PO ${actionLabel}: ${po.poNumber}`,
-        description: comments ?? undefined,
+        title:        `PO ${actionLabel}: ${po.poNumber}`,
+        description:  comments ?? undefined,
         referenceId:   id,
         referenceType: 'PurchaseOrder',
         performedBy:   session.userId,
       },
     }).catch(e => console.error('[po-approve] audit log failed:', e))
 
-    // Notifications (outside transaction)
-    if (isApproved && nextApproval) {
-      // Notify next approver
-      const nextApprover = await prisma.user.findUnique({
-        where:  { id: nextApproval.approverId },
-        select: { id: true, name: true, email: true },
-      })
-      const pref = nextApprover
-        ? await prisma.notificationPreference.findUnique({ where: { userId: nextApprover.id } })
-        : null
-
-      if (nextApprover && (!pref || pref.emailOnInvoiceRouted)) {
-        await sendPOSubmittedEmail({
-          to:           nextApprover.email,
-          assigneeName: nextApprover.name ?? nextApprover.email,
-          poNumber:     po.poNumber,
-          vendorName:   po.entity.name,
-          totalAmount:  po.totalAmount,
-          currency:     po.currency,
-          poId:         id,
-          stepLabel:    `Step ${nextApproval.step}`,
-        }).catch(e => console.error('[po-approve] next approver email failed:', e))
-      }
-    } else {
-      // Notify PO creator
-      const creator = await prisma.user.findUnique({
-        where:  { id: po.requestedBy },
-        select: { id: true, name: true, email: true },
-      })
-      if (creator) {
-        await sendPODecisionEmail({
-          to:          creator.email,
-          creatorName: creator.name ?? creator.email,
-          poNumber:    po.poNumber,
-          vendorName:  po.entity.name,
-          totalAmount: po.totalAmount,
-          currency:    po.currency,
-          poId:        id,
-          decision:    body.decision as 'APPROVED' | 'REJECTED' | 'CHANGES_REQUESTED',
-          comments:    comments ?? undefined,
-        }).catch(e => console.error('[po-approve] creator email failed:', e))
-      }
+    // Notify PO creator
+    const creator = await prisma.user.findUnique({
+      where:  { id: po.requestedBy },
+      select: { id: true, name: true, email: true },
+    })
+    if (creator) {
+      await sendPODecisionEmail({
+        to:          creator.email,
+        creatorName: creator.name ?? creator.email,
+        poNumber:    po.poNumber,
+        vendorName:  po.entity.name,
+        totalAmount: po.totalAmount,
+        currency:    po.currency,
+        poId:        id,
+        decision:    body.decision as 'APPROVED' | 'REJECTED' | 'CHANGES_REQUESTED',
+        comments:    comments ?? undefined,
+      }).catch(e => console.error('[po-approve] creator email failed:', e))
     }
 
     const updated = await prisma.purchaseOrder.findUnique({
       where:   { id },
       include: {
-        lineItems:   { orderBy: { lineNo: 'asc' } },
-        approvals:   { orderBy: { step: 'asc' } },
+        lineItems: { orderBy: { lineNo: 'asc' } },
+        approvals: { orderBy: { step: 'asc' } },
       },
     })
 

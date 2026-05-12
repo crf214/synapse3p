@@ -8,6 +8,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { apiClient } from '@/lib/api-client'
+import { WorkflowPanel, WorkflowState } from '@/components/shared/WorkflowPanel'
 
 const ALLOWED_ROLES   = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const APPROVER_ROLES  = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -79,13 +80,6 @@ const STATUS_STYLES: Record<string, { bg: string; color: string; label: string }
   CANCELLED:          { bg: '#f9fafb', color: '#6b7280', label: 'Cancelled'        },
 }
 
-const APPROVAL_STYLES: Record<string, { color: string; icon: string }> = {
-  PENDING:   { color: '#d97706', icon: '○' },
-  APPROVED:  { color: '#16a34a', icon: '✓' },
-  REJECTED:  { color: '#dc2626', icon: '✕' },
-  DELEGATED: { color: '#6b7280', icon: '→' },
-  CANCELLED: { color: '#9ca3af', icon: '—' },
-}
 
 function fmt(amount: number, currency: string) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount)
@@ -96,13 +90,13 @@ function fmt(amount: number, currency: string) {
 // ---------------------------------------------------------------------------
 
 export default function PODetailPage() {
-  const { role, id: userId } = useUser()
+  const { role } = useUser()
   const params   = useParams()
   const router   = useRouter()
   const poId     = params.id as string
   const qc       = useQueryClient()
 
-  const [tab,     setTab]     = useState<'overview' | 'amendments' | 'receipts'>('overview')
+  const [tab, setTab] = useState<'overview' | 'amendments' | 'receipts'>('overview')
 
   // Approval action state
   const [decision,  setDecision]  = useState<'APPROVED' | 'REJECTED' | 'CHANGES_REQUESTED'>('APPROVED')
@@ -114,7 +108,8 @@ export default function PODetailPage() {
   const [submitting,   setSubmitting]   = useState(false)
   const [submitError,  setSubmitError]  = useState<string | null>(null)
 
-  const queryKey = queryKeys.purchaseOrders.detail(poId)
+  const queryKey     = queryKeys.purchaseOrders.detail(poId)
+  const wfQueryKey   = queryKeys.purchaseOrders.workflow(poId)
 
   const { data: po, isLoading, isError, error } = useQuery({
     queryKey,
@@ -123,6 +118,16 @@ export default function PODetailPage() {
       const json = await res.json() as { purchaseOrder: PODetail; error?: { message: string } }
       if (!res.ok) throw new Error(json.error?.message ?? 'Failed to load')
       return json.purchaseOrder
+    },
+  })
+
+  const { data: workflowData } = useQuery({
+    queryKey: wfQueryKey,
+    queryFn:  async () => {
+      const res  = await fetch(`/api/purchase-orders/${poId}/workflow`)
+      const json = await res.json() as { workflow: WorkflowState | null }
+      if (!res.ok) return null
+      return json.workflow
     },
   })
 
@@ -135,10 +140,8 @@ export default function PODetailPage() {
 
   const statusStyle = STATUS_STYLES[po.status] ?? STATUS_STYLES.DRAFT
 
-  // Is this user the current pending approver?
-  const myPendingApproval = APPROVER_ROLES.has(role)
-    ? po.approvals.find(a => a.approver?.id === userId && a.status === 'PENDING')
-    : null
+  // Approver can act when PO is PENDING_APPROVAL and they hold an approver role
+  const canApprove = APPROVER_ROLES.has(role) && po.status === 'PENDING_APPROVAL'
 
   const spentPct = po.totalAmount > 0 ? Math.min(100, (po.amountSpent / po.totalAmount) * 100) : 0
 
@@ -154,7 +157,7 @@ export default function PODetailPage() {
   }
 
   async function submitApprovalDecision() {
-    if (!myPendingApproval) return
+    if (!canApprove) return
     setApproving(true); setApproveError(null)
     try {
       const res  = await apiClient(`/api/purchase-orders/${poId}/approve`, {
@@ -442,47 +445,8 @@ export default function PODetailPage() {
       <div className="w-80 flex-shrink-0 border-l overflow-y-auto" style={{ borderColor: 'var(--border)' }}>
         <div className="p-5 space-y-6">
 
-          {/* Approval timeline */}
-          <section>
-            <h2 className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--muted)' }}>
-              Approval Steps
-            </h2>
-            {po.approvals.length === 0 ? (
-              <p className="text-xs" style={{ color: 'var(--muted)' }}>No approval steps assigned.</p>
-            ) : (
-              <div className="space-y-3">
-                {po.approvals.map(a => {
-                  const s = APPROVAL_STYLES[a.status] ?? APPROVAL_STYLES.PENDING
-                  return (
-                    <div key={a.id} className="flex gap-3">
-                      <div className="flex flex-col items-center">
-                        <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                          style={{ background: `${s.color}18`, color: s.color }}>
-                          {s.icon}
-                        </div>
-                      </div>
-                      <div className="flex-1 min-w-0 pb-3">
-                        <div className="text-xs font-medium" style={{ color: 'var(--ink)' }}>
-                          Step {a.step} — {a.approver?.name ?? a.approver?.email ?? 'Unassigned'}
-                        </div>
-                        <div className="text-xs" style={{ color: s.color }}>{a.status}</div>
-                        {a.decidedAt && (
-                          <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
-                            {new Date(a.decidedAt).toLocaleDateString()}
-                          </div>
-                        )}
-                        {a.comments && (
-                          <div className="text-xs mt-1 italic" style={{ color: 'var(--muted)' }}>
-                            &quot;{a.comments}&quot;
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </section>
+          {/* Workflow panel */}
+          <WorkflowPanel workflow={workflowData ?? null} />
 
           {/* Vendor context */}
           <section>
@@ -554,7 +518,7 @@ export default function PODetailPage() {
           </section>
 
           {/* Approver action panel */}
-          {myPendingApproval && (
+          {canApprove && (
             <section className="p-4 rounded-xl border-2" style={{ borderColor: '#2563eb22', background: '#eff6ff' }}>
               <h2 className="text-sm font-semibold mb-3" style={{ color: '#1e40af' }}>Your Decision</h2>
 

@@ -1,22 +1,14 @@
 // src/app/api/purchase-orders/[id]/submit/route.ts
 // POST — submit a DRAFT PO for approval.
 //
-// Flow:
-//   1. Validate PO is DRAFT and has line items
-//   2. Find first active CONTROLLER or CFO in the org to assign approval
-//   3. Create POApproval record
-//   4. Set PO status = PENDING_APPROVAL
-//   5. Notify approver via Resend (respects NotificationPreference)
-//   6. Log EntityActivityLog
-//
-// Note: legacy ApprovalWorkflow lookup removed in Phase 3A.
-//       Workflow routing is now handled by the unified workflow engine.
+// Changes PO status to PENDING_APPROVAL.
+// Approval routing is handled by the workflow engine (started on PO creation).
+// Legacy hardcoded POApproval record creation has been removed in Phase 3D.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
-import { sendPOSubmittedEmail } from '@/lib/resend'
 import { writeAuditEvent } from '@/lib/audit'
 
 const SUBMIT_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -43,31 +35,8 @@ export async function POST(
     if (po.status !== 'DRAFT') throw new ValidationError('Only DRAFT purchase orders can be submitted for approval')
     if (po.lineItems.length === 0) throw new ValidationError('Cannot submit a PO with no line items')
 
-    // Find first CONTROLLER or CFO in org as approver
-    const fallbackMember = await prisma.orgMember.findFirst({
-      where:   { orgId: session.orgId, role: { in: ['CONTROLLER', 'CFO'] as never[] }, status: 'active' },
-      include: { user: { select: { id: true } } },
-      orderBy: { createdAt: 'asc' },
-    })
-
-    if (!fallbackMember) {
-      throw new ValidationError(
-        'No approval workflow found for this PO and no CONTROLLER or CFO exists in the organisation. ' +
-        'Please ensure at least one user holds the CONTROLLER or CFO role.',
-      )
-    }
-
-    const approvalData = {
-      poId:       id,
-      workflowId: null as string | null,
-      step:       1,
-      approverId: fallbackMember.userId,
-      status:     'PENDING',
-    }
-
-    // Atomic: create approval record + advance PO status
+    // Advance PO status to PENDING_APPROVAL
     await prisma.$transaction(async (tx) => {
-      await tx.pOApproval.create({ data: approvalData as never })
       await tx.purchaseOrder.update({
         where: { id },
         data:  { status: 'PENDING_APPROVAL' as never },
@@ -94,28 +63,6 @@ export async function POST(
         performedBy:   session.userId,
       },
     }).catch(e => console.error('[po-submit] audit log failed:', e))
-
-    // Notify approver (outside transaction)
-    const approver = await prisma.user.findUnique({
-      where:  { id: fallbackMember.userId },
-      select: { id: true, name: true, email: true },
-    })
-    const pref = approver
-      ? await prisma.notificationPreference.findUnique({ where: { userId: approver.id } })
-      : null
-
-    if (approver && (!pref || pref.emailOnInvoiceRouted)) {
-      await sendPOSubmittedEmail({
-        to:           approver.email,
-        assigneeName: approver.name ?? approver.email,
-        poNumber:     po.poNumber,
-        vendorName:   po.entity.name,
-        totalAmount:  po.totalAmount,
-        currency:     po.currency,
-        poId:         id,
-        stepLabel:    'Approval',
-      }).catch(e => console.error('[po-submit] email failed:', e))
-    }
 
     const updated = await prisma.purchaseOrder.findUnique({
       where:   { id },

@@ -20,8 +20,9 @@ export const queryKeys = {
   },
 
   purchaseOrders: {
-    all:    ['purchase-orders']                                     as const,
-    detail: (id: string) => ['purchase-orders', id]                as const,
+    all:      ['purchase-orders']                                        as const,
+    detail:   (id: string) => ['purchase-orders', id]                   as const,
+    workflow: (id: string) => ['purchase-orders', id, 'workflow']        as const,
   },
 
   payments: {

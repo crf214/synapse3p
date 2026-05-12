@@ -36,6 +36,21 @@ export async function handleAutoRuleStep(
         }
       }
     }
+
+    if (sideEffect.action === 'SET_PO_STATUS') {
+      const objectId = (context.targetObjectId as string | undefined) ?? ''
+      if (objectId) {
+        try {
+          await prisma.purchaseOrder.update({
+            where: { id: objectId },
+            data:  { status: sideEffect.value as never },
+          })
+          console.log(`[AutoRule:SET_PO_STATUS] PurchaseOrder ${objectId} → ${sideEffect.value}`)
+        } catch (err) {
+          console.error('[AutoRule:SET_PO_STATUS] Failed to update PO status:', err)
+        }
+      }
+    }
   }
 
   return {
