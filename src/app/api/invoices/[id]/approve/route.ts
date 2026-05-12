@@ -10,6 +10,7 @@ import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, Valid
 import { sanitiseString } from '@/lib/security/sanitise'
 import { sendInvoiceAssignedEmail } from '@/lib/resend'
 import { writeAuditEvent } from '@/lib/audit'
+import { WorkflowEngine } from '@/lib/workflow-engine'
 
 const RouteInvoiceSchema = z.object({
   assignedTo: z.string().min(1),
@@ -275,6 +276,51 @@ export async function PATCH(
         objectId:   invoice.id,
       })
     }, { timeout: 15000 })
+
+    // --- Workflow engine integration ---
+    // If there is an active WorkflowInstance for this invoice with an IN_PROGRESS
+    // APPROVAL step assigned to the current user, complete it via the engine.
+    // This runs after the legacy approval path so backward compat is maintained.
+    try {
+      const activeInstance = await prisma.workflowInstance.findFirst({
+        where: {
+          targetObjectType: 'INVOICE',
+          targetObjectId:   id,
+          orgId:            session.orgId,
+          status:           'IN_PROGRESS',
+        },
+        include: {
+          stepInstances: {
+            where:   { status: { in: ['IN_PROGRESS', 'PENDING'] } },
+            include: { stepDefinition: { select: { stepType: true } } },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+
+      if (activeInstance) {
+        const approvalStep = activeInstance.stepInstances.find(
+          si => si.stepDefinition.stepType === 'APPROVAL' &&
+                (si.status === 'IN_PROGRESS' || si.status === 'PENDING') &&
+                (si.assignedTo === session.userId || si.assignedTo === null),
+        )
+
+        if (approvalStep) {
+          const engineResult: 'PASS' | 'FAIL' =
+            body.decision === 'APPROVED' ? 'PASS' : 'FAIL'
+          const engine = new WorkflowEngine(prisma)
+          await engine.completeStep(
+            approvalStep.id,
+            engineResult,
+            session.userId!,
+            body.notes,
+          )
+        }
+      }
+    } catch (engineErr) {
+      // Non-fatal — log and continue; legacy approval path already succeeded
+      console.warn('[approve/PATCH] WorkflowEngine.completeStep failed:', engineErr)
+    }
 
     return NextResponse.json({ ok: true })
   } catch (err) {

@@ -15,6 +15,7 @@ export const queryKeys = {
     disputes:         (id: string)                 => ['invoices', id, 'disputes']    as const,
     quarantine:       (p: Record<string, unknown>) => ['invoices', 'quarantine', p]   as const,
     eligibleForMerge: ['invoices', 'eligible-for-merge']                              as const,
+    workflow:         (id: string) => ['invoices', id, 'workflow']                    as const,
   },
 
   purchaseOrders: {
