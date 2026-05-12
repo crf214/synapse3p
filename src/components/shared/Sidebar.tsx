@@ -143,6 +143,14 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
     ],
   },
   {
+    label: 'Users & Access',
+    icon:  '◐',
+    roles: ['ADMIN'],
+    children: [
+      { href: '/dashboard/settings/users', label: 'Users', icon: '◐', roles: ['ADMIN'] },
+    ],
+  },
+  {
     label: 'Other Settings',
     icon:  '⚙',
     roles: ['ADMIN', 'CFO', 'CONTROLLER', 'FINANCE_MANAGER', 'FINANCE_MANAGER'],

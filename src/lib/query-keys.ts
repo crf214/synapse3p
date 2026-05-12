@@ -53,6 +53,7 @@ export const queryKeys = {
 
   users: {
     approvers: (roles: string[]) => ['users', 'approvers', roles] as const,
+    adminList: ['users', 'admin-list']                             as const,
   },
 
   portal: {

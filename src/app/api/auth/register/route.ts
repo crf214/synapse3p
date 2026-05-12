@@ -39,20 +39,42 @@ export async function POST(req: NextRequest) {
     const emailVerifyToken = randomBytes(32).toString('hex')
 
     const user = await prisma.$transaction(async (tx) => {
+      const roleToAssign = invite.role ?? 'AP_CLERK'
+
       const created = await tx.user.create({
-        data: { email, name: name ?? null, passwordHash, emailVerified: false, emailVerifyToken },
+        data: {
+          email,
+          name:             name ?? null,
+          passwordHash,
+          emailVerified:    false,
+          emailVerifyToken,
+          orgId:            invite.orgId,
+          role:             roleToAssign as never,
+        },
       })
+
+      // Create org membership
+      await tx.orgMember.create({
+        data: {
+          orgId:  invite.orgId,
+          userId: created.id,
+          role:   roleToAssign as never,
+          status: 'active',
+        },
+      })
+
       await tx.inviteToken.update({
         where: { token: inviteToken },
         data: { usedAt: new Date() },
       })
+
       await writeAuditEvent(tx, {
         actorId:    created.id,
-        orgId:      '',
+        orgId:      invite.orgId,
         action:     'CREATE',
         objectType: 'USER',
         objectId:   created.id,
-        after:      { inviteTokenUsed: true, emailVerificationSent: true },
+        after:      { inviteTokenUsed: true, emailVerificationSent: true, role: roleToAssign },
       })
       return created
     })

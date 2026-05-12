@@ -30,13 +30,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Please verify your email before logging in.' }, { status: 403 })
     }
 
+    if (!user.isActive) {
+      return NextResponse.json({ error: 'Your account has been deactivated. Contact your administrator.' }, { status: 403 })
+    }
+
     const session = await getSession()
-    session.userId = user.id
-    session.email = user.email
-    session.name = user.name
-    session.orgId = user.orgId ?? undefined
-    session.role = user.role ?? undefined
+    session.userId   = user.id
+    session.email    = user.email
+    session.name     = user.name
+    session.orgId    = user.orgId ?? undefined
+    session.role     = user.role ?? undefined
+    session.issuedAt = Date.now()
     await session.save()
+
+    // Track last login (fire-and-forget)
+    void prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }).catch(console.error)
 
     await writeAuditEvent(prisma, {
       actorId:    user.id,

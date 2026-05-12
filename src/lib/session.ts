@@ -13,6 +13,7 @@ export interface SessionData {
   avatar?: string | null
   orgId?: string
   role?: string
+  issuedAt?: number   // Unix ms — used to detect stale sessions after role changes
 }
 
 export async function getSession(): Promise<IronSession<SessionData>> {
