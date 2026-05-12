@@ -5,6 +5,7 @@ const CRON_IDS = {
   recurringInvoices:  'cron:recurring-invoices',
   fxRates:            'cron:fx-rates',
   reviewCadenceCheck: 'cron:review-cadence-check',
+  contractExpiry:     'cron:contract-expiry',
 } as const
 
 async function checkStorage(): Promise<'ok' | 'error'> {
@@ -46,11 +47,12 @@ export async function GET() {
   }
 
   // ── Storage check (runs in parallel with cron queries) ────────────────────
-  const [storage, recurringInvoices, fxRates, reviewCadenceCheck] = await Promise.all([
+  const [storage, recurringInvoices, fxRates, reviewCadenceCheck, contractExpiry] = await Promise.all([
     checkStorage(),
     getLastCronRun(CRON_IDS.recurringInvoices),
     getLastCronRun(CRON_IDS.fxRates),
     getLastCronRun(CRON_IDS.reviewCadenceCheck),
+    getLastCronRun(CRON_IDS.contractExpiry),
   ])
 
   const cronSecret = Boolean(process.env.CRON_SECRET)
@@ -69,6 +71,7 @@ export async function GET() {
       recurringInvoices,
       fxRates,
       reviewCadenceCheck,
+      contractExpiry,
     },
     timestamp: new Date().toISOString(),
   })

@@ -132,10 +132,12 @@ export default function ContractDetailPage() {
   if (loading) return <div className="p-8 text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
   if (isError || !contract) return <div className="p-8 text-sm" style={{ color: '#dc2626' }}>Contract not found.</div>
 
-  const col       = STATUS_COLOR[contract.status]
-  const days      = daysUntil(contract.endDate)
-  const expSoon   = days !== null && days >= 0 && days <= 30
-  const canWrite  = WRITE_ROLES.has(user.role ?? '')
+  const col        = STATUS_COLOR[contract.status]
+  const days       = daysUntil(contract.endDate)
+  const renewDays  = daysUntil(contract.renewalDate)
+  const isCritical = days !== null && days >= 0 && days <= 14
+  const expSoon    = days !== null && days >= 0 && days <= 90
+  const canWrite   = WRITE_ROLES.has(user.role ?? '')
 
   const inputStyle = { border: '1px solid var(--border)', color: 'var(--ink)', background: 'var(--surface)', outline: 'none' }
 
@@ -147,6 +149,39 @@ export default function ContractDetailPage() {
         <span>/</span>
         <span style={{ color: 'var(--ink)' }}>{contract.contractNo}</span>
       </div>
+
+      {/* Expiry banners */}
+      {expSoon && days !== null && (
+        <div className="mb-5 px-5 py-4 rounded-2xl flex items-start gap-3"
+          style={{
+            background: isCritical ? '#fef2f2' : '#fff7ed',
+            border:     isCritical ? '1px solid #fca5a5' : '1px solid #fed7aa',
+          }}>
+          <span style={{ fontSize: 18 }}>{isCritical ? '🔴' : '🟡'}</span>
+          <div>
+            <div className="text-sm font-semibold" style={{ color: isCritical ? '#dc2626' : '#d97706' }}>
+              {isCritical
+                ? `This contract expires in ${days} day${days !== 1 ? 's' : ''} — action required`
+                : `This contract expires in ${days} day${days !== 1 ? 's' : ''}`}
+            </div>
+            {contract.autoRenew && (
+              <div className="text-xs mt-0.5" style={{ color: isCritical ? '#b91c1c' : '#92400e' }}>
+                Auto-renew is enabled
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {renewDays !== null && renewDays >= 0 && renewDays <= 30 && (
+        <div className="mb-5 px-5 py-4 rounded-2xl flex items-start gap-3"
+          style={{ background: '#fdf4ff', border: '1px solid #e9d5ff' }}>
+          <span style={{ fontSize: 18 }}>🔔</span>
+          <div className="text-sm font-semibold" style={{ color: '#7c3aed' }}>
+            Renewal deadline in {renewDays} day{renewDays !== 1 ? 's' : ''}
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-start justify-between mb-6 gap-4">
@@ -370,19 +405,6 @@ export default function ContractDetailPage() {
                 style={{ background: '#f1f5f9', color: '#64748b' }}>
                 {contract.linkedPo.status}
               </div>
-            </div>
-          )}
-
-          {/* Expiry alert */}
-          {expSoon && days !== null && (
-            <div className="rounded-2xl p-4" style={{ background: '#fff7ed', border: '1px solid #fed7aa' }}>
-              <h3 className="text-xs font-semibold mb-1" style={{ color: '#ea580c' }}>Expiring Soon</h3>
-              <p className="text-xs" style={{ color: '#ea580c' }}>
-                {days === 0 ? 'Expires today' : `Expires in ${days} day${days !== 1 ? 's' : ''}`}
-              </p>
-              {contract.autoRenew && (
-                <p className="text-xs mt-1" style={{ color: '#92400e' }}>Auto-renew is enabled</p>
-              )}
             </div>
           )}
 

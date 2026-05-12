@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useUser } from '@/context/UserContext'
@@ -9,12 +9,14 @@ const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLL
 const WRITE_ROLES   = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL'])
 
 type ContractStatus = 'DRAFT' | 'ACTIVE' | 'EXPIRED' | 'TERMINATED' | 'UNDER_REVIEW' | 'RENEWED'
-type ContractType   = 'MASTER' | 'SOW' | 'AMENDMENT' | 'NDA' | 'SLA' | 'FRAMEWORK' | 'OTHER'
+
+// Computed expiry status (separate from contract's DB status)
+type ExpiryStatus = 'CRITICAL' | 'EXPIRING_SOON' | 'ACTIVE' | 'EXPIRED' | 'OTHER'
 
 interface ContractRow {
   id:               string
   contractNo:       string
-  type:             ContractType
+  type:             string
   status:           ContractStatus
   value:            number | null
   currency:         string
@@ -37,6 +39,22 @@ const STATUS_COLOR: Record<ContractStatus, { bg: string; text: string }> = {
   RENEWED:      { bg: '#eff6ff', text: '#2563eb' },
 }
 
+const EXPIRY_BADGE: Record<ExpiryStatus, { label: string; bg: string; color: string } | null> = {
+  CRITICAL:      { label: 'Critical',      bg: '#fef2f2', color: '#dc2626' },
+  EXPIRING_SOON: { label: 'Expiring Soon', bg: '#fff7ed', color: '#d97706' },
+  ACTIVE:        null,
+  EXPIRED:       { label: 'Expired',       bg: '#f8fafc', color: '#94a3b8' },
+  OTHER:         null,
+}
+
+const EXPIRY_SORT_ORDER: Record<ExpiryStatus, number> = {
+  CRITICAL:      0,
+  EXPIRING_SOON: 1,
+  ACTIVE:        2,
+  EXPIRED:       3,
+  OTHER:         4,
+}
+
 function fmtDate(iso: string | null) {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -52,23 +70,35 @@ function daysUntil(iso: string | null): number | null {
   return Math.ceil((new Date(iso).getTime() - Date.now()) / 86400000)
 }
 
+function computeExpiryStatus(row: ContractRow): ExpiryStatus {
+  if (row.status === 'EXPIRED' || row.status === 'TERMINATED') return 'EXPIRED'
+  const days = daysUntil(row.endDate)
+  if (days === null) return row.status === 'ACTIVE' || row.status === 'UNDER_REVIEW' ? 'ACTIVE' : 'OTHER'
+  if (days < 0)   return 'EXPIRED'
+  if (days <= 14) return 'CRITICAL'
+  if (days <= 30) return 'EXPIRING_SOON'
+  if (row.status === 'ACTIVE' || row.status === 'UNDER_REVIEW') return 'ACTIVE'
+  return 'OTHER'
+}
+
 export default function ContractsPage() {
   const user   = useUser()
   const router = useRouter()
 
-  const [rows,    setRows]    = useState<ContractRow[]>([])
-  const [total,   setTotal]   = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
-  const [status,  setStatus]  = useState('')
-  const [q,       setQ]       = useState('')
+  const [rows,         setRows]         = useState<ContractRow[]>([])
+  const [total,        setTotal]        = useState(0)
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState<string | null>(null)
+  const [statusFilter, setStatusFilter] = useState('')
+  const [expiryFilter, setExpiryFilter] = useState<'' | ExpiryStatus>('')
+  const [q,            setQ]            = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     const params = new URLSearchParams()
-    if (status) params.set('status', status)
-    if (q)      params.set('q',      q)
+    if (statusFilter) params.set('status', statusFilter)
+    if (q)            params.set('q',      q)
     try {
       const res = await fetch(`/api/contracts?${params}`)
       if (!res.ok) throw new Error()
@@ -80,13 +110,26 @@ export default function ContractsPage() {
     } finally {
       setLoading(false)
     }
-  }, [status, q])
+  }, [statusFilter, q])
 
   useEffect(() => { load() }, [load])
 
   if (!ALLOWED_ROLES.has(user.role ?? '')) {
     return <div className="p-8"><p style={{ color: 'var(--muted)' }}>Access denied.</p></div>
   }
+
+  // Apply client-side expiry filter + sort
+  const filtered = useMemo(() => {
+    const withExpiry = rows.map(r => ({ ...r, expiryStatus: computeExpiryStatus(r) }))
+
+    const afterFilter = expiryFilter
+      ? withExpiry.filter(r => r.expiryStatus === expiryFilter)
+      : withExpiry
+
+    return [...afterFilter].sort((a, b) =>
+      EXPIRY_SORT_ORDER[a.expiryStatus] - EXPIRY_SORT_ORDER[b.expiryStatus]
+    )
+  }, [rows, expiryFilter])
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -117,14 +160,25 @@ export default function ContractsPage() {
           style={{ border: '1px solid var(--border)', color: 'var(--ink)', background: 'var(--surface)' }}
         />
         <select
-          value={status}
-          onChange={e => setStatus(e.target.value)}
+          value={statusFilter}
+          onChange={e => setStatusFilter(e.target.value)}
           className="px-3 py-2 rounded-xl text-sm"
           style={{ border: '1px solid var(--border)', color: 'var(--ink)', background: 'var(--surface)' }}>
           <option value="">All statuses</option>
           {['DRAFT','ACTIVE','UNDER_REVIEW','RENEWED','EXPIRED','TERMINATED'].map(s => (
             <option key={s} value={s}>{s.replace('_',' ')}</option>
           ))}
+        </select>
+        <select
+          value={expiryFilter}
+          onChange={e => setExpiryFilter(e.target.value as '' | ExpiryStatus)}
+          className="px-3 py-2 rounded-xl text-sm"
+          style={{ border: '1px solid var(--border)', color: 'var(--ink)', background: 'var(--surface)' }}>
+          <option value="">All expiry</option>
+          <option value="CRITICAL">Critical (≤14 days)</option>
+          <option value="EXPIRING_SOON">Expiring Soon (≤30 days)</option>
+          <option value="ACTIVE">Active</option>
+          <option value="EXPIRED">Expired</option>
         </select>
       </div>
 
@@ -137,10 +191,10 @@ export default function ContractsPage() {
       {/* Table */}
       {loading ? (
         <div className="text-sm" style={{ color: 'var(--muted)' }}>Loading…</div>
-      ) : rows.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <div className="text-center py-20" style={{ color: 'var(--muted)' }}>
           <p className="text-lg font-medium mb-1">No contracts found</p>
-          {WRITE_ROLES.has(user.role ?? '') && (
+          {WRITE_ROLES.has(user.role ?? '') && rows.length === 0 && (
             <Link href="/dashboard/contracts/new" className="text-sm" style={{ color: '#2563eb' }}>
               Create the first contract →
             </Link>
@@ -151,23 +205,26 @@ export default function ContractsPage() {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-                {['Contract No', 'Entity', 'Type', 'Status', 'Value', 'Start', 'End / Renewal', 'Owner'].map(h => (
+                {['Contract No', 'Entity', 'Type', 'Status', 'Expiry', 'Value', 'End / Renewal', 'Owner'].map(h => (
                   <th key={h} className="text-left px-4 py-3 font-medium text-xs uppercase tracking-wide"
                     style={{ color: 'var(--muted)' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => {
-                const col  = STATUS_COLOR[r.status]
-                const days = daysUntil(r.endDate)
-                const expiringSoon = days !== null && days >= 0 && days <= 30
+              {filtered.map((r, i) => {
+                const col        = STATUS_COLOR[r.status]
+                const expiryBadge = EXPIRY_BADGE[r.expiryStatus]
+                const days       = daysUntil(r.endDate)
+                const renewDays  = daysUntil(r.renewalDate)
+                const endWarning = days !== null && days >= 0 && days <= 30
+                const renewWarn  = renewDays !== null && renewDays >= 0 && renewDays <= 30
 
                 return (
                   <tr key={r.id}
                     onClick={() => router.push(`/dashboard/contracts/${r.id}`)}
                     className="cursor-pointer transition-colors hover:bg-blue-50"
-                    style={{ borderBottom: i < rows.length - 1 ? '1px solid var(--border)' : undefined }}>
+                    style={{ borderBottom: i < filtered.length - 1 ? '1px solid var(--border)' : undefined }}>
                     <td className="px-4 py-3 font-mono text-xs" style={{ color: 'var(--ink)' }}>
                       {r.contractNo}
                     </td>
@@ -185,19 +242,33 @@ export default function ContractsPage() {
                         {r.status.replace('_', ' ')}
                       </span>
                     </td>
+                    <td className="px-4 py-3">
+                      {expiryBadge ? (
+                        <span className="px-2 py-0.5 rounded-full text-xs font-medium"
+                          style={{ background: expiryBadge.bg, color: expiryBadge.color }}>
+                          {expiryBadge.label}
+                          {days !== null && days >= 0 && days <= 90 && ` · ${days}d`}
+                        </span>
+                      ) : (
+                        <span className="text-xs" style={{ color: 'var(--muted)' }}>—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-xs" style={{ color: 'var(--ink)' }}>
                       {fmtAmt(r.value, r.currency)}
                     </td>
-                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted)' }}>
-                      {fmtDate(r.startDate)}
-                    </td>
                     <td className="px-4 py-3 text-xs">
-                      <span style={{ color: expiringSoon ? '#ea580c' : 'var(--muted)' }}>
+                      <span style={{ color: endWarning ? '#ea580c' : 'var(--muted)' }}>
                         {fmtDate(r.endDate)}
-                        {expiringSoon && days !== null && (
+                        {endWarning && days !== null && (
                           <span className="ml-1 text-xs">({days}d)</span>
                         )}
                       </span>
+                      {renewWarn && renewDays !== null && (
+                        <span className="ml-2 text-xs px-1.5 py-0.5 rounded-full"
+                          style={{ background: '#fdf4ff', color: '#9333ea' }}>
+                          renewal {renewDays}d
+                        </span>
+                      )}
                       {r.autoRenew && (
                         <span className="ml-2 text-xs px-1.5 py-0.5 rounded-full"
                           style={{ background: '#eff6ff', color: '#2563eb' }}>auto</span>
