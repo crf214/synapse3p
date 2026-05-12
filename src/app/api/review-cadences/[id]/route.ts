@@ -6,6 +6,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { writeAuditEvent } from '@/lib/audit'
 
 const UpdateReviewCadenceSchema = z.object({
   name:               z.string().optional(),
@@ -57,6 +58,14 @@ export async function PUT(req: NextRequest, { params }: Params) {
       },
     })
 
+    void writeAuditEvent(prisma, {
+      actorId:    session.userId,
+      orgId:      session.orgId!,
+      action:     'UPDATE',
+      objectType: 'REVIEW_CADENCE',
+      objectId:   id,
+    })
+
     return NextResponse.json(updated)
   } catch (err) {
     return handleApiError(err, "")
@@ -74,6 +83,15 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     if (!cadence || cadence.orgId !== session.orgId) throw new NotFoundError("Not found")
 
     await prisma.reviewCadence.delete({ where: { id } })
+
+    void writeAuditEvent(prisma, {
+      actorId:    session.userId,
+      orgId:      session.orgId!,
+      action:     'DELETE',
+      objectType: 'REVIEW_CADENCE',
+      objectId:   id,
+    })
+
     return NextResponse.json({ ok: true })
   } catch (err) {
     return handleApiError(err, "")

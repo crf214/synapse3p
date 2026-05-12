@@ -7,6 +7,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { writeAuditEvent } from '@/lib/audit'
 
 const UpdateServiceCatalogueSchema = z.object({
   name:        z.string().optional(),
@@ -54,6 +55,15 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
     }
 
     const entry = await prisma.serviceCatalogue.update({ where: { id }, data: updates })
+
+    void writeAuditEvent(prisma, {
+      actorId:    session.userId,
+      orgId:      session.orgId ?? '',
+      action:     'UPDATE',
+      objectType: 'SERVICE_CATALOGUE',
+      objectId:   id,
+    })
+
     return NextResponse.json({ entry })
   } catch (err) {
     return handleApiError(err, 'PUT /api/service-catalogue/[id]')
@@ -75,10 +85,24 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
 
     if (existing._count.engagements > 0 || existing._count.children > 0) {
       await prisma.serviceCatalogue.update({ where: { id }, data: { isActive: false } })
+      void writeAuditEvent(prisma, {
+        actorId:    session.userId,
+        orgId:      session.orgId ?? '',
+        action:     'UPDATE',
+        objectType: 'SERVICE_CATALOGUE',
+        objectId:   id,
+      })
       return NextResponse.json({ deactivated: true, reason: 'Entry has children or engagements and was deactivated instead' })
     }
 
     await prisma.serviceCatalogue.delete({ where: { id } })
+    void writeAuditEvent(prisma, {
+      actorId:    session.userId,
+      orgId:      session.orgId ?? '',
+      action:     'DELETE',
+      objectType: 'SERVICE_CATALOGUE',
+      objectId:   id,
+    })
     return NextResponse.json({ deleted: true })
   } catch (err) {
     return handleApiError(err, 'DELETE /api/service-catalogue/[id]')

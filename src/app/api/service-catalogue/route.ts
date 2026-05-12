@@ -7,6 +7,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { writeAuditEvent } from '@/lib/audit'
 
 const CreateServiceCatalogueSchema = z.object({
   name:        z.string().min(1),
@@ -63,6 +64,14 @@ export async function POST(req: NextRequest) {
         description: description ? sanitiseString(description, 500) : null,
         sortOrder:   sortOrder ?? 0,
       },
+    })
+
+    void writeAuditEvent(prisma, {
+      actorId:    session.userId,
+      orgId:      session.orgId ?? '',
+      action:     'CREATE',
+      objectType: 'SERVICE_CATALOGUE',
+      objectId:   entry.id,
     })
 
     return NextResponse.json({ entry }, { status: 201 })

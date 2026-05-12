@@ -6,6 +6,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { writeAuditEvent } from '@/lib/audit'
 
 const CreateReviewCadenceSchema = z.object({
   name:               z.string().min(1),
@@ -66,6 +67,14 @@ export async function POST(req: NextRequest) {
         isActive:            body.isActive ?? true,
         createdBy:           session.userId,
       },
+    })
+
+    void writeAuditEvent(prisma, {
+      actorId:    session.userId,
+      orgId:      session.orgId!,
+      action:     'CREATE',
+      objectType: 'REVIEW_CADENCE',
+      objectId:   cadence.id,
     })
 
     return NextResponse.json(cadence, { status: 201 })

@@ -134,6 +134,14 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
     ],
   },
   {
+    label: 'Compliance',
+    icon:  '◆',
+    roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'],
+    children: [
+      { href: '/dashboard/settings/audit-log', label: 'Audit Log', icon: '◈', roles: ['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'] },
+    ],
+  },
+  {
     label: 'Other Settings',
     icon:  '⚙',
     roles: ['ADMIN', 'CFO', 'CONTROLLER', 'FINANCE_MANAGER', 'FINANCE_MANAGER'],

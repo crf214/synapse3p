@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { writeAuditEvent } from '@/lib/audit'
 
 // ---------------------------------------------------------------------------
 // Rail-specific validation via discriminated union
@@ -207,6 +208,14 @@ export async function POST(
       },
     })
 
+    void writeAuditEvent(prisma, {
+      actorId:    session.userId,
+      orgId:      session.orgId!,
+      action:     'CREATE',
+      objectType: 'BANK_ACCOUNT',
+      objectId:   bankAccount.id,
+    })
+
     return NextResponse.json({ bankAccount }, { status: 201 })
   } catch (err) {
     return handleApiError(err, 'POST /api/entities/[entityId]/bank-accounts')
@@ -253,6 +262,14 @@ export async function DELETE(
     }
 
     await prisma.entityBankAccount.delete({ where: { id: bankAccountId } })
+
+    void writeAuditEvent(prisma, {
+      actorId:    session.userId,
+      orgId:      session.orgId!,
+      action:     'DELETE',
+      objectType: 'BANK_ACCOUNT',
+      objectId:   bankAccountId,
+    })
 
     return NextResponse.json({ ok: true })
   } catch (err) {

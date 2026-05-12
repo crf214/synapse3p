@@ -43,6 +43,9 @@ export type AuditObjectType =
   | 'REVIEW_CADENCE'
   | 'MERGED_AUTHORIZATION'
   | 'PAYMENT_EXECUTION'
+  | 'BANK_ACCOUNT'
+  | 'SERVICE_CATALOGUE'
+  | 'WORKFLOW_TEMPLATE'
 
 export interface AuditEventInput {
   actorId:    string

@@ -88,6 +88,11 @@ export const queryKeys = {
     all: ['review-cadences'] as const,
   },
 
+  auditLog: {
+    all:  ['audit-log']                                                       as const,
+    list: (p: Record<string, unknown>) => ['audit-log', 'list', p]            as const,
+  },
+
   dashboard: {
     stats: ['dashboard', 'stats'] as const,
   },
