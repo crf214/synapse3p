@@ -111,13 +111,23 @@ export async function GET(
       select: { id: true, name: true, email: true },
     })
 
-    // Vendor context: spend history + recent invoices + open POs + contract
-    const [spendHistory, recentInvoices, openPOs] = await Promise.all([
-      prisma.vendorSpendSnapshot.findMany({
-        where:   { entityId: po.entityId, orgId: session.orgId },
-        orderBy: { period: 'desc' },
-        take:    12,
-      }),
+    // Vendor context: spend history (direct query replacing VendorSpendSnapshot) + recent invoices + open POs
+    const [spendHistoryRaw, recentInvoices, openPOs] = await Promise.all([
+      prisma.$queryRaw<{ period: string; currency: string; invoice_count: bigint; total_amount: number; avg_amount: number }[]>`
+        SELECT
+          TO_CHAR(invoice_date, 'YYYY-MM') AS period,
+          currency,
+          COUNT(*)::bigint                 AS invoice_count,
+          SUM(amount)                      AS total_amount,
+          AVG(amount)                      AS avg_amount
+        FROM invoices
+        WHERE entity_id = ${po.entityId}
+          AND org_id    = ${session.orgId!}
+          AND status    NOT IN ('REJECTED','CANCELLED')
+        GROUP BY period, currency
+        ORDER BY period DESC
+        LIMIT 12
+      `,
       prisma.invoice.findMany({
         where:   { entityId: po.entityId, orgId: session.orgId },
         orderBy: { invoiceDate: 'desc' },
@@ -143,11 +153,12 @@ export async function GET(
         approvals:   approvalsEnriched,
         amendments:  amendmentsEnriched,
         vendorContext: {
-          spendHistory:   spendHistory.map(s => ({
+          spendHistory:   spendHistoryRaw.map(s => ({
             period:       s.period,
-            totalAmount:  Number(s.totalAmount),
-            avgAmount:    Number(s.avgAmount),
-            invoiceCount: s.invoiceCount,
+            currency:     s.currency,
+            totalAmount:  Number(s.total_amount),
+            avgAmount:    Number(s.avg_amount),
+            invoiceCount: Number(s.invoice_count),
           })),
           recentInvoices,
           openPOCount:    openPOs,

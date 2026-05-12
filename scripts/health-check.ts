@@ -25,7 +25,6 @@ import { createClient } from '@supabase/supabase-js'
 import { prisma } from '@/lib/prisma'
 import { getErpAdapter } from '@/lib/erp'
 import { execSync } from 'child_process'
-import { computeAndStoreSnapshot } from '@/lib/reporting/snapshots'
 import { safeExternalFetch, addAllowedDomain } from '@/lib/security/outbound'
 import { ForbiddenError } from '@/lib/errors'
 import { auditSecrets } from '@/lib/security/secrets-audit'
@@ -225,7 +224,6 @@ async function checkEntityMasterTables(): Promise<string> {
 
 async function checkPhase3Tables(): Promise<string> {
   const tables: Array<[string, () => Promise<unknown>]> = [
-    ['processing_rule_evaluations',  () => prisma.processingRuleEvaluation.count()],
     ['purchase_orders',              () => prisma.purchaseOrder.count()],
     ['po_line_items',                () => prisma.pOLineItem.count()],
     ['po_approvals',                 () => prisma.pOApproval.count()],
@@ -367,16 +365,18 @@ async function checkOutboundSecurityControls(): Promise<string> {
   return 'all three controls enforced (private IP, domain allowlist, HTTPS-only)'
 }
 
-async function checkReportSnapshots(): Promise<string> {
+async function checkReportQueries(): Promise<string> {
+  // ReportSnapshot table removed in Phase 4E — verify live query path works instead.
   const acme = await prisma.organisation.findUnique({ where: { slug: 'acme' } })
   if (!acme) throw new Error('acme org not found — run: npx prisma db seed')
 
-  const snapshot = await computeAndStoreSnapshot(acme.id, 'AP_AGING')
+  const { getOrComputeSnapshot } = await import('@/lib/reporting/snapshots')
+  const result = await getOrComputeSnapshot(acme.id, 'AP_AGING')
 
-  if (!snapshot?.id) throw new Error('computeAndStoreSnapshot returned no snapshot')
+  if (!result?.data) throw new Error('getOrComputeSnapshot returned no data')
 
-  const recordCount = Array.isArray(snapshot.data) ? (snapshot.data as unknown[]).length : 1
-  return `AP_AGING snapshot created (id: ${snapshot.id}, ${recordCount} currency rows)`
+  const recordCount = Array.isArray(result.data) ? (result.data as unknown[]).length : 1
+  return `AP_AGING live query ok (${recordCount} rows, isLive: ${result.isLive})`
 }
 
 async function checkSecretsAudit(): Promise<string> {
@@ -537,7 +537,7 @@ async function main() {
   results.push(await runCheck('ERP adapter connection',               () => checkErpAdapterConnection()))
   results.push(await runCheck('FX rates',                             () => checkFxRates()))
   results.push(await runCheck('Outbound security controls',           () => checkOutboundSecurityControls()))
-  results.push(await runCheck('Report snapshots',                     () => checkReportSnapshots()))
+  results.push(await runCheck('Report queries',                       () => checkReportQueries()))
   results.push(await runCheck('Secrets audit',                         () => checkSecretsAudit()))
   results.push(await runCheck('Dependency audit',                       () => checkDependencyAudit()))
   results.push(await runCheck('Control framework',                       () => checkControlFramework()))

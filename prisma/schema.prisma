@@ -224,7 +224,6 @@ model Entity {
   riskScores                EntityRiskScore[]
   orgRelationships          EntityOrgRelationship[]
   serviceEngagements        ServiceEngagement[]
-  processingRuleEvaluations ProcessingRuleEvaluation[]
   purchaseOrders            PurchaseOrder[]
   thirdPartyReviews         ThirdPartyReview[]
   entityActivityLogs        EntityActivityLog[]
@@ -232,6 +231,7 @@ model Entity {
   invoices                  Invoice[]
   externalSignalConfigs     ExternalSignalConfig[]
   externalSignals           ExternalSignal[]
+  // Retained for historical data — reads replaced with direct queries in Phase 1B. Safe to drop in future if table is empty.
   vendorSpendSnapshots      VendorSpendSnapshot[]
 
   @@map("entities")
@@ -498,29 +498,6 @@ enum ContractType {
   SLA
   FRAMEWORK
   OTHER
-}
-
-
-model ProcessingRuleEvaluation {
-  id                 String           @id @default(cuid())
-  orgId              String
-  ruleId             String?
-  entityId           String
-  amount             Float
-  currency           String
-  conditionsSnapshot Json
-  matched            Boolean
-  trackAssigned      ProcessingTrack?
-  evaluatedAt        DateTime         @default(now())
-  evaluatedBy        String?
-  sourceType         String
-  sourceId           String
-
-  entity             Entity           @relation(fields: [entityId], references: [id])
-
-  @@index([sourceType, sourceId])
-  @@index([orgId, evaluatedAt])
-  @@map("processing_rule_evaluations")
 }
 
 
@@ -1352,7 +1329,8 @@ model ErpSyncLog {
 }
 
 // ============================================================
-// FX rates — one row per currency pair per day, sourced from ECB via Frankfurter
+// FX rates — one row per currency pair per day, sourced from ECB via Frankfurter.
+// Written by /api/cron/fx-rates. Read path active in /lib/fx/FxService.ts and /api/reports/spend.
 model FxRate {
   id            String   @id @default(cuid())
   baseCurrency  String   @default("USD")
@@ -1365,23 +1343,6 @@ model FxRate {
   @@unique([baseCurrency, quoteCurrency, rateDate])
   @@index([quoteCurrency, rateDate])
   @@map("fx_rates")
-}
-
-// ============================================================
-// Pre-computed report snapshots — one row per org/reportType/period
-model ReportSnapshot {
-  id           String   @id @default(cuid())
-  orgId        String
-  reportType   String
-  period       String
-  snapshotDate DateTime @default(now())
-  data         Json
-  metadata     Json     @default("{}")
-  createdAt    DateTime @default(now())
-
-  @@index([orgId, reportType, period])
-  @@index([orgId, snapshotDate])
-  @@map("report_snapshots")
 }
 
 // ============================================================
@@ -1822,7 +1783,7 @@ model MergedAuthItem {
 }
 
 // Monthly spend snapshot per vendor/org pair for fast history queries.
-// Computed periodically (nightly or on-demand); do not use as a billing ledger.
+// Retained for historical data — reads replaced with direct queries in Phase 1B. Safe to drop in future if table is empty.
 model VendorSpendSnapshot {
   id           String   @id @default(cuid())
   entityId     String
