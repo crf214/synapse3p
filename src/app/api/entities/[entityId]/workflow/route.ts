@@ -49,8 +49,35 @@ export async function GET(
       },
     })
 
+    // Collect completed step history across all instances for this entity
+    const allInstances = await prisma.workflowInstance.findMany({
+      where: { targetObjectType: 'ENTITY', targetObjectId: entityId, orgId: session.orgId },
+      include: {
+        stepInstances: {
+          where:   { status: { in: ['COMPLETED', 'FAILED', 'SKIPPED'] } },
+          include: { stepDefinition: { select: { name: true, stepType: true } } },
+          orderBy: { completedAt: 'desc' },
+          take:    50,
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const history = allInstances.flatMap(inst =>
+      inst.stepInstances.map(si => ({
+        id:          si.id,
+        stepName:    si.stepDefinition.name,
+        stepType:    si.stepDefinition.stepType,
+        result:      si.result ?? null,
+        status:      si.status,
+        completedAt: si.completedAt?.toISOString() ?? null,
+        completedBy: si.completedBy ?? null,
+        instanceId:  inst.id,
+      }))
+    ).filter(h => h.completedAt !== null)
+
     if (!instance) {
-      return NextResponse.json({ workflow: null })
+      return NextResponse.json({ workflow: null, history })
     }
 
     const steps = instance.stepInstances.map(si => ({
@@ -88,6 +115,7 @@ export async function GET(
         steps,
         currentSteps,
       },
+      history,
     })
   } catch (err) {
     return handleApiError(err, 'GET /api/entities/[entityId]/workflow')

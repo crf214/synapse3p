@@ -8,7 +8,7 @@ import { queryKeys } from '@/lib/query-keys'
 import { useUser } from '@/context/UserContext'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { apiClient } from '@/lib/api-client'
-import { WorkflowPanel, WorkflowState } from '@/components/shared/WorkflowPanel'
+import { WorkflowPanel, WorkflowState, WorkflowHistoryEntry } from '@/components/shared/WorkflowPanel'
 
 const ALLOWED_ROLES   = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const APPROVER_ROLES  = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -125,9 +125,9 @@ export default function PODetailPage() {
     queryKey: wfQueryKey,
     queryFn:  async () => {
       const res  = await fetch(`/api/purchase-orders/${poId}/workflow`)
-      const json = await res.json() as { workflow: WorkflowState | null }
+      const json = await res.json() as { workflow: WorkflowState | null; history?: WorkflowHistoryEntry[] }
       if (!res.ok) return null
-      return json.workflow
+      return json
     },
   })
 
@@ -446,7 +446,7 @@ export default function PODetailPage() {
         <div className="p-5 space-y-6">
 
           {/* Workflow panel */}
-          <WorkflowPanel workflow={workflowData ?? null} />
+          <WorkflowPanel workflow={workflowData?.workflow ?? null} history={workflowData?.history} />
 
           {/* Vendor context */}
           <section>

@@ -72,6 +72,12 @@ export const queryKeys = {
     },
   },
 
+  workflowTemplates: {
+    all:    ['workflow-templates']                          as const,
+    list:   () => ['workflow-templates', 'list']            as const,
+    detail: (id: string) => ['workflow-templates', id]      as const,
+  },
+
   reviews: {
     all:    ['reviews']                                                  as const,
     list:   (p: Record<string, unknown>) => ['reviews', 'list', p]       as const,

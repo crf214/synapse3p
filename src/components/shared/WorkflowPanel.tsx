@@ -1,7 +1,9 @@
 'use client'
 
 // src/components/shared/WorkflowPanel.tsx
-// Shared workflow status panel used on invoice review and entity detail pages.
+// Shared workflow status panel used on invoice review, entity detail, and PO detail pages.
+
+import { useState } from 'react'
 
 export interface WorkflowStep {
   id:          string
@@ -15,6 +17,17 @@ export interface WorkflowStep {
   isActive:    boolean
   isWaiting:   boolean
   dependencies: Array<{ id: string; dependencyType: string; subjectId: string; resolvedAt: string | null }>
+}
+
+export interface WorkflowHistoryEntry {
+  id:          string
+  stepName:    string
+  stepType:    string
+  result:      string | null
+  status:      string
+  completedAt: string | null
+  completedBy: string | null
+  instanceId:  string
 }
 
 export interface WorkflowState {
@@ -55,8 +68,16 @@ const STEP_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
   FAILED:      { color: '#dc2626', bg: '#fef2f2' },
 }
 
-export function WorkflowPanel({ workflow }: { workflow: WorkflowState | null }) {
+interface WorkflowPanelProps {
+  workflow: WorkflowState | null
+  history?: WorkflowHistoryEntry[]
+}
+
+export function WorkflowPanel({ workflow, history }: WorkflowPanelProps) {
   const wfStyle = workflow ? (WORKFLOW_STATUS_STYLE[workflow.status] ?? { color: '#6b7280', bg: '#f9fafb' }) : null
+  const [historyOpen, setHistoryOpen] = useState(false)
+
+  const hasHistory = history && history.length > 0
 
   return (
     <section>
@@ -142,6 +163,71 @@ export function WorkflowPanel({ workflow }: { workflow: WorkflowState | null }) 
               )
             })}
           </div>
+        </div>
+      )}
+
+      {/* History section */}
+      {hasHistory && (
+        <div className="mt-2">
+          <button
+            onClick={() => setHistoryOpen(o => !o)}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs"
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--muted)' }}>
+            <span className="font-medium">Activity History ({history.length})</span>
+            <span>{historyOpen ? '▼' : '▶'}</span>
+          </button>
+
+          {historyOpen && (
+            <div className="mt-1 rounded-lg overflow-hidden" style={{ border: '1px solid var(--border)' }}>
+              {history.map((entry, i) => {
+                const resultStyle = entry.result === 'PASS'
+                  ? { color: '#16a34a', bg: '#f0fdf4' }
+                  : entry.result === 'FAIL'
+                    ? { color: '#dc2626', bg: '#fef2f2' }
+                    : { color: '#6b7280', bg: '#f3f4f6' }
+
+                return (
+                  <div key={entry.id}
+                    className="px-3 py-2 flex items-start gap-2"
+                    style={{ borderTop: i > 0 ? '1px solid var(--border)' : undefined, background: 'var(--surface)' }}>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-medium" style={{ color: 'var(--ink)' }}>{entry.stepName}</span>
+                        <span className="text-xs px-1.5 py-0.5 rounded"
+                          style={{ background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                          {STEP_TYPE_LABEL[entry.stepType] ?? entry.stepType}
+                        </span>
+                        {entry.result && (
+                          <span className="text-xs px-1.5 py-0.5 rounded-full font-medium"
+                            style={{ background: resultStyle.bg, color: resultStyle.color }}>
+                            {entry.result}
+                          </span>
+                        )}
+                        {entry.status !== 'COMPLETED' && (
+                          <span className="text-xs px-1.5 py-0.5 rounded-full"
+                            style={{ background: '#fef2f2', color: '#dc2626' }}>
+                            {entry.status}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        {entry.completedAt && (
+                          <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                            {new Date(entry.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                        {entry.completedBy && (
+                          <span className="text-xs font-mono truncate" style={{ color: 'var(--muted)' }}>
+                            {entry.completedBy.slice(0, 8)}…
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
     </section>

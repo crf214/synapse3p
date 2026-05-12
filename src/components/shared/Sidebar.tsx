@@ -129,7 +129,8 @@ const SETTINGS_CATEGORIES: SettingsCategory[] = [
     icon:  '◫',
     roles: ['ADMIN', 'CFO', 'CONTROLLER', 'FINANCE_MANAGER'],
     children: [
-      { href: '/dashboard/settings/approval-workflows', label: 'Approval Workflows', icon: '◉', roles: ['ADMIN'] },
+      { href: '/dashboard/settings/workflow-templates', label: 'Workflow Templates',  icon: '◫', roles: ['ADMIN', 'FINANCE_MANAGER'] },
+      { href: '/dashboard/settings/approval-workflows', label: 'Approval Workflows',  icon: '◉', roles: ['ADMIN'] },
     ],
   },
   {

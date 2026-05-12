@@ -8,7 +8,7 @@ import { useUser } from '@/context/UserContext'
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import { apiClient } from '@/lib/api-client'
 import { WorkflowPanel } from '@/components/shared/WorkflowPanel'
-import type { WorkflowState } from '@/components/shared/WorkflowPanel'
+import type { WorkflowState, WorkflowHistoryEntry } from '@/components/shared/WorkflowPanel'
 
 const ALLOWED_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const ROUTING_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -286,7 +286,7 @@ export default function InvoiceReviewPage() {
     queryFn:  async () => {
       const res = await fetch(`/api/invoices/${invoiceId}/workflow`)
       if (!res.ok) return { workflow: null }
-      return res.json() as Promise<{ workflow: WorkflowState | null }>
+      return res.json() as Promise<{ workflow: WorkflowState | null; history?: WorkflowHistoryEntry[] }>
     },
   })
 
@@ -924,7 +924,7 @@ export default function InvoiceReviewPage() {
           )}
 
           {/* --- Workflow Status --- */}
-          <WorkflowPanel workflow={workflowData?.workflow ?? null} />
+          <WorkflowPanel workflow={workflowData?.workflow ?? null} history={workflowData?.history} />
 
         </div>
       </div>
