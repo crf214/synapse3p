@@ -1,3 +1,5 @@
+// Orphaned route — not in nav. BcDrRecord model retained in schema.
+// Add to sidebar under a "GRC" or "Compliance" group when this is reactivated.
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'

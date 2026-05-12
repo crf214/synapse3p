@@ -886,6 +886,7 @@ model ThirdPartyReview {
   @@map("third_party_reviews")
 }
 
+// Active — settings UI at /dashboard/settings/review-cadences. Cron check runs every Monday via /api/cron/review-cadence-check.
 model ReviewCadence {
   id                  String         @id @default(cuid())
   orgId               String
@@ -1075,6 +1076,7 @@ model PaymentExecution {
   @@map("payment_executions")
 }
 
+// Active — settings UI at /dashboard/settings/external-signals. Manual entry and review/dismiss workflow confirmed in Phase 2E.
 model ExternalSignalConfig {
   id                 String          @id @default(cuid())
   entityId           String
@@ -1095,6 +1097,7 @@ model ExternalSignalConfig {
   @@map("external_signal_configs")
 }
 
+// Active — written by webhook ingest and manual entry. Reviewed/dismissed via entity detail page.
 model ExternalSignal {
   id               String        @id @default(cuid())
   entityId         String
@@ -1247,6 +1250,7 @@ model PaymentInstructionAmendment {
   @@map("payment_instruction_amendments")
 }
 
+// ERP integration — frozen pending external API specification. See Placeholder section in roadmap.
 model ErpTransaction {
   id                    String             @id @default(cuid())
   orgId                 String
@@ -1309,6 +1313,7 @@ model ErpPeriod {
   @@map("erp_periods")
 }
 
+// ERP integration — frozen pending external API specification. See Placeholder section in roadmap.
 model ErpSyncLog {
   id                   String         @id @default(cuid())
   orgId                String
@@ -1414,6 +1419,8 @@ enum AuditPeriodStatus {
 }
 
 // ============================================================
+// GRC framework — deprioritised for v1. Nav links exist for /dashboard/controls and /dashboard/audit-periods.
+// API routes active (ControlTestRunner). Reactivate full UI when compliance requirement emerges.
 // Control — defines a control requirement within the framework
 model Control {
   id               String          @id @default(cuid())
@@ -1441,6 +1448,7 @@ model Control {
 }
 
 // ============================================================
+// GRC framework — deprioritised for v1. Nav link exists at /dashboard/audit-periods. Reactivate when compliance requirement emerges.
 // AuditPeriod — a defined window of time for an audit engagement
 model AuditPeriod {
   id            String            @id @default(cuid())
@@ -1467,6 +1475,7 @@ model AuditPeriod {
 }
 
 // ============================================================
+// GRC framework — deprioritised for v1. API routes exist but no dedicated UI page. Reactivate when compliance requirement emerges.
 // ControlTestResult — append-only record of a control test execution.
 // No updates or deletes should ever be issued against this table.
 model ControlTestResult {
@@ -1493,6 +1502,7 @@ model ControlTestResult {
 }
 
 // ============================================================
+// GRC framework — deprioritised for v1. API routes exist but no dedicated UI page. Reactivate when compliance requirement emerges.
 // ControlEvidence — evidence artefacts collected for a control
 model ControlEvidence {
   id            String       @id @default(cuid())
@@ -1519,6 +1529,7 @@ model ControlEvidence {
 }
 
 // ============================================================
+// GRC framework — deprioritised for v1. Page exists at /dashboard/bcdr but has no nav link (orphaned route). Reactivate when compliance requirement emerges.
 // BcDrRecord — BC/DR test and incident records
 model BcDrRecord {
   id              String           @id @default(cuid())

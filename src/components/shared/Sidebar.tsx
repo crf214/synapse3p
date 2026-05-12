@@ -54,6 +54,7 @@ const ENTITY_SECTION: AppSection = {
       roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR', 'LEGAL', 'CISO'],
       children: [
         { href: '/dashboard/entities', label: 'On/Off Boarding', icon: '◎', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR', 'LEGAL', 'CISO'] },
+        { href: '/dashboard/vendors',  label: 'Vendors',         icon: '◑', roles: ['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO'] },
       ],
     },
     { href: '/dashboard/reviews',   label: 'Reviews',              icon: '◉', roles: ['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'LEGAL', 'CISO', 'AUDITOR'] },
