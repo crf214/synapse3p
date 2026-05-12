@@ -33,8 +33,11 @@ model User {
   emailVerifyToken         String?   @unique
   passwordResetToken       String?   @unique
   passwordResetExpiresAt   DateTime?
+  isActive                 Boolean   @default(true)
+  lastLoginAt              DateTime?
+  roleChangedAt            DateTime?
   createdAt                DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  updatedAt                DateTime  @updatedAt
 
   memberships             OrgMember[]
   notificationPreference  NotificationPreference?
@@ -47,6 +50,7 @@ model InviteToken {
   id        String    @id @default(cuid())
   token     String    @unique @default(cuid())
   email     String?
+  role      String?
   usedAt    DateTime?
   expiresAt DateTime
   createdBy String
