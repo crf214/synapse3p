@@ -4,8 +4,9 @@
 
 export const queryKeys = {
   entities: {
-    all:    ['entities']                                     as const,
-    detail: (id: string) => ['entities', id]                as const,
+    all:      ['entities']                                         as const,
+    detail:   (id: string) => ['entities', id]                    as const,
+    workflow: (id: string) => ['entities', id, 'workflow']        as const,
   },
 
   invoices: {

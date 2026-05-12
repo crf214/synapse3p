@@ -11,6 +11,8 @@
 import { readFileSync, existsSync } from 'fs'
 import { resolve } from 'path'
 import { prisma } from '@/lib/prisma'
+import { seedInvoiceTemplates } from '@/lib/workflow-engine/templates/invoice-templates'
+import { seedEntityTemplates } from '@/lib/workflow-engine/templates/entity-templates'
 
 // ---------------------------------------------------------------------------
 // Load .env.local in development
@@ -635,6 +637,18 @@ async function main() {
       console.log(`  ↩ ${def.slug}: risk score already exists`)
     }
   }
+
+  // ==========================================================================
+  // WORKFLOW TEMPLATES
+  // ==========================================================================
+  console.log('\n── Workflow Templates ──────────────────────────────────────')
+
+  await Promise.all([
+    seedInvoiceTemplates(orgId, adminId, prisma),
+    seedEntityTemplates(orgId, adminId, prisma),
+  ]).catch(err => console.warn('[WorkflowEngine] Failed to seed templates:', err))
+
+  console.log('  ✔ Workflow templates seeded (idempotent)')
 
   // ==========================================================================
   // SUMMARY

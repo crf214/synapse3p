@@ -80,7 +80,7 @@ export async function executeStep(
         break
 
       case 'AUTO_RULE':
-        result = await handleAutoRuleStep(stepInstanceId, config, context)
+        result = await handleAutoRuleStep(stepInstanceId, config, context, prisma)
         break
 
       case 'CONDITION_BRANCH':

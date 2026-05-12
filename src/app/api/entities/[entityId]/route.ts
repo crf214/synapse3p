@@ -192,6 +192,50 @@ export async function PATCH(
       })
     }
 
+    // ── Advance active workflow approval step when a status decision is made ──
+    if (statusChanged) {
+      void (async () => {
+        try {
+          // Determine PASS/FAIL from new status
+          const isFailed  = ['INACTIVE', 'SUSPENDED', 'OFFBOARDED'].includes(entity.status)
+          const stepResult: 'PASS' | 'FAIL' = isFailed ? 'FAIL' : 'PASS'
+
+          // Find the active WorkflowInstance for this entity
+          const activeInstance = await prisma.workflowInstance.findFirst({
+            where: {
+              targetObjectType: 'ENTITY',
+              targetObjectId:   entityId,
+              orgId:            session.orgId!,
+              status:           'IN_PROGRESS',
+            },
+            orderBy: { createdAt: 'desc' },
+          })
+          if (!activeInstance) return
+
+          // Find the active APPROVAL step instance
+          const activeApprovalStep = await prisma.workflowStepInstance.findFirst({
+            where: {
+              workflowInstanceId: activeInstance.id,
+              status:             { in: ['IN_PROGRESS', 'PENDING'] },
+              stepDefinition:     { stepType: 'APPROVAL' },
+            },
+            include: { stepDefinition: true },
+          })
+          if (!activeApprovalStep) return
+
+          const engine = new WorkflowEngine(prisma)
+          await engine.completeStep(
+            activeApprovalStep.id,
+            stepResult,
+            session.userId!,
+            `Entity status changed to ${entity.status}`,
+          )
+        } catch (err) {
+          console.warn('[entities/PATCH] workflow completeStep non-fatal:', err)
+        }
+      })()
+    }
+
     // ── Activity log ─────────────────────────────────────────────────────────
     const FIELD_LABEL: Record<string, string> = {
       name: 'Legal name', jurisdiction: 'Jurisdiction', registrationNo: 'Registration No.',

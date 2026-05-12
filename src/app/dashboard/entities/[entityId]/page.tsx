@@ -2,8 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import { useUser } from '@/context/UserContext'
 import { apiClient } from '@/lib/api-client'
+import { queryKeys } from '@/lib/query-keys'
+import { WorkflowPanel } from '@/components/shared/WorkflowPanel'
+import type { WorkflowState } from '@/components/shared/WorkflowPanel'
 
 const ALLOWED_ROLES    = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES      = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
@@ -66,7 +70,7 @@ interface RiskHistoryRecord {
   factors:      unknown
 }
 
-type TabKey = 'overview' | 'classifications' | 'bank-accounts' | 'due-diligence' | 'services' | 'activity' | 'risk-history'
+type TabKey = 'overview' | 'classifications' | 'bank-accounts' | 'due-diligence' | 'services' | 'activity' | 'risk-history' | 'workflow'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1138,6 +1142,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'services',        label: 'Services'        },
   { key: 'activity',        label: 'History'         },
   { key: 'risk-history',    label: 'Risk History'    },
+  { key: 'workflow',        label: 'Workflow'        },
 ]
 
 export default function EntityDetailPage() {
@@ -1150,6 +1155,16 @@ export default function EntityDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
   const [tab,     setTab]     = useState<TabKey>('overview')
+
+  const { data: workflowData } = useQuery({
+    queryKey: queryKeys.entities.workflow(entityId),
+    enabled:  !!entityId && ALLOWED_ROLES.has(role ?? ''),
+    queryFn:  async () => {
+      const res = await fetch(`/api/entities/${entityId}/workflow`)
+      if (!res.ok) return { workflow: null as WorkflowState | null }
+      return res.json() as Promise<{ workflow: WorkflowState | null }>
+    },
+  })
 
   const canWrite    = WRITE_ROLES.has(role ?? '')
   const canOverride = OVERRIDE_ROLES.has(role ?? '')
@@ -1251,6 +1266,11 @@ export default function EntityDetailPage() {
       {tab === 'services'        && <ServicesTab        entity={entity} />}
       {tab === 'activity'        && <ActivityTab        entity={entity} />}
       {tab === 'risk-history'    && <RiskHistoryTab     entityId={entityId} />}
+      {tab === 'workflow'        && (
+        <div className="max-w-2xl">
+          <WorkflowPanel workflow={workflowData?.workflow ?? null} />
+        </div>
+      )}
     </div>
   )
 }
