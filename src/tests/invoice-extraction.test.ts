@@ -13,6 +13,13 @@ import * as fs from 'fs'
 import * as path from 'path'
 
 // ---------------------------------------------------------------------------
+// Skip entire suite when the fixture PDF is absent (CI / clean checkouts).
+// The PDF is not committed because it may contain sensitive data.
+// ---------------------------------------------------------------------------
+const fixturePath = path.resolve(__dirname, 'fixtures', 'SampleBill 6 Synps.pdf')
+const fixtureAvailable = fs.existsSync(fixturePath)
+
+// ---------------------------------------------------------------------------
 // vi.hoisted ensures these values are available inside vi.mock factories
 // which are hoisted to the top of the file before any imports run.
 // ---------------------------------------------------------------------------
@@ -63,11 +70,17 @@ import { extractFromPdf } from '@/lib/invoice-ai'
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('Invoice AI extraction — regression against SampleBill 6 Synps.pdf', () => {
-  const fixturePath = path.resolve(__dirname, 'fixtures', 'SampleBill 6 Synps.pdf')
+const describeOrSkip = fixtureAvailable ? describe : describe.skip
+
+describeOrSkip('Invoice AI extraction — regression against SampleBill 6 Synps.pdf', () => {
+  if (!fixtureAvailable) {
+    it.skip('Skipping: fixture PDF not available in this environment', () => {})
+  }
+
   let pdfBase64: string
 
   beforeAll(() => {
+    if (!fixtureAvailable) return
     pdfBase64 = fs.readFileSync(fixturePath).toString('base64')
   })
 

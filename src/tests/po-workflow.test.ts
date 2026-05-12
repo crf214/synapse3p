@@ -161,7 +161,10 @@ describe('PO submission (submit route)', () => {
     )
   })
 
-  it('notifies the approver by email after submit', async () => {
+  it('moves PO to PENDING_APPROVAL (email now handled by workflow engine NOTIFICATION step)', async () => {
+    // The submit route no longer directly sends an email — notifications are
+    // dispatched via WorkflowEngine NOTIFICATION step instances. This test
+    // verifies the PO status transition only.
     mockPrisma.purchaseOrder.findFirst.mockResolvedValue(DRAFT_PO)
     mockPrisma.orgMember.findFirst.mockResolvedValue(CFO_MEMBER)
     mockPrisma.pOApproval.create.mockResolvedValue({ id: 'appr-1' })
@@ -170,27 +173,32 @@ describe('PO submission (submit route)', () => {
       ...DRAFT_PO, status: 'PENDING_APPROVAL', approvals: [], lineItems: [],
     })
 
-    await submitPO(makePost(), { params: Promise.resolve({ id: 'po-1' }) })
+    const res  = await submitPO(makePost(), { params: Promise.resolve({ id: 'po-1' }) })
+    expect(res.status).toBe(200)
 
-    expect(mockSendPOSubmittedEmail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to:       APPROVER_USER.email,
-        poNumber: DRAFT_PO.poNumber,
-        poId:     'po-1',
-      }),
-    )
+    const json = await res.json()
+    expect(json.purchaseOrder.status).toBe('PENDING_APPROVAL')
   })
 
-  // ── Guard: no CONTROLLER/CFO in org ──────────────────────────────────────
+  // ── No CONTROLLER/CFO in org ──────────────────────────────────────────────
+  // The submit route no longer rejects when no approver is found — the workflow
+  // engine handles assignment and will set the step to WAITING if none is
+  // available. Submit should still succeed and set PO to PENDING_APPROVAL.
 
-  it('returns 400 when no CONTROLLER or CFO member exists', async () => {
+  it('returns 200 and PENDING_APPROVAL even when no CONTROLLER or CFO member exists', async () => {
     mockPrisma.purchaseOrder.findFirst.mockResolvedValue(DRAFT_PO)
-    mockPrisma.orgMember.findFirst.mockResolvedValue(null)  // no member found
+    mockPrisma.orgMember.findFirst.mockResolvedValue(null)
+    mockPrisma.pOApproval.create.mockResolvedValue({ id: 'appr-1' })
+    mockPrisma.purchaseOrder.update.mockResolvedValue({ ...DRAFT_PO, status: 'PENDING_APPROVAL' })
+    mockPrisma.purchaseOrder.findUnique.mockResolvedValue({
+      ...DRAFT_PO, status: 'PENDING_APPROVAL', approvals: [], lineItems: [],
+    })
 
     const res  = await submitPO(makePost(), { params: Promise.resolve({ id: 'po-1' }) })
-    expect(res.status).toBe(400)
+    expect(res.status).toBe(200)
+
     const json = await res.json()
-    expect(json.error.message).toContain('CONTROLLER or CFO')
+    expect(json.purchaseOrder.status).toBe('PENDING_APPROVAL')
   })
 
   // ── Guard: non-DRAFT PO ────────────────────────────────────────────────────
