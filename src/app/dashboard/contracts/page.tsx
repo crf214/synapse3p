@@ -114,11 +114,7 @@ export default function ContractsPage() {
 
   useEffect(() => { load() }, [load])
 
-  if (!ALLOWED_ROLES.has(user.role ?? '')) {
-    return <div className="p-8"><p style={{ color: 'var(--muted)' }}>Access denied.</p></div>
-  }
-
-  // Apply client-side expiry filter + sort
+  // Apply client-side expiry filter + sort (must be before any early returns)
   const filtered = useMemo(() => {
     const withExpiry = rows.map(r => ({ ...r, expiryStatus: computeExpiryStatus(r) }))
 
@@ -130,6 +126,10 @@ export default function ContractsPage() {
       EXPIRY_SORT_ORDER[a.expiryStatus] - EXPIRY_SORT_ORDER[b.expiryStatus]
     )
   }, [rows, expiryFilter])
+
+  if (!ALLOWED_ROLES.has(user.role ?? '')) {
+    return <div className="p-8"><p style={{ color: 'var(--muted)' }}>Access denied.</p></div>
+  }
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
