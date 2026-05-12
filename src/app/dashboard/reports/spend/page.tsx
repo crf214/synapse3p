@@ -74,7 +74,7 @@ export default function SpendPage() {
   }
   const currencies = Object.keys(byCurrency).sort()
 
-  const exportHref = `/api/reports/export?report=spend&format=csv&periodStart=${periodStart}&periodEnd=${periodEnd}`
+  const exportHref = `/api/reports/export?type=spend&startDate=${periodStart}&endDate=${periodEnd}`
 
   return (
     <div className="p-8 max-w-5xl space-y-8">

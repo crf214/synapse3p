@@ -2,6 +2,204 @@ import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 
 // ---------------------------------------------------------------------------
+// AP Aging — per-invoice detail (for page + CSV export)
+// ---------------------------------------------------------------------------
+
+export interface ApAgingDetailRow {
+  entityName:      string
+  invoiceNo:       string
+  invoiceDate:     Date
+  amount:          number
+  currency:        string
+  daysOutstanding: number
+  ageBucket:       string
+}
+
+export async function getApAgingDetailRows(
+  orgId:     string,
+  entityId?: string,
+): Promise<ApAgingDetailRow[]> {
+  const entityFilter = entityId
+    ? Prisma.sql`AND i."entityId" = ${entityId}`
+    : Prisma.sql``
+
+  const rows = await prisma.$queryRaw<
+    Array<{
+      entityName:      string
+      invoiceNo:       string
+      invoiceDate:     Date
+      amount:          number
+      currency:        string
+      daysOutstanding: number
+      ageBucket:       string
+    }>
+  >(Prisma.sql`
+    SELECT
+      e.name                                                          AS "entityName",
+      i."invoiceNo",
+      i."invoiceDate",
+      i.amount,
+      i.currency,
+      GREATEST(0, EXTRACT(DAY FROM NOW() - i."dueDate")::int)        AS "daysOutstanding",
+      CASE
+        WHEN EXTRACT(DAY FROM NOW() - i."dueDate") <= 30  THEN '0-30 days'
+        WHEN EXTRACT(DAY FROM NOW() - i."dueDate") <= 60  THEN '31-60 days'
+        WHEN EXTRACT(DAY FROM NOW() - i."dueDate") <= 90  THEN '61-90 days'
+        ELSE '90+ days'
+      END                                                             AS "ageBucket"
+    FROM invoices i
+    JOIN entities e ON e.id = i."entityId"
+    WHERE i."orgId" = ${orgId}
+      AND i.status NOT IN ('PAID', 'CANCELLED', 'REJECTED', 'DUPLICATE')
+      AND i."dueDate" IS NOT NULL
+      AND i."dueDate" < NOW()
+      ${entityFilter}
+    ORDER BY "daysOutstanding" DESC, i."dueDate" ASC
+  `)
+
+  return rows
+}
+
+// ---------------------------------------------------------------------------
+// Spend export — per entity-month-currency (for CSV export)
+// ---------------------------------------------------------------------------
+
+export interface SpendExportRow {
+  entityName:   string
+  entityType:   string
+  riskBand:     string
+  month:        string
+  invoiceCount: number
+  totalAmount:  number
+  currency:     string
+}
+
+export async function getSpendExportRows(
+  orgId:      string,
+  startDate?: Date,
+  endDate?:   Date,
+  entityId?:  string,
+): Promise<SpendExportRow[]> {
+  const now   = new Date()
+  const start = startDate ?? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 1))
+  const end   = endDate   ?? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0))
+  const entityFilter = entityId
+    ? Prisma.sql`AND i."entityId" = ${entityId}`
+    : Prisma.sql``
+
+  const rows = await prisma.$queryRaw<
+    Array<{
+      entityName:   string
+      entityType:   string | null
+      riskBand:     string | null
+      month:        string
+      invoiceCount: bigint
+      totalAmount:  number
+      currency:     string
+    }>
+  >(Prisma.sql`
+    SELECT
+      e.name                                                        AS "entityName",
+      ec.type::text                                                 AS "entityType",
+      e."riskBand"::text                                            AS "riskBand",
+      TO_CHAR(i."invoiceDate", 'YYYY-MM')                           AS month,
+      i.currency,
+      COUNT(*)                                                      AS "invoiceCount",
+      SUM(i.amount)                                                 AS "totalAmount"
+    FROM invoices i
+    JOIN entities e ON e.id = i."entityId"
+    LEFT JOIN entity_classifications ec
+      ON ec."entityId" = e.id AND ec."isPrimary" = true
+    WHERE i."orgId" = ${orgId}
+      AND i.status NOT IN ('REJECTED', 'CANCELLED')
+      AND i."invoiceDate" >= ${start}
+      AND i."invoiceDate" <= ${end}
+      ${entityFilter}
+    GROUP BY e.name, ec.type, e."riskBand", month, i.currency
+    ORDER BY month DESC, "totalAmount" DESC
+  `)
+
+  return rows.map(r => ({
+    entityName:   r.entityName,
+    entityType:   r.entityType  ?? 'UNKNOWN',
+    riskBand:     r.riskBand    ?? 'UNKNOWN',
+    month:        r.month,
+    invoiceCount: Number(r.invoiceCount),
+    totalAmount:  r.totalAmount,
+    currency:     r.currency,
+  }))
+}
+
+// ---------------------------------------------------------------------------
+// Risk export — per entity (for CSV export)
+// ---------------------------------------------------------------------------
+
+export interface RiskExportRow {
+  entityName:          string
+  entityType:          string
+  riskBand:            string
+  riskScore:           number
+  lastReviewDate:      string
+  kycStatus:           string
+  daysSinceLastReview: number | null
+}
+
+export async function getRiskExportRows(
+  orgId:     string,
+  entityId?: string,
+): Promise<RiskExportRow[]> {
+  const entityFilter = entityId
+    ? Prisma.sql`AND e.id = ${entityId}`
+    : Prisma.sql``
+
+  const rows = await prisma.$queryRaw<
+    Array<{
+      entityName:          string
+      entityType:          string | null
+      riskBand:            string | null
+      riskScore:           number
+      lastReviewDate:      Date | null
+      kycStatus:           string | null
+      daysSinceLastReview: number | null
+    }>
+  >(Prisma.sql`
+    SELECT DISTINCT ON (e.id)
+      e.name                                                        AS "entityName",
+      ec.type::text                                                 AS "entityType",
+      COALESCE(e."riskBand"::text, 'UNKNOWN')                      AS "riskBand",
+      COALESCE(rs."computedScore", e."riskScore", 0)               AS "riskScore",
+      tpr.last_review_date                                          AS "lastReviewDate",
+      dd."kycStatus"::text                                          AS "kycStatus",
+      EXTRACT(DAY FROM NOW() - tpr.last_review_date)::int          AS "daysSinceLastReview"
+    FROM entities e
+    LEFT JOIN entity_classifications ec
+      ON ec."entityId" = e.id AND ec."isPrimary" = true
+    LEFT JOIN entity_risk_scores rs
+      ON rs."entityId" = e.id
+    LEFT JOIN entity_due_diligence dd
+      ON dd."entityId" = e.id
+    LEFT JOIN (
+      SELECT "entityId", MAX("createdAt") AS last_review_date
+      FROM third_party_reviews
+      GROUP BY "entityId"
+    ) tpr ON tpr."entityId" = e.id
+    WHERE e."masterOrgId" = ${orgId}
+      ${entityFilter}
+    ORDER BY e.id, rs."scoredAt" DESC
+  `)
+
+  return rows.map(r => ({
+    entityName:          r.entityName,
+    entityType:          r.entityType          ?? 'UNKNOWN',
+    riskBand:            r.riskBand            ?? 'UNKNOWN',
+    riskScore:           r.riskScore           ?? 0,
+    lastReviewDate:      r.lastReviewDate ? r.lastReviewDate.toISOString().slice(0, 10) : '',
+    kycStatus:           r.kycStatus           ?? 'UNKNOWN',
+    daysSinceLastReview: r.daysSinceLastReview ?? null,
+  }))
+}
+
+// ---------------------------------------------------------------------------
 // AP Aging
 // ---------------------------------------------------------------------------
 

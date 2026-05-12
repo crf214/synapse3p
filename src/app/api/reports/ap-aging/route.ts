@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { getOrComputeSnapshot } from '@/lib/reporting/snapshots'
-import { getPaymentQueueData } from '@/lib/reporting/queries'
+import { getPaymentQueueData, getApAgingDetailRows } from '@/lib/reporting/queries'
 import { handleApiError, UnauthorizedError } from '@/lib/errors'
 
 export async function GET() {
@@ -11,14 +11,16 @@ export async function GET() {
 
     const { orgId } = session
 
-    const [snapshot, paymentQueue] = await Promise.all([
+    const [snapshot, paymentQueue, detail] = await Promise.all([
       getOrComputeSnapshot(orgId, 'AP_AGING', 30),
       getPaymentQueueData(orgId),
+      getApAgingDetailRows(orgId),
     ])
 
     return NextResponse.json({
       apAging:     snapshot.data,
       paymentQueue,
+      detail,
       isLive:      snapshot.isLive,
       snapshotAge: snapshot.snapshotAge,
     })

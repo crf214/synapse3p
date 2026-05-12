@@ -107,7 +107,7 @@ export default function RiskPage() {
             }}>
             {data.isLive ? 'Live' : `Snapshot ${data.snapshotAge}m ago`}
           </span>
-          <a href="/api/reports/export?report=risk&format=csv"
+          <a href="/api/reports/export?type=risk"
             className="text-xs font-medium px-3 py-1.5 rounded-lg"
             style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #2563eb22' }}>
             Export CSV
