@@ -64,7 +64,12 @@ function LoginPageInner() {
           </div>
 
           <div>
-            <label className="block text-sm mb-1.5" style={{ color: 'var(--muted)' }}>Password</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm" style={{ color: 'var(--muted)' }}>Password</label>
+              <Link href="/auth/forgot-password" className="text-xs underline" style={{ color: 'var(--muted)' }}>
+                Forgot password?
+              </Link>
+            </div>
             <input
               type="password" required value={password} onChange={e => setPassword(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border text-sm"
