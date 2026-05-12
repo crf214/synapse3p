@@ -11,6 +11,7 @@ import { sanitiseString } from '@/lib/security/sanitise'
 import { sendInvoiceAssignedEmail } from '@/lib/resend'
 import { writeAuditEvent } from '@/lib/audit'
 import { WorkflowEngine } from '@/lib/workflow-engine'
+import { performThreeWayMatch } from '@/lib/matching/three-way-match'
 
 const RouteInvoiceSchema = z.object({
   assignedTo: z.string().min(1),
@@ -132,9 +133,10 @@ export async function PATCH(
     if (!session.role || !APPROVE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const body = await req.json() as {
-      decision:    string
-      notes?:      string
-      escalateTo?: string   // userId, required when decision = ESCALATED
+      decision:                   string
+      notes?:                     string
+      escalateTo?:                string   // userId, required when decision = ESCALATED
+      matchOverrideJustification?: string  // CONTROLLER/CFO only — bypass failed three-way match
     }
 
     if (!body.decision || !VALID_DECISIONS.has(body.decision)) {
@@ -160,6 +162,32 @@ export async function PATCH(
     const approvalStatus =
       body.decision === 'APPROVED'  ? 'APPROVED'  :
       body.decision === 'REJECTED'  ? 'REJECTED'  : 'DELEGATED'
+
+    // Three-way match check (when invoice is linked to a PO and decision is APPROVED)
+    let matchType: 'THREE_WAY' | 'NONE' | null = null
+    if (body.decision === 'APPROVED' && invoice.poId) {
+      const matchResult = await performThreeWayMatch(invoice.poId, invoice.id, prisma)
+      matchType = matchResult.matchType
+
+      if (!matchResult.passed) {
+        const canOverride = (session.role === 'CONTROLLER' || session.role === 'CFO' || session.role === 'ADMIN')
+        const hasJustification = (body.matchOverrideJustification?.trim().length ?? 0) >= 10
+
+        if (!canOverride || !hasJustification) {
+          return NextResponse.json({
+            error: {
+              code:    'THREE_WAY_MATCH_FAILED',
+              message: matchResult.failureReason ?? 'Three-way match failed',
+              checks:  matchResult.checks,
+              po:      matchResult.po,
+              grCount: matchResult.grCount,
+            },
+          }, { status: 422 })
+        }
+        // Override allowed — matchType stays NONE; justification logged below via notes
+        matchType = 'NONE'
+      }
+    }
 
     // Collect latest risk score for context snapshot
     const latestRisk = await prisma.riskEvaluation.findFirst({
@@ -227,11 +255,17 @@ export async function PATCH(
         },
       })
 
-      // Update invoice status
+      // Update invoice status (and matchType when approving a PO-linked invoice)
       const newStatus =
         body.decision === 'APPROVED' ? 'APPROVED' :
         body.decision === 'REJECTED' ? 'REJECTED' : 'PENDING_REVIEW'
-      await tx.invoice.update({ where: { id: invoice.id }, data: { status: newStatus as never } })
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data:  {
+          status:    newStatus as never,
+          ...(body.decision === 'APPROVED' && matchType !== null ? { matchType: matchType as never } : {}),
+        },
+      })
 
       // If escalated, create a new approval for the escalation target
       if (body.decision === 'ESCALATED' && body.escalateTo) {

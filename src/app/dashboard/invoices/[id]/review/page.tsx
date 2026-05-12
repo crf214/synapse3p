@@ -38,6 +38,22 @@ interface RiskSignal {
 
 interface Approver { id: string; name: string | null; email: string; role: string }
 
+interface PoMatchResult {
+  passed:         boolean
+  matchType:      'THREE_WAY' | 'NONE'
+  grCount:        number
+  failureReason?: string
+  po?:            { id: string; poNumber: string; totalAmount: number; amountSpent: number; remainingBudget: number }
+  checks: {
+    poExists:           boolean
+    poApproved:         boolean
+    entityMatch:        boolean
+    amountWithinBudget: boolean
+    grExists:           boolean
+    quantityCovered:    boolean
+  }
+}
+
 interface InvoiceDetail {
   id:           string
   invoiceNo:    string
@@ -49,6 +65,8 @@ interface InvoiceDetail {
   source:       string
   isRecurring:  boolean
   contractId:   string | null
+  poId:         string | null
+  matchType:    string | null
   pdfSignedUrl: string | null
   entity:       { id: string; name: string; slug: string; status: string; riskBand: string | null; riskBandOverride: string | null }
   contract:     { contractNo: string; status: string; endDate: string | null; type: string } | null
@@ -248,6 +266,9 @@ export default function InvoiceReviewPage() {
   const [submittingOverride,    setSubmittingOverride]    = useState(false)
   const [overrideError,         setOverrideError]         = useState<string | null>(null)
 
+  // Three-way match override state (CONTROLLER/CFO → bypass failed match)
+  const [matchOverrideJustification, setMatchOverrideJustification] = useState('')
+
   const invoiceQueryKey = queryKeys.invoices.detail(invoiceId)
 
   const { data: invoice, isLoading: loading, isError, error } = useQuery({
@@ -287,6 +308,16 @@ export default function InvoiceReviewPage() {
       const res = await fetch(`/api/invoices/${invoiceId}/workflow`)
       if (!res.ok) return { workflow: null }
       return res.json() as Promise<{ workflow: WorkflowState | null; history?: WorkflowHistoryEntry[] }>
+    },
+  })
+
+  const { data: poMatchData } = useQuery({
+    queryKey: ['invoices', invoiceId, 'po-match'],
+    enabled:  !!invoice?.poId,
+    queryFn:  async () => {
+      const res = await fetch(`/api/invoices/${invoiceId}/po-match`)
+      if (!res.ok) return { match: null, currentMatchType: null }
+      return res.json() as Promise<{ match: PoMatchResult | null; currentMatchType: string | null }>
     },
   })
 
@@ -341,8 +372,9 @@ export default function InvoiceReviewPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           decision,
-          notes:      decisionNotes || undefined,
-          escalateTo: decision === 'ESCALATED' ? escalateTo : undefined,
+          notes:                      decisionNotes || undefined,
+          escalateTo:                 decision === 'ESCALATED' ? escalateTo : undefined,
+          matchOverrideJustification: matchOverrideJustification.trim().length >= 10 ? matchOverrideJustification.trim() : undefined,
         }),
       })
       const json = await res.json() as { error?: { message: string } }
@@ -727,6 +759,98 @@ export default function InvoiceReviewPage() {
                 <span className="text-sm" style={{ color: '#dc2626' }}>No contract matched</span>
               )}
             </div>
+
+            {/* PO Match */}
+            {invoice.poId && (
+              <div className="mb-4 p-3 rounded-lg" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+                <div className="text-xs font-medium mb-2" style={{ color: 'var(--muted)' }}>PO Match</div>
+                {!poMatchData ? (
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>Loading…</span>
+                ) : !poMatchData.match ? (
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>No PO linked</span>
+                ) : (
+                  <div className="space-y-2">
+                    {/* Overall result */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs px-2 py-0.5 rounded-full font-medium"
+                        style={{
+                          background: poMatchData.match.passed ? '#f0fdf4' : '#fef2f2',
+                          color:      poMatchData.match.passed ? '#16a34a' : '#dc2626',
+                          border:     `1px solid ${poMatchData.match.passed ? '#bbf7d0' : '#fecaca'}`,
+                        }}>
+                        {poMatchData.match.passed ? '✓ Three-way match passed' : '✗ Match failed'}
+                      </span>
+                      {poMatchData.match.po && (
+                        <span className="text-xs font-mono" style={{ color: 'var(--muted)' }}>
+                          {poMatchData.match.po.poNumber}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Failure reason */}
+                    {!poMatchData.match.passed && poMatchData.match.failureReason && (
+                      <p className="text-xs" style={{ color: '#dc2626' }}>{poMatchData.match.failureReason}</p>
+                    )}
+
+                    {/* Check grid */}
+                    <div className="grid grid-cols-2 gap-1">
+                      {(Object.entries(poMatchData.match.checks) as [string, boolean][]).map(([key, ok]) => {
+                        const labels: Record<string, string> = {
+                          poExists:           'PO exists',
+                          poApproved:         'PO approved',
+                          entityMatch:        'Entity match',
+                          amountWithinBudget: 'Within budget',
+                          grExists:           'Goods receipt',
+                          quantityCovered:    'Qty covered',
+                        }
+                        return (
+                          <div key={key} className="flex items-center gap-1.5 text-xs">
+                            <span style={{ color: ok ? '#16a34a' : '#dc2626' }}>{ok ? '✓' : '✗'}</span>
+                            <span style={{ color: ok ? 'var(--ink)' : '#dc2626' }}>{labels[key] ?? key}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Budget summary */}
+                    {poMatchData.match.po && (
+                      <div className="text-xs" style={{ color: 'var(--muted)' }}>
+                        Budget: {fmt(poMatchData.match.po.totalAmount, invoice.currency)} total ·{' '}
+                        {fmt(poMatchData.match.po.amountSpent, invoice.currency)} spent ·{' '}
+                        <span style={{ color: poMatchData.match.po.remainingBudget >= invoice.amount ? '#16a34a' : '#dc2626' }}>
+                          {fmt(poMatchData.match.po.remainingBudget, invoice.currency)} remaining
+                        </span>
+                      </div>
+                    )}
+
+                    {/* GR count */}
+                    <div className="text-xs" style={{ color: 'var(--muted)' }}>
+                      {poMatchData.match.grCount} goods receipt{poMatchData.match.grCount !== 1 ? 's' : ''} on file
+                    </div>
+
+                    {/* Override section for Controller/CFO when match failed */}
+                    {!poMatchData.match.passed && (role === 'CONTROLLER' || role === 'CFO' || role === 'ADMIN') && (
+                      <div className="mt-2 space-y-1.5 pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+                        <p className="text-xs font-medium" style={{ color: '#d97706' }}>
+                          Override match check
+                        </p>
+                        <textarea
+                          value={matchOverrideJustification}
+                          onChange={e => setMatchOverrideJustification(e.target.value)}
+                          rows={2}
+                          placeholder="Justification for approving despite failed match (min 10 chars)…"
+                          className="w-full text-xs px-2.5 py-1.5 rounded-lg border resize-none"
+                          style={{ borderColor: 'var(--border)', background: 'var(--bg)', color: 'var(--ink)' }}
+                        />
+                        <p className="text-xs" style={{ color: matchOverrideJustification.length < 10 ? '#dc2626' : '#16a34a' }}>
+                          {matchOverrideJustification.length} / 10 min — provide this justification when submitting your decision above
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Spend history chart */}
             {invoice.vendorContext.spendHistory.length > 1 && (

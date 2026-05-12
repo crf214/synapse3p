@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import type { StepResult, Condition, ConditionOperator } from '../types'
 import { evaluateConditions } from '../condition-evaluator'
+import { performThreeWayMatch } from '@/lib/matching/three-way-match'
 
 interface SideEffect {
   action: string
@@ -16,6 +17,32 @@ export async function handleAutoRuleStep(
 ): Promise<StepResult> {
   const conditions = (config.conditions ?? []) as Condition[]
   const operator   = (config.operator ?? 'AND') as ConditionOperator
+
+  // Special async condition: three-way match check
+  // Use { field: '__THREE_WAY_MATCH__', operator: 'eq', value: true } in workflow config
+  const hasThreeWayMatchCondition = conditions.some(c => c.field === '__THREE_WAY_MATCH__')
+  if (hasThreeWayMatchCondition) {
+    if (!prisma) {
+      return { status: 'COMPLETED', result: 'FAIL', error: 'Prisma not available for three-way match check' }
+    }
+    const invoiceId = context.targetObjectId as string | undefined
+    if (!invoiceId) {
+      return { status: 'COMPLETED', result: 'FAIL', error: 'No targetObjectId in context for three-way match' }
+    }
+    const invoice = await prisma.invoice.findUnique({
+      where:  { id: invoiceId },
+      select: { poId: true },
+    })
+    if (!invoice?.poId) {
+      return { status: 'COMPLETED', result: 'FAIL', metadata: { reason: 'No PO linked to invoice' } }
+    }
+    const matchResult = await performThreeWayMatch(invoice.poId, invoiceId, prisma)
+    return {
+      status:   'COMPLETED',
+      result:   matchResult.passed ? 'PASS' : 'FAIL',
+      metadata: { matchChecks: matchResult.checks, failureReason: matchResult.failureReason },
+    }
+  }
 
   const passed = evaluateConditions(conditions, operator, context)
 
