@@ -39,19 +39,22 @@ export async function GET(req: NextRequest) {
         select: {
           id: true, title: true, docType: true, status: true,
           eSignStatus: true, expiresAt: true, createdAt: true,
+          storageRef: true, storageBucket: true, mimeType: true,
         },
       }),
     ])
 
     return NextResponse.json({
       documents: documents.map(d => ({
-        id:          d.id,
-        title:       d.title,
-        docType:     d.docType,
-        status:      d.status,
-        eSignStatus: d.eSignStatus,
-        expiresAt:   d.expiresAt?.toISOString()  ?? null,
-        createdAt:   d.createdAt.toISOString(),
+        id:            d.id,
+        title:         d.title,
+        docType:       d.docType,
+        status:        d.status,
+        eSignStatus:   d.eSignStatus,
+        expiresAt:     d.expiresAt?.toISOString()  ?? null,
+        createdAt:     d.createdAt.toISOString(),
+        hasFile:       Boolean(d.storageRef),
+        mimeType:      d.mimeType,
       })),
       total,
     })

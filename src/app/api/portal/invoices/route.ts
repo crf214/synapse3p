@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       ...(status ? { status: status as never } : {}),
     }
 
-    const [total, invoices] = await Promise.all([
+    const [total, invoices, statusRows] = await Promise.all([
       prisma.invoice.count({ where }),
       prisma.invoice.findMany({
         where,
@@ -42,7 +42,39 @@ export async function GET(req: NextRequest) {
           status: true, invoiceDate: true, dueDate: true, createdAt: true,
         },
       }),
+      // Aggregate counts by status (always, for the home dashboard)
+      prisma.invoice.groupBy({
+        by:    ['status'],
+        where: { entityId: rel.entityId, orgId: rel.orgId },
+        _count: { _all: true },
+      }),
     ])
+
+    const invoiceIds = invoices.map(i => i.id)
+
+    // Detect which invoices have open disputes (EntityActivityLog entries)
+    const disputedInvoiceIds = invoiceIds.length > 0
+      ? await prisma.entityActivityLog.findMany({
+          where: {
+            orgId:         rel.orgId,
+            entityId:      rel.entityId,
+            referenceType: 'Invoice',
+            activityType:  'NOTE',
+            referenceId:   { in: invoiceIds },
+            metadata:      { path: ['type'], equals: 'VENDOR_DISPUTE' },
+          },
+          select: { referenceId: true },
+          distinct: ['referenceId'],
+        })
+      : []
+
+    const disputedSet = new Set(disputedInvoiceIds.map(d => d.referenceId).filter(Boolean) as string[])
+
+    // Build status counts map
+    const statusCounts: Record<string, number> = {}
+    for (const row of statusRows) {
+      statusCounts[row.status] = row._count._all
+    }
 
     return NextResponse.json({
       invoices: invoices.map(i => ({
@@ -51,8 +83,10 @@ export async function GET(req: NextRequest) {
         invoiceDate: i.invoiceDate?.toISOString() ?? null,
         dueDate:     i.dueDate?.toISOString()     ?? null,
         createdAt:   i.createdAt.toISOString(),
+        hasDispute:  disputedSet.has(i.id),
       })),
       total,
+      statusCounts,
     })
   } catch (err) {
     return handleApiError(err, 'GET /api/portal/invoices')
