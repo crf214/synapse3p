@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/recurring-invoices",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/fx-rates",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/review-cadence-check",
+      "schedule": "0 8 * * 1"
     }
   ],
   "headers": [

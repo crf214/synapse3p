@@ -115,6 +115,15 @@ export async function GET(req: NextRequest) {
 
   console.log(`[cron/recurring-invoices] processed=${dueSchedules.length} created=${created} errors=${errors.length}`)
 
+  void writeAuditEvent(prisma, {
+    actorId:    'cron',
+    orgId:      'system',
+    action:     'CRON_RUN',
+    objectType: 'SYSTEM',
+    objectId:   'cron:recurring-invoices',
+    after:      { cronName: 'recurring-invoices', processed: dueSchedules.length, created, errors: errors.length },
+  })
+
   return NextResponse.json({
     processed: dueSchedules.length,
     created,

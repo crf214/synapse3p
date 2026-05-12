@@ -23,6 +23,7 @@ export type AuditAction =
   | 'RECONCILE'
   | 'LOGIN'
   | 'LOGOUT'
+  | 'CRON_RUN'
 
 export type AuditObjectType =
   | 'ENTITY'
@@ -46,6 +47,7 @@ export type AuditObjectType =
   | 'BANK_ACCOUNT'
   | 'SERVICE_CATALOGUE'
   | 'WORKFLOW_TEMPLATE'
+  | 'SYSTEM'
 
 export interface AuditEventInput {
   actorId:    string
