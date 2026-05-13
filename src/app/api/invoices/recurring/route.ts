@@ -6,6 +6,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { APPROVAL_ROLES, FINANCE_ROLES } from '@/lib/security/roles'
 
 const CreateRecurringScheduleSchema = z.object({
   entityId:        z.string().min(1),
@@ -20,8 +21,8 @@ const CreateRecurringScheduleSchema = z.object({
   tolerancePct:    z.number().optional(),
 })
 
-const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
-const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const READ_ROLES  = FINANCE_ROLES
+const WRITE_ROLES = APPROVAL_ROLES
 
 const VALID_FREQUENCIES = new Set(['DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'])
 

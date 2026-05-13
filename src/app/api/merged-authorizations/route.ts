@@ -8,6 +8,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { FINANCE_ROLES } from '@/lib/security/roles'
 
 const CreateMergedAuthorizationSchema = z.object({
   items: z.array(z.object({
@@ -17,7 +18,7 @@ const CreateMergedAuthorizationSchema = z.object({
   notes: z.string().optional(),
 })
 
-const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
+const ALLOWED_ROLES = FINANCE_ROLES
 const CREATE_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
 
 export async function GET(req: NextRequest) {

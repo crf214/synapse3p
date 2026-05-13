@@ -217,6 +217,6 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     throw new ValidationError('Unhandled type')
   } catch (err) {
-    return handleApiError(err, "")
+    return handleApiError(err, 'POST /api/approvals/[id]/decide')
   }
 }

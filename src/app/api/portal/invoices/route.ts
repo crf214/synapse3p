@@ -5,8 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from '@/lib/errors'
-
-const PORTAL_ROLES = new Set(['VENDOR', 'CLIENT'])
+import { PORTAL_ROLES } from '@/lib/security/roles'
 
 export async function GET(req: NextRequest) {
   try {
@@ -30,7 +29,9 @@ export async function GET(req: NextRequest) {
       ...(status ? { status: status as never } : {}),
     }
 
-    const [total, invoices, statusRows] = await Promise.all([
+    const entityFilter = { entityId: rel.entityId, orgId: rel.orgId }
+
+    const [total, invoices, statusRows, allDisputedRows] = await Promise.all([
       prisma.invoice.count({ where }),
       prisma.invoice.findMany({
         where,
@@ -45,30 +46,25 @@ export async function GET(req: NextRequest) {
       // Aggregate counts by status (always, for the home dashboard)
       prisma.invoice.groupBy({
         by:    ['status'],
-        where: { entityId: rel.entityId, orgId: rel.orgId },
+        where: entityFilter,
         _count: { _all: true },
+      }),
+      // Dedicated total dispute count — not scoped to current page
+      prisma.entityActivityLog.findMany({
+        where: {
+          ...entityFilter,
+          referenceType: 'Invoice',
+          activityType:  'NOTE',
+          metadata:      { path: ['type'], equals: 'VENDOR_DISPUTE' },
+        },
+        select:   { referenceId: true },
+        distinct: ['referenceId'],
       }),
     ])
 
-    const invoiceIds = invoices.map(i => i.id)
-
-    // Detect which invoices have open disputes (EntityActivityLog entries)
-    const disputedInvoiceIds = invoiceIds.length > 0
-      ? await prisma.entityActivityLog.findMany({
-          where: {
-            orgId:         rel.orgId,
-            entityId:      rel.entityId,
-            referenceType: 'Invoice',
-            activityType:  'NOTE',
-            referenceId:   { in: invoiceIds },
-            metadata:      { path: ['type'], equals: 'VENDOR_DISPUTE' },
-          },
-          select: { referenceId: true },
-          distinct: ['referenceId'],
-        })
-      : []
-
-    const disputedSet = new Set(disputedInvoiceIds.map(d => d.referenceId).filter(Boolean) as string[])
+    const invoiceIds  = invoices.map(i => i.id)
+    const disputedSet = new Set(allDisputedRows.map(d => d.referenceId).filter(Boolean) as string[])
+    const disputeTotal = disputedSet.size
 
     // Build status counts map
     const statusCounts: Record<string, number> = {}
@@ -83,9 +79,10 @@ export async function GET(req: NextRequest) {
         invoiceDate: i.invoiceDate?.toISOString() ?? null,
         dueDate:     i.dueDate?.toISOString()     ?? null,
         createdAt:   i.createdAt.toISOString(),
-        hasDispute:  disputedSet.has(i.id),
+        hasDispute:  invoiceIds.includes(i.id) && disputedSet.has(i.id),
       })),
       total,
+      disputeTotal,
       statusCounts,
     })
   } catch (err) {

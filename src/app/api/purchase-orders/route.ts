@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
 import { WorkflowEngine, selectTemplate } from '@/lib/workflow-engine'
+import { FINANCE_ROLES, WRITE_ROLES } from '@/lib/security/roles'
 
 const LineItemSchema = z.object({
   description: z.string().min(1),
@@ -39,9 +40,7 @@ const CreatePurchaseOrderSchema = z.object({
   lineItems:             z.array(LineItemSchema).min(1),
 })
 
-const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
-const WRITE_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
-
+const READ_ROLES  = FINANCE_ROLES
 const VALID_STATUSES = new Set([
   'DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED',
   'PARTIALLY_RECEIVED', 'FULLY_RECEIVED', 'INVOICED', 'CLOSED', 'CANCELLED',

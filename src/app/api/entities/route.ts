@@ -6,6 +6,7 @@ import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } fr
 import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
 import { WorkflowEngine, selectTemplate } from '@/lib/workflow-engine'
+import { FINANCE_ROLES } from '@/lib/security/roles'
 
 // All valid EntityType values (must stay in sync with prisma/schema.prisma EntityType enum)
 const ENTITY_TYPE_VALUES = ['VENDOR', 'CONTRACTOR', 'BROKER', 'PLATFORM', 'FUND_SVC_PROVIDER', 'OTHER'] as const
@@ -24,7 +25,7 @@ const CreateEntitySchema = z.object({
   entityType:        z.enum(ENTITY_TYPE_VALUES).optional(),
 })
 
-const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
+const READ_ROLES  = FINANCE_ROLES
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER'])
 
 const DEFAULT_LIMIT = 50

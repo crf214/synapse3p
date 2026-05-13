@@ -6,8 +6,8 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from '@/lib/errors'
 import { supabaseAdmin } from '@/lib/supabase'
+import { PORTAL_ROLES } from '@/lib/security/roles'
 
-const PORTAL_ROLES   = new Set(['VENDOR', 'CLIENT'])
 const INVOICE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? process.env.INVOICES_BUCKET ?? 'synapse3p-files'
 
 type Params = { params: Promise<{ id: string }> }

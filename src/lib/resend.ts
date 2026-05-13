@@ -5,7 +5,18 @@ import { Resend } from 'resend'
 // Client (singleton)
 // ---------------------------------------------------------------------------
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazy initialisation — avoids throwing at import time when RESEND_API_KEY is
+// not set (e.g., in test environments). Functions guard against missing key.
+let _resend: Resend | null = null
+function getResend(): Resend {
+  if (!_resend) {
+    if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY is not set')
+    _resend = new Resend(process.env.RESEND_API_KEY)
+  }
+  return _resend
+}
+/** @deprecated use getResend() internally; kept for back-compat */ // eslint-disable-next-line
+const resend = { emails: { send: (...args: Parameters<Resend['emails']['send']>) => getResend().emails.send(...args) } }
 
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'invoices@synapse3p.com'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'

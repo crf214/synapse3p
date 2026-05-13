@@ -6,8 +6,9 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError } from '@/lib/errors'
 import { Prisma } from '@prisma/client'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { FINANCE_ROLES } from '@/lib/security/roles'
 
-const READ_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
+const READ_ROLES = FINANCE_ROLES
 const DEFAULT_LIMIT = 50
 const MAX_LIMIT     = 100
 

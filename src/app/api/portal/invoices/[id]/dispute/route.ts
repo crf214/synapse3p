@@ -8,13 +8,12 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { PORTAL_ROLES } from '@/lib/security/roles'
 
 const CreateDisputeSchema = z.object({
   disputeType: z.string().optional(),
   reason:      z.string().optional(),
 })
-
-const PORTAL_ROLES = new Set(['VENDOR', 'CLIENT'])
 
 const VALID_DISPUTE_TYPES = new Set([
   'INCORRECT_AMOUNT',

@@ -19,6 +19,7 @@ import type { SignalSeverity } from '@prisma/client'
 import { safeExternalFetch } from '@/lib/security/outbound'
 import { sanitiseStockData } from '@/lib/security/sanitise'
 import { fetchAndStorePrices, backfillHistory, getLatestPrice } from '@/lib/stocks/StockPriceService'
+import { writeAuditEvent } from '@/lib/audit'
 
 // ---------------------------------------------------------------------------
 // Load .env.local in development
@@ -165,6 +166,22 @@ async function processStock(
 
   console.log(`    [stock] ${severity}: ${title}`)
 
+  // Audit log — record signal creation for compliance trail
+  await writeAuditEvent(prisma, {
+    actorId:    'system',
+    orgId,
+    action:     'CREATE',
+    objectType: 'EXTERNAL_SIGNAL',
+    objectId:   entityId,
+    after: {
+      signalType:  'STOCK_PRICE',
+      severity,
+      ticker,
+      source:      'Yahoo Finance',
+      signalCount: 1,
+    },
+  })
+
   // Send email alerts to configured recipients (if any)
   if (alertRecipientIds.length > 0) {
     const users = await prisma.user.findMany({
@@ -196,6 +213,12 @@ async function processStock(
 // ---------------------------------------------------------------------------
 async function main() {
   console.log('Synapse3P External Signals Batch — Stock Price Monitoring\n')
+
+  // Require secret to be set — prevents accidental runs without auth
+  if (!process.env.EXTERNAL_SIGNALS_SECRET) {
+    console.error('ERROR: EXTERNAL_SIGNALS_SECRET env var is not set. Aborting.')
+    process.exit(1)
+  }
 
   // Find all entities that have a stock ticker set; no separate config required
   const entities = await prisma.entity.findMany({

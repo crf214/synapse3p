@@ -6,8 +6,9 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { FINANCE_ROLES } from '@/lib/security/roles'
 
-const READ_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
+const READ_ROLES = FINANCE_ROLES
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {

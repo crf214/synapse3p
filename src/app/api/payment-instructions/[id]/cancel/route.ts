@@ -9,12 +9,13 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
 const CancelPaymentInstructionSchema = z.object({
   reason: z.string().min(1),
 })
 
-const CANCEL_ROLES = new Set(['ADMIN', 'CONTROLLER', 'CFO', 'FINANCE_MANAGER'])
+const CANCEL_ROLES = APPROVAL_ROLES
 
 type Params = { params: Promise<{ id: string }> }
 

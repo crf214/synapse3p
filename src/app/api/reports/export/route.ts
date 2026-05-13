@@ -11,12 +11,13 @@ import {
   ValidationError,
   ForbiddenError,
 } from '@/lib/errors'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
 
-const FINANCE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const FINANCE_ROLES = APPROVAL_ROLES
 
 // ---------------------------------------------------------------------------
 // CSV helpers

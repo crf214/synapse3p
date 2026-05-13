@@ -9,13 +9,14 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { FINANCE_ROLES } from '@/lib/security/roles'
 
 const UpdateMergedAuthorizationSchema = z.object({
   name:  z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
 })
 
-const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
+const ALLOWED_ROLES = FINANCE_ROLES
 const EDIT_ROLES    = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
 
 type Params = { params: Promise<{ id: string }> }

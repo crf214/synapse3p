@@ -20,6 +20,7 @@ import {
 } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { Prisma } from '@prisma/client'
+import { WRITE_ROLES } from '@/lib/security/roles'
 
 const RequestAmendmentSchema = z.object({
   changes: z.record(z.object({ from: z.unknown(), to: z.unknown() })),
@@ -32,7 +33,7 @@ const ReviewAmendmentSchema = z.object({
   rejectionReason: z.string().optional(),
 })
 
-const AMEND_ROLES   = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const AMEND_ROLES   = WRITE_ROLES
 const APPROVE_ROLES = new Set(['ADMIN', 'CONTROLLER', 'CFO'])
 
 type Params = { params: Promise<{ id: string }> }

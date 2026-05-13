@@ -6,8 +6,9 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
-const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const ALLOWED_ROLES = APPROVAL_ROLES
 
 const UpdateTemplateSchema = z.object({
   name:        z.string().min(1).max(200).optional(),

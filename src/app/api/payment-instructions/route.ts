@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
+import { FINANCE_ROLES } from '@/lib/security/roles'
 
 const CreatePaymentInstructionSchema = z.object({
   invoiceId:     z.string().min(1),
@@ -20,7 +21,7 @@ const CreatePaymentInstructionSchema = z.object({
   notes:         z.string().optional().nullable(),
 })
 
-const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
+const READ_ROLES  = FINANCE_ROLES
 const WRITE_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
 
 export async function GET(req: NextRequest) {

@@ -15,13 +15,14 @@ import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, Valid
 import { sendPODecisionEmail } from '@/lib/resend'
 import { writeAuditEvent } from '@/lib/audit'
 import { WorkflowEngine } from '@/lib/workflow-engine'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
 const ApprovePurchaseOrderSchema = z.object({
   decision: z.string().min(1),
   comments: z.string().optional(),
 })
 
-const APPROVER_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const APPROVER_ROLES = APPROVAL_ROLES
 
 export async function POST(
   req: NextRequest,

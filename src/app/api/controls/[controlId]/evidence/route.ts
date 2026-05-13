@@ -3,8 +3,9 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { AUDIT_ROLES } from '@/lib/security/roles'
 
-const READ_ROLES  = new Set(['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'])
+const READ_ROLES  = AUDIT_ROLES
 const WRITE_ROLES = new Set(['ADMIN', 'CFO', 'CONTROLLER'])
 
 const DEFAULT_LIMIT = 20

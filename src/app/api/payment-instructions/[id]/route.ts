@@ -6,6 +6,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { FINANCE_ROLES } from '@/lib/security/roles'
 
 const UpdatePaymentInstructionSchema = z.object({
   bankAccountId: z.string().optional(),
@@ -19,7 +20,7 @@ const UpdatePaymentInstructionSchema = z.object({
   changeReason:  z.string().optional(),
 })
 
-const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
+const READ_ROLES  = FINANCE_ROLES
 const WRITE_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
 
 type Params = { params: Promise<{ id: string }> }

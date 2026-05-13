@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { getOrComputeSnapshot } from '@/lib/reporting/snapshots'
 import { handleApiError, UnauthorizedError, ForbiddenError } from '@/lib/errors'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
-const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const ALLOWED_ROLES = APPROVAL_ROLES
 
 export async function GET() {
   try {

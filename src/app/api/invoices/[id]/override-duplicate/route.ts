@@ -9,6 +9,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
 const OverrideDuplicateSchema = z.object({
   flagId:        z.string().min(1),
@@ -16,7 +17,7 @@ const OverrideDuplicateSchema = z.object({
 })
 
 // Only senior roles may override a duplicate quarantine — this is a financial control.
-const OVERRIDE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const OVERRIDE_ROLES = APPROVAL_ROLES
 
 export async function POST(
   req: NextRequest,

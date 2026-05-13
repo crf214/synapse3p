@@ -3,8 +3,9 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { getErpAdapter } from '@/lib/erp'
 import { handleApiError, UnauthorizedError, ForbiddenError } from '@/lib/errors'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
-const READ_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const READ_ROLES = APPROVAL_ROLES
 
 export async function GET() {
   try {

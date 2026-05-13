@@ -47,6 +47,7 @@ export type AuditObjectType =
   | 'BANK_ACCOUNT'
   | 'SERVICE_CATALOGUE'
   | 'WORKFLOW_TEMPLATE'
+  | 'EXTERNAL_SIGNAL'
   | 'SYSTEM'
 
 export interface AuditEventInput {

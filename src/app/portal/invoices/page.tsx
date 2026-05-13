@@ -50,12 +50,13 @@ export default function PortalInvoicesPage() {
       if (status) p.set('status', status)
       const res = await fetch(`/api/portal/invoices?${p}`)
       if (!res.ok) throw new Error()
-      return res.json() as Promise<{ invoices: InvoiceRow[]; total: number }>
+      return res.json() as Promise<{ invoices: InvoiceRow[]; total: number; disputeTotal: number }>
     },
   })
 
-  const rows  = data?.invoices ?? []
-  const total = data?.total    ?? 0
+  const rows         = data?.invoices      ?? []
+  const total        = data?.total         ?? 0
+  const disputeTotal = data?.disputeTotal  ?? 0
 
   const STATUSES = ['', 'RECEIVED', 'PENDING_APPROVAL', 'APPROVED', 'MATCHED', 'PAID', 'REJECTED']
 
@@ -63,7 +64,15 @@ export default function PortalInvoicesPage() {
     <div className="p-8 max-w-4xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold" style={{ color: 'var(--ink)' }}>My Invoices</h1>
-        <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>{total} invoice{total !== 1 ? 's' : ''}</p>
+        <p className="text-sm mt-0.5" style={{ color: 'var(--muted)' }}>
+          {total} invoice{total !== 1 ? 's' : ''}
+          {disputeTotal > 0 && (
+            <span className="ml-2 text-xs font-medium px-2 py-0.5 rounded-full"
+              style={{ background: '#fef2f2', color: '#dc2626' }}>
+              {disputeTotal} disputed
+            </span>
+          )}
+        </p>
       </div>
 
       {/* Status tabs */}

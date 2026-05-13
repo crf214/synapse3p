@@ -6,6 +6,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
 const UpdateRecurringScheduleSchema = z.object({
   name:           z.string().optional(),
@@ -20,7 +21,7 @@ const UpdateRecurringScheduleSchema = z.object({
   isActive:       z.boolean().optional(),
 })
 
-const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const WRITE_ROLES = APPROVAL_ROLES
 const VALID_FREQUENCIES = new Set(['DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL'])
 
 export async function PUT(

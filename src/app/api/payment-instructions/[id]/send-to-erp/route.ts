@@ -8,8 +8,9 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { executePaymentExecution } from '@/lib/payments/execution-runner'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
-const SUBMIT_ROLES = new Set(['ADMIN', 'CONTROLLER', 'CFO', 'FINANCE_MANAGER'])
+const SUBMIT_ROLES = APPROVAL_ROLES
 
 const RAIL_MAP: Record<string, 'ERP' | 'BANK_API' | 'STRIPE'> = {
   ACH:      'BANK_API',

@@ -5,8 +5,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError } from '@/lib/errors'
+import { AUDIT_ROLES } from '@/lib/security/roles'
 
-const ALLOWED_ROLES = new Set(['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'])
+const ALLOWED_ROLES = AUDIT_ROLES
 
 export async function GET(req: NextRequest) {
   try {

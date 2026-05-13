@@ -20,6 +20,7 @@ import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from
 import { sanitiseString } from '@/lib/security/sanitise'
 import { supabaseAdmin } from '@/lib/supabase'
 import { writeAuditEvent } from '@/lib/audit'
+import { FINANCE_ROLES, WRITE_ROLES } from '@/lib/security/roles'
 
 const UpdateInvoiceSchema = z.object({
   fieldCorrections: z.array(z.object({
@@ -31,8 +32,7 @@ const UpdateInvoiceSchema = z.object({
   notes:       z.string().optional(),
 })
 
-const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
-const WRITE_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const READ_ROLES  = FINANCE_ROLES
 const INVOICE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? process.env.INVOICES_BUCKET ?? 'synapse3p-files'
 
 // ---------------------------------------------------------------------------

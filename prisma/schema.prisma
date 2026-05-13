@@ -237,9 +237,6 @@ model Entity {
   invoices                  Invoice[]
   externalSignalConfigs     ExternalSignalConfig[]
   externalSignals           ExternalSignal[]
-  // Retained for historical data — reads replaced with direct queries in Phase 1B. Safe to drop in future if table is empty.
-  vendorSpendSnapshots      VendorSpendSnapshot[]
-
   @@map("entities")
 }
 
@@ -1801,28 +1798,6 @@ model MergedAuthItem {
 
   @@index([mergedAuthId])
   @@map("merged_auth_items")
-}
-
-// Monthly spend snapshot per vendor/org pair for fast history queries.
-// Retained for historical data — reads replaced with direct queries in Phase 1B. Safe to drop in future if table is empty.
-model VendorSpendSnapshot {
-  id           String   @id @default(cuid())
-  entityId     String
-  orgId        String
-  period       String   // "YYYY-MM"
-  invoiceCount Int
-  totalAmount  Decimal  @db.Decimal(18, 4)
-  avgAmount    Decimal  @db.Decimal(18, 4)
-  minAmount    Decimal  @db.Decimal(18, 4)
-  maxAmount    Decimal  @db.Decimal(18, 4)
-  currency     String
-  computedAt   DateTime @default(now())
-
-  entity       Entity   @relation(fields: [entityId], references: [id])
-
-  @@unique([entityId, orgId, period, currency])
-  @@index([entityId, orgId, period])
-  @@map("vendor_spend_snapshots")
 }
 
 // ============================================================

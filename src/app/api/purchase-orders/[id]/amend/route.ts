@@ -9,6 +9,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { WRITE_ROLES } from '@/lib/security/roles'
 
 const AmendPurchaseOrderSchema = z.object({
   reason: z.string().min(1),
@@ -21,7 +22,7 @@ const AmendPurchaseOrderSchema = z.object({
   }),
 })
 
-const AMEND_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const AMEND_ROLES = WRITE_ROLES
 const AMENDABLE   = new Set(['APPROVED', 'PARTIALLY_RECEIVED'])
 
 export async function POST(

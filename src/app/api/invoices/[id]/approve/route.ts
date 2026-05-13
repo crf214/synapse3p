@@ -12,14 +12,15 @@ import { sendInvoiceAssignedEmail } from '@/lib/resend'
 import { writeAuditEvent } from '@/lib/audit'
 import { WorkflowEngine } from '@/lib/workflow-engine'
 import { performThreeWayMatch } from '@/lib/matching/three-way-match'
+import { APPROVAL_ROLES, WRITE_ROLES } from '@/lib/security/roles'
 
 const RouteInvoiceSchema = z.object({
   assignedTo: z.string().min(1),
   notes:      z.string().optional(),
 })
 
-const ROUTE_ROLES   = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
-const APPROVE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const ROUTE_ROLES   = WRITE_ROLES
+const APPROVE_ROLES = APPROVAL_ROLES
 const VALID_DECISIONS = new Set(['APPROVED', 'REJECTED', 'ESCALATED'])
 
 // ---------------------------------------------------------------------------

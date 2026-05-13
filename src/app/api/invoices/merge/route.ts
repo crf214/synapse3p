@@ -8,6 +8,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
 const MergeInvoicesSchema = z.object({
   invoiceIds: z.array(z.string()).min(2),
@@ -15,7 +16,7 @@ const MergeInvoicesSchema = z.object({
   notes:      z.string().optional(),
 })
 
-const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const ALLOWED_ROLES = APPROVAL_ROLES
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
   try {

@@ -7,9 +7,10 @@ import { writeAuditEvent } from '@/lib/audit'
 import { resolveStepDependencies, DependencyType } from '@/lib/workflow/resolve-dependencies'
 import { updateEntityRisk } from '@/lib/risk/update-entity-risk'
 import { WorkflowEngine, selectTemplate } from '@/lib/workflow-engine'
+import { APPROVAL_ROLES, FINANCE_ROLES } from '@/lib/security/roles'
 
-const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
-const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const READ_ROLES  = FINANCE_ROLES
+const WRITE_ROLES = APPROVAL_ROLES
 
 const LEGAL_STRUCTURES = new Set(['INDIVIDUAL', 'COMPANY', 'FUND', 'TRUST', 'GOVERNMENT', 'OTHER'])
 const ENTITY_STATUSES  = new Set(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_REVIEW', 'OFFBOARDED', 'PROVISIONAL'])

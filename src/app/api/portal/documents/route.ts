@@ -5,8 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from '@/lib/errors'
-
-const PORTAL_ROLES = new Set(['VENDOR', 'CLIENT'])
+import { PORTAL_ROLES } from '@/lib/security/roles'
 
 export async function GET(req: NextRequest) {
   try {

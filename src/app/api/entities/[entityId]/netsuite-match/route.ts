@@ -4,8 +4,9 @@ import { prisma } from '@/lib/prisma'
 import { getErpAdapter } from '@/lib/erp'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
-const READ_ROLES  = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const READ_ROLES  = APPROVAL_ROLES
 const WRITE_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER'])
 
 // ---------------------------------------------------------------------------

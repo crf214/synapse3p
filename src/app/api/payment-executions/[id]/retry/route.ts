@@ -6,8 +6,9 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from '@/lib/errors'
 import { retryExecution } from '@/lib/payments/execution-runner'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
-const RETRY_ROLES = new Set(['ADMIN', 'CONTROLLER', 'CFO', 'FINANCE_MANAGER'])
+const RETRY_ROLES = APPROVAL_ROLES
 
 type Params = { params: Promise<{ id: string }> }
 

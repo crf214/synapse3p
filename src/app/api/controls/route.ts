@@ -3,8 +3,9 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { runAllControls } from '@/lib/controls/ControlTestRunner'
 import { handleApiError, UnauthorizedError, ForbiddenError } from '@/lib/errors'
+import { AUDIT_ROLES } from '@/lib/security/roles'
 
-const READ_ROLES  = new Set(['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'])
+const READ_ROLES  = AUDIT_ROLES
 const WRITE_ROLES = new Set(['ADMIN'])
 
 export async function GET() {

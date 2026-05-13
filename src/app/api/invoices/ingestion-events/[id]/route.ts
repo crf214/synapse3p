@@ -7,8 +7,9 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from '@/lib/errors'
 import { runInvoicePipeline } from '@/lib/invoice-pipeline'
 import { supabaseAdmin } from '@/lib/supabase'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
-const ALLOWED_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const ALLOWED_ROLES = APPROVAL_ROLES
 const INVOICE_BUCKET = process.env.INVOICES_BUCKET ?? 'invoices'
 
 type Params = { params: Promise<{ id: string }> }

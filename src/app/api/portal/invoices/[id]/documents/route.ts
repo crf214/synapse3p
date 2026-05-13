@@ -6,8 +6,8 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { supabaseAdmin } from '@/lib/supabase'
+import { PORTAL_ROLES } from '@/lib/security/roles'
 
-const PORTAL_ROLES   = new Set(['VENDOR', 'CLIENT'])
 const STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? 'synapse3p-files'
 const MAX_SIZE_BYTES = 20 * 1024 * 1024   // 20 MB
 

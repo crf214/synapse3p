@@ -6,8 +6,8 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { supabaseAdmin } from '@/lib/supabase'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from '@/lib/errors'
+import { PORTAL_ROLES } from '@/lib/security/roles'
 
-const PORTAL_ROLES  = new Set(['VENDOR', 'CLIENT'])
 const SIGNED_TTL_S  = 300   // 5-minute signed URL
 
 type Params = { params: Promise<{ id: string }> }

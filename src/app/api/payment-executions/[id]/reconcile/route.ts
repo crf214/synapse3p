@@ -7,8 +7,9 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError } from '@/lib/errors'
 import { reconcileExecution } from '@/lib/payments/execution-runner'
+import { APPROVAL_ROLES } from '@/lib/security/roles'
 
-const RECONCILE_ROLES = new Set(['ADMIN', 'CONTROLLER', 'CFO', 'FINANCE_MANAGER'])
+const RECONCILE_ROLES = APPROVAL_ROLES
 
 type Params = { params: Promise<{ id: string }> }
 

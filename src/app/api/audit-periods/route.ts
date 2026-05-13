@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
+import { AUDIT_ROLES } from '@/lib/security/roles'
 
 const CreateAuditPeriodSchema = z.object({
   name:        z.string().min(1),
@@ -12,7 +13,7 @@ const CreateAuditPeriodSchema = z.object({
   periodEnd:   z.string().min(1),
 })
 
-const READ_ROLES  = new Set(['ADMIN', 'CFO', 'CONTROLLER', 'AUDITOR'])
+const READ_ROLES  = AUDIT_ROLES
 const WRITE_ROLES = new Set(['ADMIN', 'CFO', 'CONTROLLER'])
 
 export async function GET() {

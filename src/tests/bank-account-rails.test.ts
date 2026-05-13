@@ -79,6 +79,8 @@ const CREATED_ACCOUNT = {
 describe('Bank account multi-rail validation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // Provide a deterministic test key (64 hex chars = 32 bytes AES-256)
+    process.env.FIELD_ENCRYPTION_KEY = 'a'.repeat(64)
     mockPrisma.entity.findFirst.mockResolvedValue(ENTITY)
     mockPrisma.entityBankAccount.count.mockResolvedValue(0)
     mockPrisma.entityBankAccount.create.mockResolvedValue(CREATED_ACCOUNT)

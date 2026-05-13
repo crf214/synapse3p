@@ -11,8 +11,9 @@ import { supabaseAdmin } from '@/lib/supabase'
 import { computeFingerprint, checkPreExtractionDuplicates, runInvoicePipeline } from '@/lib/invoice-pipeline'
 import { writeAuditEvent } from '@/lib/audit'
 import { WorkflowEngine, selectTemplate } from '@/lib/workflow-engine'
+import { WRITE_ROLES } from '@/lib/security/roles'
 
-const ALLOWED_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const ALLOWED_ROLES  = WRITE_ROLES
 const INVOICE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET ?? process.env.INVOICES_BUCKET ?? 'synapse3p-files'
 const MAX_SIZE_BYTES = 20 * 1024 * 1024   // 20 MB
 

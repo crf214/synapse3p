@@ -10,8 +10,9 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { writeAuditEvent } from '@/lib/audit'
+import { WRITE_ROLES } from '@/lib/security/roles'
 
-const SUBMIT_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
+const SUBMIT_ROLES = WRITE_ROLES
 
 export async function POST(
   _req: NextRequest,
