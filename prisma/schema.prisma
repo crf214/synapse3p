@@ -1736,6 +1736,7 @@ model InvoiceApproval {
   @@index([invoiceId])
   @@index([assignedTo, status])
   @@index([orgId, status])
+  @@index([assignedTo, orgId, status])
   @@map("invoice_approvals")
 }
 
@@ -1940,6 +1941,7 @@ model WorkflowInstance {
 
   @@index([targetObjectType, targetObjectId])
   @@index([status])
+  @@index([orgId, targetObjectType, targetObjectId, status])
   @@map("workflow_instances")
 }
 
@@ -1961,6 +1963,7 @@ model WorkflowStepInstance {
   stepDefinition     WorkflowStepDefinition @relation(fields: [stepDefinitionId], references: [id])
   dependencies       StepDependency[]
 
+  @@index([workflowInstanceId, status])
   @@map("workflow_step_instances")
 }
 

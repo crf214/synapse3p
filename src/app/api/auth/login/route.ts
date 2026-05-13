@@ -34,12 +34,25 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Your account has been deactivated. Contact your administrator.' }, { status: 403 })
     }
 
+    // H1: Require org membership before creating a session. Prevents sessions
+    // with undefined orgId from ever being issued.
+    const orgMember = await prisma.orgMember.findFirst({
+      where:  { userId: user.id },
+      select: { orgId: true, role: true },
+    })
+    if (!orgMember) {
+      return NextResponse.json(
+        { error: 'Your account is not associated with an organisation. Contact your administrator.' },
+        { status: 403 },
+      )
+    }
+
     const session = await getSession()
     session.userId   = user.id
     session.email    = user.email
     session.name     = user.name
-    session.orgId    = user.orgId ?? undefined
-    session.role     = user.role ?? undefined
+    session.orgId    = orgMember.orgId
+    session.role     = orgMember.role ?? user.role ?? undefined
     session.issuedAt = Date.now()
     await session.save()
 
@@ -48,7 +61,7 @@ export async function POST(req: NextRequest) {
 
     await writeAuditEvent(prisma, {
       actorId:    user.id,
-      orgId:      user.orgId ?? '',
+      orgId:      orgMember.orgId,
       action:     'LOGIN',
       objectType: 'USER',
       objectId:   user.id,

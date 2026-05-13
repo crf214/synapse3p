@@ -1,7 +1,7 @@
 // src/lib/matching/three-way-match.ts
 // Three-way match: Purchase Order → Goods Receipt → Invoice validation
 
-import type { PrismaClient } from '@prisma/client'
+import type { PrismaClient, Prisma } from '@prisma/client'
 
 interface GrLineItem {
   poLineItemId:     string
@@ -41,7 +41,7 @@ const EMPTY_CHECKS: MatchChecks = {
 export async function performThreeWayMatch(
   purchaseOrderId: string,
   invoiceId:       string,
-  prisma:          PrismaClient,
+  prisma:          PrismaClient | Prisma.TransactionClient,
 ): Promise<ThreeWayMatchResult> {
   const invoice = await prisma.invoice.findUnique({
     where:  { id: invoiceId },

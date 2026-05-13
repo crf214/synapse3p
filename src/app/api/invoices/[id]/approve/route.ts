@@ -165,40 +165,54 @@ export async function PATCH(
       body.decision === 'APPROVED'  ? 'APPROVED'  :
       body.decision === 'REJECTED'  ? 'REJECTED'  : 'DELEGATED'
 
-    // Three-way match check (when invoice is linked to a PO and decision is APPROVED)
-    let matchType: 'THREE_WAY' | 'NONE' | null = null
-    if (body.decision === 'APPROVED' && invoice.poId) {
-      const matchResult = await performThreeWayMatch(invoice.poId, invoice.id, prisma)
-      matchType = matchResult.matchType
-
-      if (!matchResult.passed) {
-        const canOverride = (session.role === 'CONTROLLER' || session.role === 'CFO' || session.role === 'ADMIN')
-        const hasJustification = (body.matchOverrideJustification?.trim().length ?? 0) >= 10
-
-        if (!canOverride || !hasJustification) {
-          return NextResponse.json({
-            error: {
-              code:    'THREE_WAY_MATCH_FAILED',
-              message: matchResult.failureReason ?? 'Three-way match failed',
-              checks:  matchResult.checks,
-              po:      matchResult.po,
-              grCount: matchResult.grCount,
-            },
-          }, { status: 422 })
-        }
-        // Override allowed — matchType stays NONE; justification logged below via notes
-        matchType = 'NONE'
-      }
-    }
-
-    // Collect latest risk score for context snapshot
+    // Collect latest risk score for context snapshot (outside tx — read-only, not time-sensitive)
     const latestRisk = await prisma.riskEvaluation.findFirst({
       where:   { invoiceId: invoice.id },
       orderBy: { evaluatedAt: 'desc' },
       include: { signals: true },
     })
 
+    // H6: matchType determined inside the transaction to prevent budget race conditions.
+    // performThreeWayMatch re-reads po.amountSpent fresh from the DB inside the same tx.
+    let matchType: 'THREE_WAY' | 'NONE' | null = null
+    let preCheckResult: Awaited<ReturnType<typeof performThreeWayMatch>> | null = null
+
+    // Optimistic pre-check outside tx (provides early 422 with full diagnostics before any writes)
+    if (body.decision === 'APPROVED' && invoice.poId) {
+      preCheckResult = await performThreeWayMatch(invoice.poId, invoice.id, prisma)
+      if (!preCheckResult.passed) {
+        const canOverride = (session.role === 'CONTROLLER' || session.role === 'CFO' || session.role === 'ADMIN')
+        const hasJustification = (body.matchOverrideJustification?.trim().length ?? 0) >= 10
+        if (!canOverride || !hasJustification) {
+          return NextResponse.json({
+            error: {
+              code:    'THREE_WAY_MATCH_FAILED',
+              message: preCheckResult.failureReason ?? 'Three-way match failed',
+              checks:  preCheckResult.checks,
+              po:      preCheckResult.po,
+              grCount: preCheckResult.grCount,
+            },
+          }, { status: 422 })
+        }
+      }
+    }
+
     await prisma.$transaction(async tx => {
+      // H6: Atomic re-check inside the transaction — re-reads po.amountSpent fresh so
+      // concurrent approvals cannot both pass the same stale budget value.
+      if (body.decision === 'APPROVED' && invoice.poId) {
+        const matchResult = await performThreeWayMatch(invoice.poId, invoice.id, tx)
+        matchType = matchResult.matchType
+        if (!matchResult.passed) {
+          const canOverride = (session.role === 'CONTROLLER' || session.role === 'CFO' || session.role === 'ADMIN')
+          const hasJustification = (body.matchOverrideJustification?.trim().length ?? 0) >= 10
+          if (!canOverride || !hasJustification) {
+            throw new Error(`THREE_WAY_MATCH_FAILED: ${matchResult.failureReason ?? 'Three-way match failed'}`)
+          }
+          matchType = 'NONE'
+        }
+      }
+
       // Update the approval
       await tx.invoiceApproval.update({
         where: { id: approval.id },

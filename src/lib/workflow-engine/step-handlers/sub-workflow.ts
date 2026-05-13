@@ -29,6 +29,31 @@ export async function handleSubWorkflowStep(
     return { status: 'FAILED', error: 'sub-workflow step missing templateId in config' }
   }
 
+  // H3: Cycle detection — walk up to 10 ancestor instances to ensure the
+  // same templateId does not appear anywhere in the active call chain.
+  const MAX_DEPTH = 10
+  let ancestorId: string | null = parentInstanceId
+  const seenTemplateIds: string[] = []
+  let depth = 0
+
+  while (ancestorId && depth < MAX_DEPTH) {
+    const ancestor: { templateId: string; parentInstanceId: string | null } | null =
+      await prisma.workflowInstance.findUnique({
+        where:  { id: ancestorId },
+        select: { templateId: true, parentInstanceId: true },
+      })
+    if (!ancestor) break
+    seenTemplateIds.push(ancestor.templateId)
+    if (ancestor.templateId === templateId) {
+      return {
+        status: 'FAILED',
+        error:  `Circular sub-workflow detected: template ${templateId} appears in the active call chain`,
+      }
+    }
+    ancestorId = ancestor.parentInstanceId ?? null
+    depth++
+  }
+
   // Build child context by mapping fields from parent context
   const childContext: Record<string, unknown> = {}
   for (const [targetKey, sourceKey] of Object.entries(contextMapping)) {
