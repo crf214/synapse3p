@@ -19,6 +19,7 @@ export async function GET() {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
     const periods = await prisma.auditPeriod.findMany({
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const rawBody = await req.json()

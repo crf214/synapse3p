@@ -15,6 +15,7 @@ export async function POST(_req: NextRequest, { params }: Params): Promise<NextR
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!RETRY_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const { id } = await params

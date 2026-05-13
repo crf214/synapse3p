@@ -25,6 +25,7 @@ export async function POST(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !OVERRIDE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const rawBody = await req.json()
@@ -44,7 +45,7 @@ export async function POST(
 
     const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where: { id, orgId: session.orgId },
+      where: { id, orgId: orgId },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
 
@@ -71,7 +72,7 @@ export async function POST(
       }),
       prisma.auditEvent.create({
         data: {
-          orgId:      session.orgId!,
+          orgId:      orgId,
           actorId:    session.userId!,
           action:     'OVERRIDE',
           entityType: 'INVOICE',

@@ -21,6 +21,7 @@ export async function GET(_req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (session.role !== 'ADMIN') throw new ForbiddenError()
 
     const tokens = await prisma.inviteToken.findMany({
@@ -37,6 +38,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (session.role !== 'ADMIN') throw new ForbiddenError()
 
     const body = await req.json()

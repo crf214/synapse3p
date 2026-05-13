@@ -23,6 +23,7 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !ALLOWED_ROLES.has(session.role)) throw new ForbiddenError()
 
     const templates = await prisma.workflowTemplate.findMany({
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !ALLOWED_ROLES.has(session.role)) throw new ForbiddenError()
 
     const rawBody = await req.json()

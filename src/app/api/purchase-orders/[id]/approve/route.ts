@@ -30,6 +30,7 @@ export async function POST(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !APPROVER_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { id } = await params
@@ -52,7 +53,7 @@ export async function POST(
     }
 
     const po = await prisma.purchaseOrder.findFirst({
-      where:   { id, orgId: session.orgId },
+      where:   { id, orgId: orgId },
       include: { entity: { select: { id: true, name: true } } },
     })
     if (!po) throw new NotFoundError('Purchase order not found')
@@ -81,7 +82,7 @@ export async function POST(
       })
       await writeAuditEvent(tx, {
         actorId:    session.userId!,
-        orgId:      session.orgId!,
+        orgId:      orgId,
         action:     'APPROVE',
         objectType: 'PURCHASE_ORDER',
         objectId:   id,
@@ -95,7 +96,7 @@ export async function POST(
           where: {
             targetObjectType: 'PURCHASE_ORDER',
             targetObjectId:   id,
-            orgId:            session.orgId!,
+            orgId:            orgId,
             status:           { notIn: ['CANCELLED', 'COMPLETED', 'FAILED'] },
           },
           orderBy: { createdAt: 'desc' },
@@ -130,7 +131,7 @@ export async function POST(
     await prisma.entityActivityLog.create({
       data: {
         entityId:     po.entityId,
-        orgId:        session.orgId!,
+        orgId:        orgId,
         activityType: 'STATUS_CHANGE' as never,
         title:        `PO ${actionLabel}: ${po.poNumber}`,
         description:  comments ?? undefined,

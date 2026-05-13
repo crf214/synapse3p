@@ -43,12 +43,13 @@ export async function POST(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !GR_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { id } = await params
 
     const po = await prisma.purchaseOrder.findFirst({
-      where:   { id, orgId: session.orgId },
+      where:   { id, orgId: orgId },
       include: {
         lineItems: true,
         entity:   { select: { id: true } },
@@ -112,7 +113,7 @@ export async function POST(
       const created = await tx.goodsReceipt.create({
         data: {
           poId:       id,
-          orgId:      session.orgId!,
+          orgId:      orgId,
           receivedAt: new Date(body.receivedAt),
           receivedBy: session.userId!,
           status:     body.status as never,
@@ -138,7 +139,7 @@ export async function POST(
     await prisma.entityActivityLog.create({
       data: {
         entityId:    po.entityId,
-        orgId:       session.orgId!,
+        orgId:       orgId,
         activityType: 'PAYMENT' as never,
         title:       `Goods receipt recorded (${body.status}): ${po.poNumber}`,
         description: `${body.lineItems.length} line item(s) · received value ${receivedAmount.toFixed(2)} ${po.currency}`,

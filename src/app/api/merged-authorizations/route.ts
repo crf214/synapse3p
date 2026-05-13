@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
     if (!ALLOWED_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const { searchParams } = new URL(req.url)
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
     const status   = searchParams.get('status') ?? ''
 
     const where = {
-      orgId: session.orgId!,
+      orgId: session.orgId,
       ...(status ? { status: status as never } : {}),
     }
 
@@ -89,7 +90,10 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
     if (!CREATE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
+
+    const orgId = session.orgId
 
     const rawBody = await req.json()
     const parsed = CreateMergedAuthorizationSchema.safeParse(rawBody)
@@ -107,7 +111,7 @@ export async function POST(req: NextRequest) {
     const invoices = await prisma.invoice.findMany({
       where: {
         id:    { in: invoiceIds },
-        orgId: session.orgId!,
+        orgId,
         status: { in: ['APPROVED', 'MATCHED'] },
       },
       select: { id: true, amount: true, currency: true },
@@ -136,14 +140,14 @@ export async function POST(req: NextRequest) {
     // Generate a reference
     const dateStr   = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     const countToday = await prisma.mergedAuthorization.count({
-      where: { orgId: session.orgId!, createdAt: { gte: new Date(new Date().setHours(0,0,0,0)) } },
+      where: { orgId, createdAt: { gte: new Date(new Date().setHours(0,0,0,0)) } },
     })
     const reference = `MA-${dateStr}-${String(countToday + 1).padStart(3, '0')}`
 
     const batch = await prisma.$transaction(async tx => {
       const ma = await tx.mergedAuthorization.create({
         data: {
-          orgId:     session.orgId!,
+          orgId,
           reference,
           name:      name ? sanitiseString(name) : null,
           totalAmount,

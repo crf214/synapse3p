@@ -15,6 +15,7 @@ export async function GET(_req: NextRequest, { params }: Params): Promise<NextRe
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { id } = await params

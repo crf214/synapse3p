@@ -49,18 +49,19 @@ export async function GET(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { id } = await params
 
     const po = await prisma.purchaseOrder.findFirst({
-      where: { id, orgId: session.orgId },
+      where: { id, orgId: orgId },
       include: {
         entity: {
           select: {
             id: true, name: true, slug: true,
             orgRelationships: {
-              where: { orgId: session.orgId },
+              where: { orgId: orgId },
               select: { approvedSpendLimit: true },
               take: 1,
             },
@@ -122,14 +123,14 @@ export async function GET(
           AVG(amount)                      AS avg_amount
         FROM invoices
         WHERE entity_id = ${po.entityId}
-          AND org_id    = ${session.orgId!}
+          AND org_id    = ${orgId}
           AND status    NOT IN ('REJECTED','CANCELLED')
         GROUP BY period, currency
         ORDER BY period DESC
         LIMIT 12
       `,
       prisma.invoice.findMany({
-        where:   { entityId: po.entityId, orgId: session.orgId },
+        where:   { entityId: po.entityId, orgId: orgId },
         orderBy: { invoiceDate: 'desc' },
         take:    5,
         select:  { id: true, invoiceNo: true, amount: true, currency: true, invoiceDate: true, status: true },
@@ -137,7 +138,7 @@ export async function GET(
       prisma.purchaseOrder.count({
         where: {
           entityId: po.entityId,
-          orgId:    session.orgId,
+          orgId:    orgId,
           status:   { in: ['PENDING_APPROVAL', 'APPROVED', 'PARTIALLY_RECEIVED'] as never[] },
           id:       { not: po.id },
         },
@@ -192,12 +193,13 @@ export async function PUT(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { id } = await params
 
     const existing = await prisma.purchaseOrder.findFirst({
-      where: { id, orgId: session.orgId },
+      where: { id, orgId: orgId },
     })
     if (!existing) throw new NotFoundError('Purchase order not found')
     if (existing.status !== 'DRAFT') {
@@ -270,7 +272,7 @@ export async function PUT(
         await tx.purchaseOrder.update({ where: { id }, data: updates })
         await writeAuditEvent(tx, {
           actorId:    session.userId!,
-          orgId:      session.orgId!,
+          orgId:      orgId,
           action:     'UPDATE',
           objectType: 'PURCHASE_ORDER',
           objectId:   id,
@@ -282,7 +284,7 @@ export async function PUT(
         await tx.purchaseOrder.update({ where: { id }, data: updates })
         await writeAuditEvent(tx, {
           actorId:    session.userId!,
-          orgId:      session.orgId!,
+          orgId:      orgId,
           action:     'UPDATE',
           objectType: 'PURCHASE_ORDER',
           objectId:   id,

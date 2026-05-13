@@ -13,13 +13,15 @@ export async function POST(_req: NextRequest, { params }: Params) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
+    const orgId = session.orgId
 
     const allowed = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER'])
     if (!allowed.has(session.role ?? '')) throw new ForbiddenError()
 
     const { id } = await params
     const pi = await prisma.paymentInstruction.findUnique({ where: { id } })
-    if (!pi || pi.orgId !== session.orgId) throw new NotFoundError('Payment instruction not found')
+    if (!pi || pi.orgId !== orgId) throw new NotFoundError('Payment instruction not found')
     if (pi.status !== 'DRAFT') throw new ValidationError(`Only DRAFT instructions can be submitted (current: ${pi.status})`)
     if (pi.createdBy !== session.userId && !['ADMIN'].includes(session.role ?? '')) {
       throw new ForbiddenError('Only the creator or an admin can submit this payment instruction')
@@ -32,7 +34,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
       })
       await writeAuditEvent(tx, {
         actorId:    session.userId!,
-        orgId:      session.orgId!,
+        orgId:      orgId,
         action:     'SUBMIT',
         objectType: 'PAYMENT',
         objectId:   id,

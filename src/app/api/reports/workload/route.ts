@@ -9,6 +9,7 @@ export async function GET() {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !ALLOWED_ROLES.has(session.role)) throw new ForbiddenError()
 
     const snapshot = await getOrComputeSnapshot(session.orgId, 'WORKLOAD', 30)

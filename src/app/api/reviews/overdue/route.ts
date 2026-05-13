@@ -12,9 +12,10 @@ export async function GET() {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
     if (!READ_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const overdue = await getEntitiesDueForReview(session.orgId!, prisma)
+    const overdue = await getEntitiesDueForReview(session.orgId, prisma)
 
     return NextResponse.json({ overdue })
   } catch (err) {

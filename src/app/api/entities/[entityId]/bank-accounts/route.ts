@@ -121,12 +121,13 @@ export async function GET(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { entityId } = await params
 
     const entity = await prisma.entity.findFirst({
-      where:  { id: entityId, masterOrgId: session.orgId },
+      where:  { id: entityId, masterOrgId: orgId },
       select: { id: true },
     })
     if (!entity) throw new NotFoundError('Entity not found')
@@ -153,12 +154,13 @@ export async function POST(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { entityId } = await params
 
     const entity = await prisma.entity.findFirst({
-      where:  { id: entityId, masterOrgId: session.orgId },
+      where:  { id: entityId, masterOrgId: orgId },
       select: { id: true },
     })
     if (!entity) throw new NotFoundError('Entity not found')
@@ -210,7 +212,7 @@ export async function POST(
 
     void writeAuditEvent(prisma, {
       actorId:    session.userId,
-      orgId:      session.orgId!,
+      orgId:      orgId,
       action:     'CREATE',
       objectType: 'BANK_ACCOUNT',
       objectId:   bankAccount.id,
@@ -233,12 +235,13 @@ export async function DELETE(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { entityId } = await params
 
     const entity = await prisma.entity.findFirst({
-      where:  { id: entityId, masterOrgId: session.orgId },
+      where:  { id: entityId, masterOrgId: orgId },
       select: { id: true },
     })
     if (!entity) throw new NotFoundError('Entity not found')
@@ -265,7 +268,7 @@ export async function DELETE(
 
     void writeAuditEvent(prisma, {
       actorId:    session.userId,
-      orgId:      session.orgId!,
+      orgId:      orgId,
       action:     'DELETE',
       objectType: 'BANK_ACCOUNT',
       objectId:   bankAccountId,

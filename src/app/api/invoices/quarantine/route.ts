@@ -13,6 +13,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
     const sp    = req.nextUrl.searchParams

@@ -31,12 +31,13 @@ export async function POST(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !AMEND_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { id } = await params
 
     const po = await prisma.purchaseOrder.findFirst({
-      where:   { id, orgId: session.orgId },
+      where:   { id, orgId: orgId },
       include: {
         amendments: { orderBy: { version: 'desc' }, take: 1 },
         entity:    { select: { id: true } },
@@ -137,7 +138,7 @@ export async function POST(
     await prisma.entityActivityLog.create({
       data: {
         entityId:    po.entityId,
-        orgId:       session.orgId!,
+        orgId:       orgId,
         activityType: 'NOTE' as never,
         title:       `PO amended (v${nextVersion}): ${po.poNumber}`,
         description: `Changed: ${changedFields.join(', ')}. Reason: ${reason}`,

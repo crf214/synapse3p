@@ -17,6 +17,7 @@ export async function GET(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { controlId } = await params
@@ -66,6 +67,7 @@ export async function POST(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { controlId } = await params

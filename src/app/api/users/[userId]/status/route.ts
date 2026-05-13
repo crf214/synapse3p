@@ -16,6 +16,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (session.role !== 'ADMIN') throw new ForbiddenError()
 
     const { userId } = await params

@@ -26,6 +26,7 @@ export async function POST(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !ALLOWED_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { id: templateId } = await params

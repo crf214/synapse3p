@@ -20,6 +20,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!READ_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const sp     = req.nextUrl.searchParams
@@ -102,6 +103,7 @@ export async function POST(_req: NextRequest): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!PROCESS_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const result = await processDueScheduledPayments()

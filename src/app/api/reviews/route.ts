@@ -29,10 +29,11 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
     if (!READ_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const { searchParams } = new URL(req.url)
-    const orgId    = session.orgId!
+    const orgId    = session.orgId
     const status   = searchParams.get('status')   ?? undefined
     const type     = searchParams.get('type')     ?? undefined
     const entityId = searchParams.get('entityId') ?? undefined
@@ -76,9 +77,10 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
-    const orgId = session.orgId!
+    const orgId = session.orgId
     const rawBody = await req.json()
     const parsed = CreateReviewSchema.safeParse(rawBody)
     if (!parsed.success) {

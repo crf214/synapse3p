@@ -30,7 +30,10 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
     if (!ALLOWED_ROLES.has(session.role ?? '')) throw new ForbiddenError()
+
+    const orgId = session.orgId
 
     const { searchParams } = new URL(req.url)
     const page      = Math.max(1, Number(searchParams.get('page') ?? '1'))
@@ -39,7 +42,7 @@ export async function GET(req: NextRequest) {
     const slaStatus = searchParams.get('slaStatus') ?? ''
 
     const where = {
-      orgId: session.orgId!,
+      orgId,
       ...(status    ? { status:    status    as never } : {}),
       ...(slaStatus ? { slaStatus: slaStatus as never } : {}),
     }
@@ -93,7 +96,10 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
+
+    const orgId = session.orgId
 
     const rawBody = await req.json()
     const parsed = CreateServiceEngagementSchema.safeParse(rawBody)
@@ -111,7 +117,7 @@ export async function POST(req: NextRequest) {
 
     // Verify entity belongs to org
     const entity = await prisma.entity.findFirst({
-      where: { id: entityId, masterOrgId: session.orgId! },
+      where: { id: entityId, masterOrgId: orgId },
     })
     if (!entity) throw new ValidationError('Entity not found')
 
@@ -121,13 +127,13 @@ export async function POST(req: NextRequest) {
 
     // Verify contract belongs to this org and entity
     const contract = await prisma.contract.findFirst({
-      where: { id: contractId, orgId: session.orgId!, entityId },
+      where: { id: contractId, orgId, entityId },
     })
     if (!contract) throw new ValidationError('Contract not found for this entity')
 
     // Enforce unique constraint gracefully
     const existing = await prisma.serviceEngagement.findFirst({
-      where: { entityId, serviceCatalogueId, orgId: session.orgId! },
+      where: { entityId, serviceCatalogueId, orgId },
     })
     if (existing) throw new ValidationError('An engagement for this entity and service already exists')
 
@@ -135,7 +141,7 @@ export async function POST(req: NextRequest) {
       data: {
         entityId,
         serviceCatalogueId,
-        orgId:          session.orgId!,
+        orgId,
         contractId:     contractId,
         internalOwner:  internalOwner ?? null,
         department:     department    ? sanitiseString(department)  : null,

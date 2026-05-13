@@ -26,11 +26,13 @@ export async function PUT(req: NextRequest, { params }: Params) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
+    const orgId = session.orgId
     if (!MANAGE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const { id } = await params
     const cadence = await prisma.reviewCadence.findUnique({ where: { id } })
-    if (!cadence || cadence.orgId !== session.orgId) throw new NotFoundError("Not found")
+    if (!cadence || cadence.orgId !== orgId) throw new NotFoundError("Not found")
 
     const rawBody = await req.json()
     const parsed = UpdateReviewCadenceSchema.safeParse(rawBody)
@@ -60,7 +62,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 
     void writeAuditEvent(prisma, {
       actorId:    session.userId,
-      orgId:      session.orgId!,
+      orgId:      orgId,
       action:     'UPDATE',
       objectType: 'REVIEW_CADENCE',
       objectId:   id,
@@ -76,17 +78,19 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
+    const orgId = session.orgId
     if (!MANAGE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const { id } = await params
     const cadence = await prisma.reviewCadence.findUnique({ where: { id } })
-    if (!cadence || cadence.orgId !== session.orgId) throw new NotFoundError("Not found")
+    if (!cadence || cadence.orgId !== orgId) throw new NotFoundError("Not found")
 
     await prisma.reviewCadence.delete({ where: { id } })
 
     void writeAuditEvent(prisma, {
       actorId:    session.userId,
-      orgId:      session.orgId!,
+      orgId:      orgId,
       action:     'DELETE',
       objectType: 'REVIEW_CADENCE',
       objectId:   id,

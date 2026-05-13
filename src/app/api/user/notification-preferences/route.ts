@@ -17,6 +17,7 @@ export async function GET(): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
 
     const pref = await prisma.notificationPreference.findUnique({
       where: { userId: session.userId },
@@ -39,6 +40,7 @@ export async function PUT(req: NextRequest): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
 
     const rawBody = await req.json()
     const parsed = UpdateNotificationPreferencesSchema.safeParse(rawBody)

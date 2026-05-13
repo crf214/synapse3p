@@ -33,6 +33,7 @@ export async function POST(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !ROUTE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const rawBody = await req.json()
@@ -47,7 +48,7 @@ export async function POST(
 
     const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where:   { id, orgId: session.orgId },
+      where:   { id, orgId: orgId },
       include: { entity: true },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
@@ -57,7 +58,7 @@ export async function POST(
 
     // Validate assignee exists in org and has appropriate role
     const assignee = await prisma.orgMember.findFirst({
-      where:   { orgId: session.orgId, userId: body.assignedTo, status: 'active' },
+      where:   { orgId: orgId, userId: body.assignedTo, status: 'active' },
       include: { user: { select: { id: true, name: true, email: true, role: true } } },
     })
     if (!assignee) throw new NotFoundError('Approver not found in this organisation')
@@ -69,7 +70,7 @@ export async function POST(
       const created = await tx.invoiceApproval.create({
         data: {
           invoiceId:  invoice.id,
-          orgId:      session.orgId!,
+          orgId:      orgId,
           assignedTo: body.assignedTo,
           assignedBy: session.userId!,
           role:       assignee.role,
@@ -86,7 +87,7 @@ export async function POST(
 
       await writeAuditEvent(tx, {
         actorId:    session.userId!,
-        orgId:      session.orgId!,
+        orgId:      orgId,
         action:     'APPROVE',
         objectType: 'INVOICE',
         objectId:   invoice.id,
@@ -130,6 +131,7 @@ export async function PATCH(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !APPROVE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const body = await req.json() as {
@@ -148,7 +150,7 @@ export async function PATCH(
 
     const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where:   { id, orgId: session.orgId },
+      where:   { id, orgId: orgId },
       include: { entity: true },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
@@ -270,14 +272,14 @@ export async function PATCH(
       // If escalated, create a new approval for the escalation target
       if (body.decision === 'ESCALATED' && body.escalateTo) {
         const escalatee = await tx.orgMember.findFirst({
-          where:   { orgId: session.orgId!, userId: body.escalateTo },
+          where:   { orgId: orgId, userId: body.escalateTo },
           include: { user: true },
         })
         if (escalatee) {
           await tx.invoiceApproval.create({
             data: {
               invoiceId:  invoice.id,
-              orgId:      session.orgId!,
+              orgId:      orgId,
               assignedTo: body.escalateTo,
               assignedBy: session.userId!,
               role:       escalatee.role,
@@ -304,7 +306,7 @@ export async function PATCH(
 
       await writeAuditEvent(tx, {
         actorId:    session.userId!,
-        orgId:      session.orgId!,
+        orgId:      orgId,
         action:     'APPROVE',
         objectType: 'INVOICE',
         objectId:   invoice.id,
@@ -320,7 +322,7 @@ export async function PATCH(
         where: {
           targetObjectType: 'INVOICE',
           targetObjectId:   id,
-          orgId:            session.orgId,
+          orgId:            orgId,
           status:           'IN_PROGRESS',
         },
         include: {
@@ -333,10 +335,13 @@ export async function PATCH(
       })
 
       if (activeInstance) {
+        // C3 fix: only match steps explicitly assigned to the current user.
+        // Removing the `|| si.assignedTo === null` branch prevents any
+        // authenticated user from claiming and completing an unassigned step.
         const approvalStep = activeInstance.stepInstances.find(
           si => si.stepDefinition.stepType === 'APPROVAL' &&
                 (si.status === 'IN_PROGRESS' || si.status === 'PENDING') &&
-                (si.assignedTo === session.userId || si.assignedTo === null),
+                si.assignedTo === session.userId,
         )
 
         if (approvalStep) {

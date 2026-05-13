@@ -23,12 +23,13 @@ export async function GET(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { entityId } = await params
 
     const entity = await prisma.entity.findFirst({
-      where: { id: entityId, masterOrgId: session.orgId },
+      where: { id: entityId, masterOrgId: orgId },
       include: {
         classifications: { orderBy: { isPrimary: 'desc' } },
         bankAccounts:    { orderBy: { isPrimary: 'desc' } },
@@ -39,7 +40,7 @@ export async function GET(
           take:    1,
         },
         orgRelationships: {
-          where:  { orgId: session.orgId },
+          where:  { orgId: orgId },
           take:   1,
         },
         serviceEngagements: {
@@ -69,12 +70,13 @@ export async function PATCH(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { entityId } = await params
 
     const existing = await prisma.entity.findFirst({
-      where: { id: entityId, masterOrgId: session.orgId },
+      where: { id: entityId, masterOrgId: orgId },
     })
     if (!existing) throw new NotFoundError('Entity not found')
 
@@ -142,7 +144,7 @@ export async function PATCH(
       const next = body[key] ? String(body[key]) : null
       if (next && next !== entityId) {
         // Verify the referenced entity belongs to same org
-        const ref = await prisma.entity.findFirst({ where: { id: next, masterOrgId: session.orgId } })
+        const ref = await prisma.entity.findFirst({ where: { id: next, masterOrgId: orgId } })
         if (!ref) throw new ValidationError(`Referenced entity for ${key} not found`)
       }
       if ((existing[key] ?? null) !== next) {
@@ -172,7 +174,7 @@ export async function PATCH(
 
       await writeAuditEvent(tx, {
         actorId:    session.userId!,
-        orgId:      session.orgId!,
+        orgId:      orgId,
         action:     'UPDATE',
         objectType: 'ENTITY',
         objectId:   entityId,
@@ -205,7 +207,7 @@ export async function PATCH(
             where: {
               targetObjectType: 'ENTITY',
               targetObjectId:   entityId,
-              orgId:            session.orgId!,
+              orgId:            orgId,
               status:           'IN_PROGRESS',
             },
             orderBy: { createdAt: 'desc' },
@@ -249,7 +251,7 @@ export async function PATCH(
     await prisma.entityActivityLog.create({
       data: {
         entityId,
-        orgId:        session.orgId,
+        orgId:        orgId,
         activityType: changedFields.includes('status') ? 'STATUS_CHANGE' : 'NOTE',
         title:        `Entity details updated`,
         description:  `Updated: ${fieldList}`,
@@ -267,9 +269,9 @@ export async function PATCH(
         try {
           const engine = new WorkflowEngine(prisma)
           const entityData = { entity: { id: entity.id, name: entity.name, status: entity.status, legalStructure: entity.legalStructure } }
-          const templateId = await selectTemplate('STATUS_CHANGED', 'ENTITY', entityData, session.orgId!, prisma)
+          const templateId = await selectTemplate('STATUS_CHANGED', 'ENTITY', entityData, orgId, prisma)
           if (templateId) {
-            await engine.startWorkflow(templateId, 'ENTITY', entity.id, session.orgId!, entityData)
+            await engine.startWorkflow(templateId, 'ENTITY', entity.id, orgId, entityData)
           }
         } catch (err) {
           console.warn('[WorkflowEngine] Failed to start workflow for entity status change:', err)

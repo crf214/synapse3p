@@ -9,9 +9,10 @@ export async function GET() {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId) throw new UnauthorizedError('No organisation associated with this session')
 
     const userId = session.userId
-    const orgId  = session.orgId!
+    const orgId  = session.orgId
 
     // ── PO approvals ──────────────────────────────────────────────────────────
     const poApprovals = await prisma.pOApproval.findMany({

@@ -12,6 +12,7 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!ALLOWED_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const { searchParams } = new URL(req.url)

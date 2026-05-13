@@ -68,6 +68,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
     const sp       = req.nextUrl.searchParams
@@ -83,7 +84,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
 
     const where: Prisma.PurchaseOrderWhereInput = {
-      orgId: session.orgId,
+      orgId: orgId,
       ...(status   ? { status:   status   as never } : {}),
       ...(entityId ? { entityId }                    : {}),
       ...(dateFrom || dateTo ? {
@@ -142,6 +143,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const rawBody = await req.json()
@@ -162,7 +164,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // Validate entity belongs to org
     const entity = await prisma.entity.findFirst({
-      where: { id: entityId, masterOrgId: session.orgId },
+      where: { id: entityId, masterOrgId: orgId },
       select: { id: true, name: true },
     })
     if (!entity) throw new ValidationError('Entity not found or does not belong to your organisation')
@@ -185,12 +187,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return sum + (item.quantity * item.unitPrice * (1 + (item.taxRate ?? 0)))
     }, 0)
 
-    const poNumber = await generatePoNumber(session.orgId)
+    const poNumber = await generatePoNumber(orgId)
 
     const po = await prisma.$transaction(async (tx) => {
       const created = await tx.purchaseOrder.create({
         data: {
-          orgId:               session.orgId!,
+          orgId:               orgId,
           poNumber,
           title,
           description,
@@ -231,7 +233,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       await writeAuditEvent(tx, {
         actorId:    session.userId!,
-        orgId:      session.orgId!,
+        orgId:      orgId,
         action:     'CREATE',
         objectType: 'PURCHASE_ORDER',
         objectId:   created.id,
@@ -262,9 +264,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
             riskBand: poEntity?.riskBand ?? null,
           },
         }
-        const templateId = await selectTemplate('OBJECT_CREATED', 'PURCHASE_ORDER', poData, session.orgId!, prisma)
+        const templateId = await selectTemplate('OBJECT_CREATED', 'PURCHASE_ORDER', poData, orgId, prisma)
         if (templateId) {
-          await engine.startWorkflow(templateId, 'PURCHASE_ORDER', po.id, session.orgId!, poData)
+          await engine.startWorkflow(templateId, 'PURCHASE_ORDER', po.id, orgId, poData)
         }
       } catch (err) {
         console.warn('[WorkflowEngine] Failed to start workflow for purchase order:', err)

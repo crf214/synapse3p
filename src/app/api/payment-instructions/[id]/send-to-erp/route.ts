@@ -39,16 +39,6 @@ export async function POST(_req: NextRequest, { params }: Params) {
       )
     }
 
-    // Guard: don't create a second execution if one already exists
-    const existingExecution = await prisma.paymentExecution.findFirst({
-      where: { invoiceId: pi.invoiceId, orgId: pi.orgId, status: { not: 'CANCELLED' } },
-    })
-    if (existingExecution) {
-      throw new ValidationError(
-        `A payment execution already exists for this invoice (status: ${existingExecution.status})`,
-      )
-    }
-
     const bankAccount = await prisma.entityBankAccount.findUnique({
       where:  { id: pi.bankAccountId },
       select: { paymentRail: true },
@@ -56,30 +46,42 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
     const rail = RAIL_MAP[bankAccount?.paymentRail ?? ''] ?? 'ERP'
 
-    // Create the execution record in SCHEDULED state
-    const execution = await prisma.paymentExecution.create({
-      data: {
-        invoiceId:     pi.invoiceId,
-        orgId:         pi.orgId,
-        entityId:      pi.entityId,
-        bankAccountId: pi.bankAccountId,
-        amount:        pi.amount,
-        currency:      pi.currency,
-        rail,
-        status:        'SCHEDULED',
-        scheduledAt:   pi.dueDate ?? new Date(),
-        metadata:      {},
-      },
-    })
+    // Atomically guard against duplicate executions, create the record, and
+    // update PI status. Without a transaction, two concurrent requests could
+    // both pass the existence check and both create an execution.
+    const execution = await prisma.$transaction(async (tx) => {
+      const existing = await tx.paymentExecution.findFirst({
+        where: { invoiceId: pi.invoiceId, orgId: pi.orgId, status: { not: 'CANCELLED' } },
+      })
+      if (existing) {
+        throw new ValidationError(
+          `A payment execution already exists for this invoice (status: ${existing.status})`,
+        )
+      }
 
-    // Mark PI as sent before triggering execution so it's in the right state
-    await prisma.paymentInstruction.update({
-      where: { id },
-      data: {
-        status:      'SENT_TO_ERP',
-        sentToErpAt: new Date(),
-      },
-    })
+      const created = await tx.paymentExecution.create({
+        data: {
+          invoiceId:            pi.invoiceId,
+          orgId:                pi.orgId,
+          entityId:             pi.entityId,
+          paymentInstructionId: id,
+          bankAccountId:        pi.bankAccountId,
+          amount:               pi.amount,
+          currency:             pi.currency,
+          rail,
+          status:               'SCHEDULED',
+          scheduledAt:          pi.dueDate ?? new Date(),
+          metadata:             {},
+        },
+      })
+
+      await tx.paymentInstruction.update({
+        where: { id },
+        data:  { status: 'SENT_TO_ERP', sentToErpAt: new Date() },
+      })
+
+      return created
+    }, { timeout: 10000 })
 
     // Drive the execution immediately — adapter is called here.
     // On failure, execution stays FAILED and PI status is set to FAILED by the runner.

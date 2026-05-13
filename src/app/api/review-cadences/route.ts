@@ -25,10 +25,12 @@ export async function GET() {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
+    const orgId = session.orgId
     if (!MANAGE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const cadences = await prisma.reviewCadence.findMany({
-      where: { orgId: session.orgId! },
+      where: { orgId: orgId },
       orderBy: { riskScoreMin: 'asc' },
     })
 
@@ -42,6 +44,8 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
+    const orgId = session.orgId
     if (!MANAGE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const rawBody = await req.json()
@@ -58,7 +62,7 @@ export async function POST(req: NextRequest) {
 
     const cadence = await prisma.reviewCadence.create({
       data: {
-        orgId:               session.orgId!,
+        orgId:               orgId,
         name:                sanitiseString(body.name),
         riskScoreMin:        body.riskScoreMin !== undefined ? Number(body.riskScoreMin) : 0,
         riskScoreMax:        body.riskScoreMax !== undefined ? Number(body.riskScoreMax) : 10,
@@ -71,7 +75,7 @@ export async function POST(req: NextRequest) {
 
     void writeAuditEvent(prisma, {
       actorId:    session.userId,
-      orgId:      session.orgId!,
+      orgId:      orgId,
       action:     'CREATE',
       objectType: 'REVIEW_CADENCE',
       objectId:   cadence.id,

@@ -28,10 +28,12 @@ export async function GET() {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
+    const orgId = session.orgId
     if (!ALLOWED_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const configs = await prisma.externalSignalConfig.findMany({
-      where:   { orgId: session.orgId! },
+      where:   { orgId: orgId },
       orderBy: { createdAt: 'desc' },
       include: { entity: { select: { id: true, name: true } } },
     })
@@ -71,6 +73,8 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
+    const orgId = session.orgId
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const rawBody = await req.json()
@@ -95,19 +99,19 @@ export async function POST(req: NextRequest) {
     }
 
     const entity = await prisma.entity.findFirst({
-      where: { id: entityId, masterOrgId: session.orgId! },
+      where: { id: entityId, masterOrgId: orgId },
     })
     if (!entity) throw new ValidationError('Entity not found')
 
     const existing = await prisma.externalSignalConfig.findFirst({
-      where: { entityId, orgId: session.orgId! },
+      where: { entityId, orgId: orgId },
     })
     if (existing) throw new ValidationError('A signal config for this entity already exists')
 
     const config = await prisma.externalSignalConfig.create({
       data: {
         entityId,
-        orgId:             session.orgId!,
+        orgId:             orgId,
         companyName:       sanitiseString(companyName),
         signalTypes:       types as never[],
         stockTicker:       stockTicker ? sanitiseString(stockTicker).toUpperCase() : null,

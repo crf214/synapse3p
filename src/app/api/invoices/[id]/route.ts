@@ -46,17 +46,18 @@ export async function GET(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where: { id, orgId: session.orgId },
+      where: { id, orgId: orgId },
       include: {
         entity: {
           include: {
             financial:   true,
             dueDiligence: true,
-            orgRelationships: { where: { orgId: session.orgId }, take: 1 },
+            orgRelationships: { where: { orgId: orgId }, take: 1 },
           },
         },
         contract:        { select: { id: true, contractNo: true, status: true, value: true, currency: true, endDate: true, type: true } },
@@ -101,7 +102,7 @@ export async function GET(
         SUM(amount)::text                                        AS "totalAmount",
         COUNT(*)                                                 AS "invoiceCount"
       FROM invoices
-      WHERE "orgId"       = ${session.orgId}
+      WHERE "orgId"       = ${orgId}
         AND "entityId"    = ${invoice.entityId}
         AND "invoiceDate" >= NOW() - INTERVAL '12 months'
         AND status        != 'DUPLICATE'
@@ -115,7 +116,7 @@ export async function GET(
     }))
 
     const recentInvoices = await prisma.invoice.findMany({
-        where:   { entityId: invoice.entityId, orgId: session.orgId, id: { not: invoice.id }, status: { not: 'DUPLICATE' } },
+        where:   { entityId: invoice.entityId, orgId: orgId, id: { not: invoice.id }, status: { not: 'DUPLICATE' } },
         orderBy: { invoiceDate: 'desc' },
         take:    5,
         select:  { id: true, invoiceNo: true, amount: true, currency: true, invoiceDate: true, status: true },
@@ -147,11 +148,12 @@ export async function PUT(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { id } = await params
     const invoice = await prisma.invoice.findFirst({
-      where: { id, orgId: session.orgId },
+      where: { id, orgId: orgId },
     })
     if (!invoice) throw new NotFoundError('Invoice not found')
 
@@ -198,7 +200,7 @@ export async function PUT(
         await tx.invoice.update({ where: { id: invoice.id }, data: updates })
         await writeAuditEvent(tx, {
           actorId:    session.userId!,
-          orgId:      session.orgId!,
+          orgId:      orgId,
           action:     'UPDATE',
           objectType: 'INVOICE',
           objectId:   invoice.id,
@@ -208,7 +210,7 @@ export async function PUT(
     } else if (changedKeys.length) {
       await writeAuditEvent(prisma, {
         actorId:    session.userId!,
-        orgId:      session.orgId!,
+        orgId:      orgId,
         action:     'UPDATE',
         objectType: 'INVOICE',
         objectId:   invoice.id,

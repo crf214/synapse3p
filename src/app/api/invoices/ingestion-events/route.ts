@@ -12,6 +12,8 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
+    const orgId = session.orgId
     if (!ALLOWED_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const { searchParams } = new URL(req.url)
@@ -21,7 +23,7 @@ export async function GET(req: NextRequest) {
     const source   = searchParams.get('source') ?? ''
 
     const where = {
-      orgId: session.orgId!,
+      orgId: orgId,
       ...(status ? { processingStatus: status } : {}),
       ...(source ? { source: source as never } : {}),
     }

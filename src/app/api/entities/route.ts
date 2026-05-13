@@ -34,6 +34,7 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !READ_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { searchParams } = req.nextUrl
@@ -49,7 +50,7 @@ export async function GET(req: NextRequest) {
     const riskBandFilter = riskBandParam && VALID_RISK_BANDS.has(riskBandParam) ? riskBandParam : null
 
     const where = {
-      masterOrgId: session.orgId,
+      masterOrgId: orgId,
       ...(status ? { status: status as never } : {}),
       ...(entityTypes.length > 0 ? { classifications: { some: { type: { in: entityTypes as never[] }, isPrimary: true } } } : {}),
       ...(highRisk ? { riskScore: { gte: 7 } } : {}),
@@ -81,7 +82,7 @@ export async function GET(req: NextRequest) {
             select:  { computedScore: true, scoredAt: true },
           },
           orgRelationships: {
-            where:  { orgId: session.orgId },
+            where:  { orgId: orgId },
             take:   1,
             select: { onboardingStatus: true, activeForBillPay: true, approvedSpendLimit: true },
           },
@@ -140,6 +141,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !WRITE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const rawBody = await req.json()
@@ -170,7 +172,7 @@ export async function POST(req: NextRequest) {
     const entity = await prisma.$transaction(async (tx) => {
       const created = await tx.entity.create({
         data: {
-          masterOrgId:    session.orgId!,
+          masterOrgId:    orgId,
           name,
           slug,
           legalStructure: legalStructure as never,
@@ -198,7 +200,7 @@ export async function POST(req: NextRequest) {
       await tx.entityOrgRelationship.create({
         data: {
           entityId:        created.id,
-          orgId:           session.orgId!,
+          orgId:           orgId,
           onboardingStatus: 'NOT_STARTED',
           activeForBillPay: false,
           portalAccess:    false,
@@ -207,7 +209,7 @@ export async function POST(req: NextRequest) {
 
       await writeAuditEvent(tx, {
         actorId:    session.userId!,
-        orgId:      session.orgId!,
+        orgId:      orgId,
         action:     'CREATE',
         objectType: 'ENTITY',
         objectId:   created.id,
@@ -221,9 +223,9 @@ export async function POST(req: NextRequest) {
       try {
         const engine = new WorkflowEngine(prisma)
         const entityData = { entity: { id: entity.id, name: entity.name, status: entity.status, legalStructure: entity.legalStructure } }
-        const templateId = await selectTemplate('OBJECT_CREATED', 'ENTITY', entityData, session.orgId!, prisma)
+        const templateId = await selectTemplate('OBJECT_CREATED', 'ENTITY', entityData, orgId, prisma)
         if (templateId) {
-          await engine.startWorkflow(templateId, 'ENTITY', entity.id, session.orgId!, entityData)
+          await engine.startWorkflow(templateId, 'ENTITY', entity.id, orgId, entityData)
         }
       } catch (err) {
         console.warn('[WorkflowEngine] Failed to start workflow for entity:', err)

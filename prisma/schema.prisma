@@ -1053,29 +1053,31 @@ model InvoiceDecision {
 }
 
 model PaymentExecution {
-  id            String               @id @default(cuid())
-  invoiceId     String
-  orgId         String
-  entityId      String?
-  amount        Float
-  currency      String               @default("USD")
-  rail          PaymentRailExecution
-  status        PaymentStatus        @default(SCHEDULED)
-  scheduledAt   DateTime?
-  executedAt    DateTime?
-  reference     String?
-  bankAccountId String?
-  reconciled    Boolean              @default(false)
-  reconciledAt  DateTime?
-  glPosted      Boolean              @default(false)
-  glPostedAt    DateTime?
-  failureReason String?
-  retryCount    Int                  @default(0)
-  metadata      Json                 @default("{}")
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
+  id                    String               @id @default(cuid())
+  invoiceId             String
+  orgId                 String
+  entityId              String?
+  paymentInstructionId  String?              @unique
+  amount                Float
+  currency              String               @default("USD")
+  rail                  PaymentRailExecution
+  status                PaymentStatus        @default(SCHEDULED)
+  scheduledAt           DateTime?
+  executedAt            DateTime?
+  reference             String?
+  bankAccountId         String?
+  reconciled            Boolean              @default(false)
+  reconciledAt          DateTime?
+  glPosted              Boolean              @default(false)
+  glPostedAt            DateTime?
+  failureReason         String?
+  retryCount            Int                  @default(0)
+  metadata              Json                 @default("{}")
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
 
-  invoice       Invoice @relation(fields: [invoiceId], references: [id])
+  invoice               Invoice              @relation(fields: [invoiceId], references: [id])
+  paymentInstruction    PaymentInstruction?  @relation(fields: [paymentInstructionId], references: [id])
 
   @@index([invoiceId])
   @@index([status, scheduledAt])
@@ -1203,6 +1205,7 @@ model PaymentInstruction {
   org                 Organisation                    @relation(fields: [orgId], references: [id])
   versions            PaymentInstructionVersion[]
   amendments          PaymentInstructionAmendment[]
+  execution           PaymentExecution?
 
   @@index([orgId, status])
   @@map("payment_instructions")

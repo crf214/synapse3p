@@ -20,6 +20,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !ALLOWED_ROLES.has(session.role)) throw new ForbiddenError()
 
     const formData = await req.formData()
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Validate entityId if provided
     if (entityId) {
       const entity = await prisma.entity.findFirst({
-        where: { id: entityId, masterOrgId: session.orgId },
+        where: { id: entityId, masterOrgId: orgId },
       })
       if (!entity) throw new ValidationError('Entity not found')
     }
@@ -60,14 +61,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     // Pre-extraction duplicate check (fingerprint)
     const duplicateOf = await checkPreExtractionDuplicates({
-      orgId:          session.orgId,
+      orgId:          orgId,
       emailMessageId: null,
       pdfFingerprint,
     })
 
     // Upload to Supabase Storage regardless (for audit purposes)
     const safeName   = file.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-    const storagePath = `${session.orgId}/invoices/${Date.now()}-${safeName}`
+    const storagePath = `${orgId}/invoices/${Date.now()}-${safeName}`
 
     const { error: uploadError } = await supabaseAdmin.storage
       .from(INVOICE_BUCKET)
@@ -78,7 +79,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Create ingestion event
     const ingestionEvent = await prisma.invoiceIngestionEvent.create({
       data: {
-        orgId:           session.orgId,
+        orgId:           orgId,
         source:          'PORTAL',
         storageRef:      storagePath,
         uploadedBy:      session.userId,
@@ -104,7 +105,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (entityId) {
       resolvedEntityId = entityId
     } else {
-      const result = await getOrCreateProvisionalEntity(session.orgId, null)
+      const result = await getOrCreateProvisionalEntity(orgId, null)
       resolvedEntityId = result.id
       provisionalEntityCreated = result.isNew
     }
@@ -113,7 +114,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const invoiceStatus = entityId ? 'RECEIVED' : 'UNMATCHED'
     const invoice = await prisma.invoice.create({
       data: {
-        orgId:          session.orgId,
+        orgId:          orgId,
         invoiceNo:      invoiceNoHint ?? `UPLOAD-${Date.now()}`,
         entityId:       resolvedEntityId,
         amount:         amountHint ? parseFloat(amountHint) || 0 : 0,
@@ -133,7 +134,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     await writeAuditEvent(prisma, {
       actorId:    session.userId!,
-      orgId:      session.orgId!,
+      orgId:      orgId,
       action:     'CREATE',
       objectType: 'INVOICE',
       objectId:   invoice.id,
@@ -143,7 +144,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     if (invoiceStatus === 'UNMATCHED') {
       await writeAuditEvent(prisma, {
         actorId:    session.userId!,
-        orgId:      session.orgId!,
+        orgId:      orgId,
         action:     'UPDATE',
         objectType: 'ENTITY',
         objectId:   resolvedEntityId,
@@ -155,10 +156,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     void (async () => {
       try {
         const engine = new WorkflowEngine(prisma)
-        const invoiceData = { invoice: { id: invoice.id, status: invoice.status, entityId: resolvedEntityId, orgId: session.orgId } }
-        const templateId = await selectTemplate('OBJECT_CREATED', 'INVOICE', invoiceData, session.orgId!, prisma)
+        const invoiceData = { invoice: { id: invoice.id, status: invoice.status, entityId: resolvedEntityId, orgId: orgId } }
+        const templateId = await selectTemplate('OBJECT_CREATED', 'INVOICE', invoiceData, orgId, prisma)
         if (templateId) {
-          await engine.startWorkflow(templateId, 'INVOICE', invoice.id, session.orgId!, invoiceData)
+          await engine.startWorkflow(templateId, 'INVOICE', invoice.id, orgId, invoiceData)
         }
       } catch (err) {
         console.warn('[WorkflowEngine] Failed to start workflow for invoice upload:', err)
@@ -166,7 +167,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     })()
 
     // Run pipeline asynchronously (don't block response)
-    runInvoicePipeline({ invoiceId: invoice.id, orgId: session.orgId, pdfBase64 }).catch(err => {
+    runInvoicePipeline({ invoiceId: invoice.id, orgId: orgId, pdfBase64 }).catch(err => {
       console.error('[invoices/upload] pipeline error:', err)
       prisma.invoiceIngestionEvent.update({
         where: { id: ingestionEvent.id },

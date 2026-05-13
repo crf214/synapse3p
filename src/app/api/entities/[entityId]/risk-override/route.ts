@@ -16,6 +16,7 @@ export async function POST(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !OVERRIDE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { entityId } = await params
@@ -28,7 +29,7 @@ export async function POST(
     if (reason.length < 20)    throw new ValidationError('Reason must be at least 20 characters.')
 
     const existing = await prisma.entity.findFirst({
-      where: { id: entityId, masterOrgId: session.orgId },
+      where: { id: entityId, masterOrgId: orgId },
     })
     if (!existing) throw new NotFoundError('Entity not found')
 
@@ -45,7 +46,7 @@ export async function POST(
 
       await writeAuditEvent(tx, {
         actorId:    session.userId!,
-        orgId:      session.orgId!,
+        orgId:      orgId,
         action:     'OVERRIDE',
         objectType: 'ENTITY',
         objectId:   entityId,
@@ -55,7 +56,7 @@ export async function POST(
       await tx.entityActivityLog.create({
         data: {
           entityId,
-          orgId:        session.orgId!,
+          orgId:        orgId,
           activityType: 'RISK_SCORE_CHANGE',
           title:        'Manual risk band override applied',
           description:  `Band set to ${band}. Reason: ${reason}`,
@@ -83,12 +84,13 @@ export async function DELETE(
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!session.role || !OVERRIDE_ROLES.has(session.role)) throw new ForbiddenError()
 
     const { entityId } = await params
 
     const existing = await prisma.entity.findFirst({
-      where: { id: entityId, masterOrgId: session.orgId },
+      where: { id: entityId, masterOrgId: orgId },
     })
     if (!existing) throw new NotFoundError('Entity not found')
 
@@ -105,7 +107,7 @@ export async function DELETE(
 
       await writeAuditEvent(tx, {
         actorId:    session.userId!,
-        orgId:      session.orgId!,
+        orgId:      orgId,
         action:     'OVERRIDE',
         objectType: 'ENTITY',
         objectId:   entityId,
@@ -115,7 +117,7 @@ export async function DELETE(
       await tx.entityActivityLog.create({
         data: {
           entityId,
-          orgId:        session.orgId!,
+          orgId:        orgId,
           activityType: 'RISK_SCORE_CHANGE',
           title:        'Manual risk band override cleared',
           description:  'Risk band override has been removed; computed band will be applied.',

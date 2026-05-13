@@ -77,6 +77,7 @@ export async function PUT(req: NextRequest, { params }: RouteParams) {
   try {
     const session = await getSession()
     if (!session.userId || !session.orgId) throw new UnauthorizedError()
+    const orgId = session.orgId
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const { id } = await params

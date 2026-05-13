@@ -11,10 +11,11 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
+    const orgId = session.orgId
     if (!READ_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const { searchParams } = new URL(req.url)
-    const orgId    = session.orgId!
     const docType  = searchParams.get('docType')  ?? undefined
     const entityId = searchParams.get('entityId') ?? undefined
     const poId     = searchParams.get('poId')     ?? undefined

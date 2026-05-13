@@ -31,6 +31,8 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
+    const orgId = session.orgId
     if (!ALLOWED_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const { searchParams } = new URL(req.url)
@@ -40,7 +42,7 @@ export async function GET(req: NextRequest) {
     const status     = searchParams.get('status') ?? ''
 
     const where = {
-      orgId: session.orgId!,
+      orgId: orgId,
       ...(recordType ? { recordType }                          : {}),
       ...(status     ? { status: status as never }             : {}),
     }
@@ -91,6 +93,8 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getSession()
     if (!session.userId) throw new UnauthorizedError()
+    if (!session.orgId)  throw new UnauthorizedError('No organisation associated with this session')
+    const orgId = session.orgId
     if (!WRITE_ROLES.has(session.role ?? '')) throw new ForbiddenError()
 
     const rawBody = await req.json()
@@ -112,7 +116,7 @@ export async function POST(req: NextRequest) {
 
     const record = await prisma.bcDrRecord.create({
       data: {
-        orgId:          session.orgId!,
+        orgId:          orgId,
         recordType: recordType as never,
         status:     status     as never,
         description:    sanitiseString(description),
