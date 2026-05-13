@@ -166,7 +166,7 @@ export async function getRiskExportRows(
     SELECT DISTINCT ON (e.id)
       e.name                                                        AS "entityName",
       ec.type::text                                                 AS "entityType",
-      COALESCE(e."riskBand"::text, 'UNKNOWN')                      AS "riskBand",
+      COALESCE(e."riskBandOverride"::text, e."riskBand"::text, 'UNKNOWN') AS "riskBand",
       COALESCE(rs."computedScore", e."riskScore", 0)               AS "riskScore",
       tpr.last_review_date                                          AS "lastReviewDate",
       dd."kycStatus"::text                                          AS "kycStatus",

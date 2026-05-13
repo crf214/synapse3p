@@ -1,7 +1,6 @@
 import { PrismaClient } from '@prisma/client'
 import type { StepResult, Condition, ConditionOperator } from '../types'
 import { evaluateConditions } from '../condition-evaluator'
-import { performThreeWayMatch } from '@/lib/matching/three-way-match'
 
 interface SideEffect {
   action: string
@@ -36,6 +35,8 @@ export async function handleAutoRuleStep(
     if (!invoice?.poId) {
       return { status: 'COMPLETED', result: 'FAIL', metadata: { reason: 'No PO linked to invoice' } }
     }
+    // M4: Dynamic import to avoid circular dependency risk with the matching module
+    const { performThreeWayMatch } = await import('@/lib/matching/three-way-match')
     const matchResult = await performThreeWayMatch(invoice.poId, invoiceId, prisma)
     return {
       status:   'COMPLETED',

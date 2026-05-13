@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url)
     const page      = Math.max(1, Number(searchParams.get('page') ?? '1'))
-    const pageSize  = 50
+    const limit     = Math.min(100, Math.max(1, Number(searchParams.get('limit') ?? '50')))
     const status    = searchParams.get('status') ?? ''
     const slaStatus = searchParams.get('slaStatus') ?? ''
 
@@ -52,8 +52,8 @@ export async function GET(req: NextRequest) {
       prisma.serviceEngagement.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip: (page - 1) * limit,
+        take: limit,
         include: {
           entity:          { select: { id: true, name: true } },
           serviceCatalogue: { select: { id: true, name: true, parentId: true } },
@@ -86,7 +86,12 @@ export async function GET(req: NextRequest) {
       owner:           r.internalOwner ? (ownerMap[r.internalOwner] ?? null) : null,
     }))
 
-    return NextResponse.json({ engagements, total })
+    return NextResponse.json({
+      data:       engagements,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    })
   } catch (err) {
     return handleApiError(err, 'GET /api/service-engagements')
   }

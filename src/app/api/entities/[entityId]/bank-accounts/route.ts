@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
+import { encrypt, decrypt, isEncrypted } from '@/lib/crypto/field-encryption'
 
 // ---------------------------------------------------------------------------
 // Rail-specific validation via discriminated union
@@ -137,7 +138,16 @@ export async function GET(
       orderBy: [{ isPrimary: 'desc' }, { createdAt: 'asc' }],
     })
 
-    return NextResponse.json({ bankAccounts })
+    // Decrypt sensitive fields — backward compatible: plain values returned as-is
+    const decrypted = bankAccounts.map(acct => ({
+      ...acct,
+      accountNo: acct.accountNo && isEncrypted(acct.accountNo) ? decrypt(acct.accountNo) : acct.accountNo,
+      routingNo: acct.routingNo && isEncrypted(acct.routingNo) ? decrypt(acct.routingNo) : acct.routingNo,
+      iban:      acct.iban      && isEncrypted(acct.iban)      ? decrypt(acct.iban)      : acct.iban,
+      swiftBic:  acct.swiftBic  && isEncrypted(acct.swiftBic)  ? decrypt(acct.swiftBic)  : acct.swiftBic,
+    }))
+
+    return NextResponse.json({ bankAccounts: decrypted })
   } catch (err) {
     return handleApiError(err, 'GET /api/entities/[entityId]/bank-accounts')
   }
@@ -180,13 +190,19 @@ export async function POST(
     const currency    = sanitiseString(body.currency    ?? '', 10).toUpperCase()
     const paymentRail = body.paymentRail
 
-    const routingNo = 'routingNo' in body && body.routingNo ? sanitiseString(body.routingNo, 50)  : undefined
-    const swiftBic  = 'swiftBic'  in body && body.swiftBic  ? sanitiseString(body.swiftBic,  20)  : undefined
-    const iban      = 'iban'      in body && body.iban      ? sanitiseString(body.iban,       50)  : undefined
+    const routingNoRaw = 'routingNo' in body && body.routingNo ? sanitiseString(body.routingNo, 50)  : undefined
+    const swiftBicRaw  = 'swiftBic'  in body && body.swiftBic  ? sanitiseString(body.swiftBic,  20)  : undefined
+    const ibanRaw      = 'iban'      in body && body.iban      ? sanitiseString(body.iban,       50)  : undefined
     // SEPA: use IBAN as accountNo when no explicit accountNo provided
-    const accountNo = 'accountNo' in body && body.accountNo
+    const accountNoRaw = 'accountNo' in body && body.accountNo
       ? sanitiseString(body.accountNo, 100)
-      : (paymentRail === 'SEPA' && iban ? iban : '')
+      : (paymentRail === 'SEPA' && ibanRaw ? ibanRaw : '')
+
+    // Encrypt sensitive fields before persisting
+    const accountNo = accountNoRaw ? encrypt(accountNoRaw) : accountNoRaw
+    const routingNo = routingNoRaw ? encrypt(routingNoRaw) : routingNoRaw
+    const iban      = ibanRaw      ? encrypt(ibanRaw)      : ibanRaw
+    const swiftBic  = swiftBicRaw  ? encrypt(swiftBicRaw)  : swiftBicRaw
 
     if (!accountNo && paymentRail !== 'SEPA') {
       throw new ValidationError('accountNo is required')

@@ -230,6 +230,15 @@ export async function PATCH(
         body.decision === 'APPROVED'  ? 'APPROVE' :
         body.decision === 'REJECTED'  ? 'REJECT'  : 'ESCALATE'
 
+      // M3: Prevent upsert from overwriting an existing final decision
+      const existingDecision = await tx.invoiceDecision.findUnique({
+        where:  { invoiceId: invoice.id },
+        select: { decision: true },
+      })
+      if (existingDecision && ['APPROVE', 'REJECT'].includes(existingDecision.decision as string)) {
+        throw new Error('FINAL_DECISION_EXISTS: A final decision has already been recorded for this invoice.')
+      }
+
       await tx.invoiceDecision.upsert({
         where:  { invoiceId: invoice.id },
         create: {
@@ -285,10 +294,14 @@ export async function PATCH(
 
       // If escalated, create a new approval for the escalation target
       if (body.decision === 'ESCALATED' && body.escalateTo) {
+        // M2: Verify the escalation target is an active org member before assigning
         const escalatee = await tx.orgMember.findFirst({
-          where:   { orgId: orgId, userId: body.escalateTo },
+          where:   { orgId: orgId, userId: body.escalateTo, status: 'active' },
           include: { user: true },
         })
+        if (!escalatee) {
+          throw new Error('ESCALATION_TARGET_INACTIVE: Escalation target is not an active member of this organisation.')
+        }
         if (escalatee) {
           await tx.invoiceApproval.create({
             data: {

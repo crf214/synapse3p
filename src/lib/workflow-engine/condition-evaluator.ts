@@ -41,7 +41,9 @@ export function evaluateCondition(
     case 'contains':
       return typeof actual === 'string' && typeof value === 'string' && actual.includes(value)
     case 'exists':
-      return value ? actual != null : actual == null
+      return value
+        ? actual !== undefined && actual !== null
+        : actual === undefined || actual === null
     default:
       return false
   }

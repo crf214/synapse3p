@@ -2,10 +2,11 @@
 // Resend inbound email webhook. Parses the incoming email, creates an
 // InvoiceIngestionEvent and a draft Invoice, then runs the full pipeline.
 //
-// Security: Verify the shared secret header (X-Webhook-Secret) against
-// RESEND_WEBHOOK_SECRET env var. Configure this on your Resend inbound route.
+// Security: Verifies the Resend/svix HMAC signature on every request.
+// Required env var: RESEND_WEBHOOK_SECRET (signing secret from Resend dashboard).
 
 import { NextRequest, NextResponse } from 'next/server'
+import { Webhook } from 'svix'
 import { prisma } from '@/lib/prisma'
 import { computeFingerprint, checkPreExtractionDuplicates, runInvoicePipeline } from '@/lib/invoice-pipeline'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -78,20 +79,31 @@ function getAttachmentName(a: ResendInboundAttachment): string {
 // ---------------------------------------------------------------------------
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  // Verify shared secret — required; reject all requests if not configured
-  const secret = process.env.RESEND_WEBHOOK_SECRET
-  if (!secret) {
+  // H8: Verify Resend/svix HMAC signature before processing any payload.
+  // RESEND_WEBHOOK_SECRET is the signing secret from the Resend webhook dashboard.
+  const webhookSecret = process.env.RESEND_WEBHOOK_SECRET
+  if (!webhookSecret) {
     console.error('[email-inbound] RESEND_WEBHOOK_SECRET is not configured — rejecting all webhook requests')
     return NextResponse.json({ error: 'Service misconfigured' }, { status: 503 })
   }
-  const provided = req.headers.get('x-webhook-secret')
-  if (!provided || provided !== secret) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const rawBody = await req.text()
+  const svixHeaders = {
+    'svix-id':        req.headers.get('svix-id')        ?? '',
+    'svix-timestamp': req.headers.get('svix-timestamp') ?? '',
+    'svix-signature': req.headers.get('svix-signature') ?? '',
+  }
+
+  const wh = new Webhook(webhookSecret)
+  try {
+    wh.verify(rawBody, svixHeaders)
+  } catch {
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
 
   let payload: ResendInboundPayload
   try {
-    payload = await req.json() as ResendInboundPayload
+    payload = JSON.parse(rawBody) as ResendInboundPayload
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
