@@ -38,17 +38,15 @@ export async function DELETE(
       throw new ValidationError('Cannot delete primary classification — set another as primary first')
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.entityClassification.delete({ where: { id: classificationId } })
+    await prisma.entityClassification.delete({ where: { id: classificationId } })
 
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'UPDATE',
-        objectType: 'ENTITY',
-        objectId:   entityId,
-        after:      { removedClassification: classificationId, type: classification.type },
-      })
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'UPDATE',
+      objectType: 'ENTITY',
+      objectId:   entityId,
+      after:      { removedClassification: classificationId, type: classification.type },
     })
 
     return new NextResponse(null, { status: 204 })

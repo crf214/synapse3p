@@ -269,28 +269,19 @@ export async function PUT(
           })),
         })
         await tx.purchaseOrder.update({ where: { id }, data: updates })
-        await writeAuditEvent(tx, {
-          actorId:    session.userId!,
-          orgId:      orgId,
-          action:     'UPDATE',
-          objectType: 'PURCHASE_ORDER',
-          objectId:   id,
-          after:      { changedFields: Object.keys(body) },
-        })
-      }, { timeout: 30000 })
+      }, { timeout: 10000 })
     } else {
-      await prisma.$transaction(async (tx) => {
-        await tx.purchaseOrder.update({ where: { id }, data: updates })
-        await writeAuditEvent(tx, {
-          actorId:    session.userId!,
-          orgId:      orgId,
-          action:     'UPDATE',
-          objectType: 'PURCHASE_ORDER',
-          objectId:   id,
-          after:      { changedFields: Object.keys(body) },
-        })
-      })
+      await prisma.purchaseOrder.update({ where: { id }, data: updates })
     }
+
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'UPDATE',
+      objectType: 'PURCHASE_ORDER',
+      objectId:   id,
+      after:      { changedFields: Object.keys(body) },
+    })
 
     const updated = await prisma.purchaseOrder.findUnique({
       where:   { id },

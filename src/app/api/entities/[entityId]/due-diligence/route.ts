@@ -159,29 +159,25 @@ export async function PATCH(
       } : {}),
     }
 
-    const dueDiligence = await prisma.$transaction(async (tx) => {
-      const updated = await tx.entityDueDiligence.update({
-        where: { entityId },
-        data:  updates,
-      })
+    const dueDiligence = await prisma.entityDueDiligence.update({
+      where: { entityId },
+      data:  updates,
+    })
 
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'UPDATE',
-        objectType: 'ENTITY',
-        objectId:   entityId,
-        before:     {
-          kycStatus: existing.kycStatus,
-          kybStatus: existing.kybStatus,
-        },
-        after: {
-          kycStatus: updated.kycStatus,
-          kybStatus: updated.kybStatus,
-        },
-      })
-
-      return updated
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'UPDATE',
+      objectType: 'ENTITY',
+      objectId:   entityId,
+      before:     {
+        kycStatus: existing.kycStatus,
+        kybStatus: existing.kybStatus,
+      },
+      after: {
+        kycStatus: dueDiligence.kycStatus,
+        kybStatus: dueDiligence.kybStatus,
+      },
     })
 
     // Activity log entry

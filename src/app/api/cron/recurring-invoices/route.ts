@@ -69,8 +69,8 @@ export async function GET(req: NextRequest) {
       const invoiceNo   = `REC-${sched.id.slice(-8).toUpperCase()}-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
       const nextRunAt   = computeNextRunAt(now, sched.frequency)
 
-      await prisma.$transaction(async (tx) => {
-        const invoice = await tx.invoice.create({
+      const invoice = await prisma.$transaction(async (tx) => {
+        const inv = await tx.invoice.create({
           data: {
             orgId:               sched.orgId,
             invoiceNo,
@@ -95,14 +95,16 @@ export async function GET(req: NextRequest) {
           },
         })
 
-        await writeAuditEvent(tx, {
-          actorId:    'cron',
-          orgId:      sched.orgId,
-          action:     'CREATE',
-          objectType: 'INVOICE',
-          objectId:   invoice.id,
-          after:      { source: 'RECURRING', scheduleId: sched.id, invoiceNo },
-        })
+        return inv
+      }, { timeout: 10000 })
+
+      await writeAuditEvent(prisma, {
+        actorId:    'cron',
+        orgId:      sched.orgId,
+        action:     'CREATE',
+        objectType: 'INVOICE',
+        objectId:   invoice.id,
+        after:      { source: 'RECURRING', scheduleId: sched.id, invoiceNo },
       })
 
       created++

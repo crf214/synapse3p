@@ -196,18 +196,9 @@ export async function PUT(
     ]
 
     if (Object.keys(updates).length) {
-      await prisma.$transaction(async (tx) => {
-        await tx.invoice.update({ where: { id: invoice.id }, data: updates })
-        await writeAuditEvent(tx, {
-          actorId:    session.userId!,
-          orgId:      orgId,
-          action:     'UPDATE',
-          objectType: 'INVOICE',
-          objectId:   invoice.id,
-          after:      { changedFields: changedKeys },
-        })
-      })
-    } else if (changedKeys.length) {
+      await prisma.invoice.update({ where: { id: invoice.id }, data: updates })
+    }
+    if (changedKeys.length) {
       await writeAuditEvent(prisma, {
         actorId:    session.userId!,
         orgId:      orgId,

@@ -38,9 +38,9 @@ export async function POST(req: NextRequest) {
     const passwordHash = await hash(password, 12)
     const emailVerifyToken = randomBytes(32).toString('hex')
 
-    const user = await prisma.$transaction(async (tx) => {
-      const roleToAssign = invite.role ?? 'AP_CLERK'
+    const roleToAssign = invite.role ?? 'AP_CLERK'
 
+    const user = await prisma.$transaction(async (tx) => {
       const created = await tx.user.create({
         data: {
           email,
@@ -68,15 +68,16 @@ export async function POST(req: NextRequest) {
         data: { usedAt: new Date() },
       })
 
-      await writeAuditEvent(tx, {
-        actorId:    created.id,
-        orgId:      invite.orgId,
-        action:     'CREATE',
-        objectType: 'USER',
-        objectId:   created.id,
-        after:      { inviteTokenUsed: true, emailVerificationSent: true, role: roleToAssign },
-      })
       return created
+    }, { timeout: 10000 })
+
+    await writeAuditEvent(prisma, {
+      actorId:    user.id,
+      orgId:      invite.orgId,
+      action:     'CREATE',
+      objectType: 'USER',
+      objectId:   user.id,
+      after:      { inviteTokenUsed: true, emailVerificationSent: true, role: roleToAssign },
     })
 
     // Send verification email (non-blocking — log failure but don't fail registration)

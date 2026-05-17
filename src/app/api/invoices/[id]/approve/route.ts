@@ -86,15 +86,15 @@ export async function POST(
         data:  { status: 'PENDING_REVIEW' },
       })
 
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'APPROVE',
-        objectType: 'INVOICE',
-        objectId:   invoice.id,
-      })
-
       return created
+    }, { timeout: 10000 })
+
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'APPROVE',
+      objectType: 'INVOICE',
+      objectId:   invoice.id,
     })
 
     // Send email notification if preference allows
@@ -332,14 +332,15 @@ export async function PATCH(
         }
       }
 
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'APPROVE',
-        objectType: 'INVOICE',
-        objectId:   invoice.id,
-      })
-    }, { timeout: 30000 })
+    }, { timeout: 10000 })
+
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'APPROVE',
+      objectType: 'INVOICE',
+      objectId:   invoice.id,
+    })
 
     // --- Workflow engine integration ---
     // If there is an active WorkflowInstance for this invoice with an IN_PROGRESS

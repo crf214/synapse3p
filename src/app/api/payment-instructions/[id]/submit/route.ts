@@ -27,18 +27,16 @@ export async function POST(_req: NextRequest, { params }: Params) {
       throw new ForbiddenError('Only the creator or an admin can submit this payment instruction')
     }
 
-    await prisma.$transaction(async (tx) => {
-      await tx.paymentInstruction.update({
-        where: { id },
-        data:  { status: 'PENDING_APPROVAL' },
-      })
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'SUBMIT',
-        objectType: 'PAYMENT',
-        objectId:   id,
-      })
+    await prisma.paymentInstruction.update({
+      where: { id },
+      data:  { status: 'PENDING_APPROVAL' },
+    })
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'SUBMIT',
+      objectType: 'PAYMENT',
+      objectId:   id,
     })
 
     return NextResponse.json({ ok: true })

@@ -48,22 +48,20 @@ export async function POST(req: NextRequest, { params }: Params) {
     const reason = sanitiseString(parsed.data.reason ?? '')
     if (!reason) throw new ValidationError('Cancellation reason is required')
 
-    await prisma.$transaction(async (tx) => {
-      await tx.paymentInstruction.update({
-        where: { id },
-        data: {
-          status:             'CANCELLED',
-          cancelledAt:        new Date(),
-          cancellationReason: reason,
-        },
-      })
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'CANCEL',
-        objectType: 'PAYMENT',
-        objectId:   id,
-      })
+    await prisma.paymentInstruction.update({
+      where: { id },
+      data: {
+        status:             'CANCELLED',
+        cancelledAt:        new Date(),
+        cancellationReason: reason,
+      },
+    })
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'CANCEL',
+      objectType: 'PAYMENT',
+      objectId:   id,
     })
 
     return NextResponse.json({ ok: true })

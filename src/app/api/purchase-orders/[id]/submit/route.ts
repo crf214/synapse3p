@@ -38,19 +38,17 @@ export async function POST(
     if (po.lineItems.length === 0) throw new ValidationError('Cannot submit a PO with no line items')
 
     // Advance PO status to PENDING_APPROVAL
-    await prisma.$transaction(async (tx) => {
-      await tx.purchaseOrder.update({
-        where: { id },
-        data:  { status: 'PENDING_APPROVAL' as never },
-      })
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'SUBMIT',
-        objectType: 'PURCHASE_ORDER',
-        objectId:   id,
-      })
-    }, { timeout: 30000 })
+    await prisma.purchaseOrder.update({
+      where: { id },
+      data:  { status: 'PENDING_APPROVAL' as never },
+    })
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'SUBMIT',
+      objectType: 'PURCHASE_ORDER',
+      objectId:   id,
+    })
 
     // Activity log — non-critical
     await prisma.entityActivityLog.create({

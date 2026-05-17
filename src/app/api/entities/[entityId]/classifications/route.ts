@@ -55,16 +55,16 @@ export async function POST(
         data: { entityId, type, isPrimary },
       })
 
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'UPDATE',
-        objectType: 'ENTITY',
-        objectId:   entityId,
-        after:      { addedClassification: type, isPrimary },
-      })
-
       return created
+    }, { timeout: 10000 })
+
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'UPDATE',
+      objectType: 'ENTITY',
+      objectId:   entityId,
+      after:      { addedClassification: type, isPrimary },
     })
 
     return NextResponse.json({ classification }, { status: 201 })

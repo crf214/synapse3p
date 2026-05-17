@@ -71,16 +71,17 @@ export async function POST(
         where: { id: invoice.id },
         data:  { status: 'PENDING_REVIEW' },
       }),
-      prisma.auditEvent.create({
-        data: {
-          orgId:      orgId,
-          actorId:    session.userId!,
-          action:     'OVERRIDE',
-          entityType: 'INVOICE',
-          entityId:   invoice.id,
-        },
-      }),
     ])
+
+    await prisma.auditEvent.create({
+      data: {
+        orgId:      orgId,
+        actorId:    session.userId!,
+        action:     'OVERRIDE',
+        entityType: 'INVOICE',
+        entityId:   invoice.id,
+      },
+    }).catch(e => console.error('[override-duplicate] audit log failed:', e))
 
     // The invoice will now appear in the main queue with DUPLICATE_FLAG signal triggered
     // (the risk pipeline already set it; no need to re-run)

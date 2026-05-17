@@ -167,22 +167,18 @@ export async function PATCH(
       return NextResponse.json({ entity: existing })
     }
 
-    const entity = await prisma.$transaction(async (tx) => {
-      const updated = await tx.entity.update({
-        where: { id: entityId },
-        data:  updates,
-      })
+    const entity = await prisma.entity.update({
+      where: { id: entityId },
+      data:  updates,
+    })
 
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'UPDATE',
-        objectType: 'ENTITY',
-        objectId:   entityId,
-        after:      { changedFields },
-      })
-
-      return updated
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'UPDATE',
+      objectType: 'ENTITY',
+      objectId:   entityId,
+      after:      { changedFields },
     })
 
     // ── Resolve step dependencies when PROVISIONAL → confirmed ───────────────

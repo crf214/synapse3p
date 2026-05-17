@@ -143,7 +143,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     await prisma.$transaction(async tx => {
       await tx.mergedAuthItem.deleteMany({ where: { mergedAuthId: id } })
       await tx.mergedAuthorization.delete({ where: { id } })
-    }, { timeout: 30000 })
+    }, { timeout: 10000 })
 
     return NextResponse.json({ ok: true })
   } catch (err) {

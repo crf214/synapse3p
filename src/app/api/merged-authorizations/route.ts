@@ -168,7 +168,7 @@ export async function POST(req: NextRequest) {
       })
 
       return ma
-    }, { timeout: 30000 })
+    }, { timeout: 10000 })
 
     return NextResponse.json({ id: batch.id, reference: batch.reference }, { status: 201 })
   } catch (err) {

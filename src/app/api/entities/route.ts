@@ -208,15 +208,15 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'CREATE',
-        objectType: 'ENTITY',
-        objectId:   created.id,
-      })
-
       return created
+    }, { timeout: 10000 })
+
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'CREATE',
+      objectType: 'ENTITY',
+      objectId:   entity.id,
     })
 
     // Fire-and-forget workflow trigger (must not block entity creation)

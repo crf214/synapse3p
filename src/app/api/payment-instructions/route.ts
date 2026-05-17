@@ -187,16 +187,16 @@ export async function POST(req: NextRequest) {
         },
       })
 
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'CREATE',
-        objectType: 'PAYMENT',
-        objectId:   payment.id,
-      })
-
       return payment
-    }, { timeout: 30000 })
+    }, { timeout: 10000 })
+
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'CREATE',
+      objectType: 'PAYMENT',
+      objectId:   pi.id,
+    })
 
     return NextResponse.json(pi, { status: 201 })
   } catch (err) {

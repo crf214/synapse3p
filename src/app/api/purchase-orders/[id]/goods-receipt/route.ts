@@ -133,7 +133,7 @@ export async function POST(
       }
 
       return created
-    }, { timeout: 30000 })
+    }, { timeout: 10000 })
 
     // Audit log — non-critical follow-up write, outside transaction.
     await prisma.entityActivityLog.create({

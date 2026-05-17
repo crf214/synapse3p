@@ -33,40 +33,36 @@ export async function POST(
     })
     if (!existing) throw new NotFoundError('Entity not found')
 
-    const entity = await prisma.$transaction(async (tx) => {
-      const updated = await tx.entity.update({
-        where: { id: entityId },
-        data: {
-          riskBandOverride:       band as RiskBand,
-          riskBandOverrideReason: reason,
-          riskBandOverrideBy:     session.userId,
-          riskBandOverrideAt:     new Date(),
-        },
-      })
-
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'OVERRIDE',
-        objectType: 'ENTITY',
-        objectId:   entityId,
-        after:      { riskBandOverride: band, riskBandOverrideReason: reason },
-      })
-
-      await tx.entityActivityLog.create({
-        data: {
-          entityId,
-          orgId:        orgId,
-          activityType: 'RISK_SCORE_CHANGE',
-          title:        'Manual risk band override applied',
-          description:  `Band set to ${band}. Reason: ${reason}`,
-          performedBy:  session.name ?? session.email ?? session.userId ?? 'Unknown',
-          occurredAt:   new Date(),
-        },
-      })
-
-      return updated
+    const entity = await prisma.entity.update({
+      where: { id: entityId },
+      data: {
+        riskBandOverride:       band as RiskBand,
+        riskBandOverrideReason: reason,
+        riskBandOverrideBy:     session.userId,
+        riskBandOverrideAt:     new Date(),
+      },
     })
+
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'OVERRIDE',
+      objectType: 'ENTITY',
+      objectId:   entityId,
+      after:      { riskBandOverride: band, riskBandOverrideReason: reason },
+    })
+
+    await prisma.entityActivityLog.create({
+      data: {
+        entityId,
+        orgId:        orgId,
+        activityType: 'RISK_SCORE_CHANGE',
+        title:        'Manual risk band override applied',
+        description:  `Band set to ${band}. Reason: ${reason}`,
+        performedBy:  session.name ?? session.email ?? session.userId ?? 'Unknown',
+        occurredAt:   new Date(),
+      },
+    }).catch(e => console.error('[risk-override/POST] activity log failed:', e))
 
     // Recompute risk band asynchronously (will respect the new override)
     void updateEntityRisk(entityId, prisma).catch(console.error)
@@ -94,40 +90,36 @@ export async function DELETE(
     })
     if (!existing) throw new NotFoundError('Entity not found')
 
-    const entity = await prisma.$transaction(async (tx) => {
-      const updated = await tx.entity.update({
-        where: { id: entityId },
-        data: {
-          riskBandOverride:       null,
-          riskBandOverrideReason: null,
-          riskBandOverrideBy:     null,
-          riskBandOverrideAt:     null,
-        },
-      })
-
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'OVERRIDE',
-        objectType: 'ENTITY',
-        objectId:   entityId,
-        after:      { riskBandOverride: null },
-      })
-
-      await tx.entityActivityLog.create({
-        data: {
-          entityId,
-          orgId:        orgId,
-          activityType: 'RISK_SCORE_CHANGE',
-          title:        'Manual risk band override cleared',
-          description:  'Risk band override has been removed; computed band will be applied.',
-          performedBy:  session.name ?? session.email ?? session.userId ?? 'Unknown',
-          occurredAt:   new Date(),
-        },
-      })
-
-      return updated
+    const entity = await prisma.entity.update({
+      where: { id: entityId },
+      data: {
+        riskBandOverride:       null,
+        riskBandOverrideReason: null,
+        riskBandOverrideBy:     null,
+        riskBandOverrideAt:     null,
+      },
     })
+
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'OVERRIDE',
+      objectType: 'ENTITY',
+      objectId:   entityId,
+      after:      { riskBandOverride: null },
+    })
+
+    await prisma.entityActivityLog.create({
+      data: {
+        entityId,
+        orgId:        orgId,
+        activityType: 'RISK_SCORE_CHANGE',
+        title:        'Manual risk band override cleared',
+        description:  'Risk band override has been removed; computed band will be applied.',
+        performedBy:  session.name ?? session.email ?? session.userId ?? 'Unknown',
+        occurredAt:   new Date(),
+      },
+    }).catch(e => console.error('[risk-override/DELETE] activity log failed:', e))
 
     // Recompute risk band without override
     void updateEntityRisk(entityId, prisma).catch(console.error)

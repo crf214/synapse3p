@@ -133,7 +133,7 @@ export async function POST(
         },
       })
       await tx.purchaseOrder.update({ where: { id }, data: updateData })
-    }, { timeout: 30000 })
+    }, { timeout: 10000 })
 
     // Audit log — non-critical follow-up write, outside transaction.
     await prisma.entityActivityLog.create({

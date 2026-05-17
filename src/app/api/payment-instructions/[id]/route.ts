@@ -157,7 +157,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
       })
 
       return payment
-    }, { timeout: 30000 })
+    }, { timeout: 10000 })
 
     return NextResponse.json({ ...updated, amount: Number(updated.amount) })
   } catch (err) {

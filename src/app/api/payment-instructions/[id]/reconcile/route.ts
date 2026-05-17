@@ -47,22 +47,20 @@ export async function POST(req: NextRequest, { params }: Params) {
       ? sanitiseString(parsed.data.notes)
       : null
 
-    await prisma.$transaction(async tx => {
-      await tx.paymentInstruction.update({
-        where: { id },
-        data: {
-          status: 'RECONCILED',
-          ...(notes ? { notes: pi.notes ? `${pi.notes}\n${notes}` : notes } : {}),
-        },
-      })
+    await prisma.paymentInstruction.update({
+      where: { id },
+      data: {
+        status: 'RECONCILED',
+        ...(notes ? { notes: pi.notes ? `${pi.notes}\n${notes}` : notes } : {}),
+      },
+    })
 
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'RECONCILE',
-        objectType: 'PAYMENT',
-        objectId:   id,
-      })
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'RECONCILE',
+      objectType: 'PAYMENT',
+      objectId:   id,
     })
 
     return NextResponse.json({ ok: true, status: 'RECONCILED' })

@@ -70,25 +70,25 @@ export async function POST(
     // Determine new PO status
     const newPoStatus = isApproved ? 'APPROVED' : isChangesReq ? 'DRAFT' : 'REJECTED'
 
-    // Atomic: update PO status + audit event
+    // Atomic: update PO status + cancel legacy pending approvals together
     await prisma.$transaction(async (tx) => {
       await tx.purchaseOrder.update({
         where: { id },
         data:  { status: newPoStatus as never },
       })
-      // Cancel any legacy POApproval records still in PENDING
       await tx.pOApproval.updateMany({
         where: { poId: id, status: 'PENDING' as never },
         data:  { status: 'CANCELLED' as never },
       })
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'APPROVE',
-        objectType: 'PURCHASE_ORDER',
-        objectId:   id,
-      })
-    }, { timeout: 30000 })
+    }, { timeout: 10000 })
+
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'APPROVE',
+      objectType: 'PURCHASE_ORDER',
+      objectId:   id,
+    })
 
     // Advance workflow engine — find active APPROVAL step instance
     void (async () => {

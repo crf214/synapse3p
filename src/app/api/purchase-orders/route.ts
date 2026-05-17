@@ -230,16 +230,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         })),
       })
 
-      await writeAuditEvent(tx, {
-        actorId:    session.userId!,
-        orgId:      orgId,
-        action:     'CREATE',
-        objectType: 'PURCHASE_ORDER',
-        objectId:   created.id,
-      })
-
       return created
-    }, { timeout: 30000 })
+    }, { timeout: 10000 })
+
+    await writeAuditEvent(prisma, {
+      actorId:    session.userId!,
+      orgId:      orgId,
+      action:     'CREATE',
+      objectType: 'PURCHASE_ORDER',
+      objectId:   po.id,
+    })
 
     // Fire-and-forget workflow trigger (must not block PO creation)
     void (async () => {
