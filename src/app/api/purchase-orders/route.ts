@@ -239,7 +239,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       })
 
       return created
-    }, { timeout: 15000 })
+    }, { timeout: 30000 })
 
     // Fire-and-forget workflow trigger (must not block PO creation)
     void (async () => {
