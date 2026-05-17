@@ -115,15 +115,15 @@ export async function GET(
     const [spendHistoryRaw, recentInvoices, openPOs] = await Promise.all([
       prisma.$queryRaw<{ period: string; currency: string; invoice_count: bigint; total_amount: number; avg_amount: number }[]>`
         SELECT
-          TO_CHAR(invoice_date, 'YYYY-MM') AS period,
+          TO_CHAR("invoiceDate", 'YYYY-MM') AS period,
           currency,
-          COUNT(*)::bigint                 AS invoice_count,
-          SUM(amount)                      AS total_amount,
-          AVG(amount)                      AS avg_amount
+          COUNT(*)::bigint                  AS invoice_count,
+          SUM(amount)                       AS total_amount,
+          AVG(amount)                       AS avg_amount
         FROM invoices
-        WHERE entity_id = ${po.entityId}
-          AND org_id    = ${orgId}
-          AND status    NOT IN ('REJECTED','CANCELLED')
+        WHERE "entityId" = ${po.entityId}
+          AND "orgId"    = ${orgId}
+          AND status     NOT IN ('REJECTED','CANCELLED')
         GROUP BY period, currency
         ORDER BY period DESC
         LIMIT 12
