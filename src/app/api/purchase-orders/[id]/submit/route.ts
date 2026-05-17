@@ -50,7 +50,7 @@ export async function POST(
         objectType: 'PURCHASE_ORDER',
         objectId:   id,
       })
-    }, { timeout: 15000 })
+    }, { timeout: 30000 })
 
     // Activity log — non-critical
     await prisma.entityActivityLog.create({

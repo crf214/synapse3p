@@ -339,7 +339,7 @@ export async function PATCH(
         objectType: 'INVOICE',
         objectId:   invoice.id,
       })
-    }, { timeout: 15000 })
+    }, { timeout: 30000 })
 
     // --- Workflow engine integration ---
     // If there is an active WorkflowInstance for this invoice with an IN_PROGRESS

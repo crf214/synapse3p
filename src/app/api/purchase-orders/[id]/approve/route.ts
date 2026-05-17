@@ -88,7 +88,7 @@ export async function POST(
         objectType: 'PURCHASE_ORDER',
         objectId:   id,
       })
-    }, { timeout: 15000 })
+    }, { timeout: 30000 })
 
     // Advance workflow engine — find active APPROVAL step instance
     void (async () => {

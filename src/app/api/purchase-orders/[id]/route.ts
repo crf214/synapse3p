@@ -277,7 +277,7 @@ export async function PUT(
           objectId:   id,
           after:      { changedFields: Object.keys(body) },
         })
-      }, { timeout: 15000 })
+      }, { timeout: 30000 })
     } else {
       await prisma.$transaction(async (tx) => {
         await tx.purchaseOrder.update({ where: { id }, data: updates })

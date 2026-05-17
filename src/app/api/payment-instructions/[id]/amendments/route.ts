@@ -94,7 +94,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       })
 
       return a
-    }, { timeout: 15000 })
+    }, { timeout: 30000 })
 
     return NextResponse.json({ amendment }, { status: 201 })
   } catch (err) {
@@ -180,7 +180,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
           data:  { status: pi.status === 'AMENDMENT_PENDING' ? 'APPROVED' : pi.status },
         })
       }
-    }, { timeout: 15000 })
+    }, { timeout: 30000 })
 
     return NextResponse.json({ ok: true })
   } catch (err) {

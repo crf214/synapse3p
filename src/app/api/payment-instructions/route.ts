@@ -196,7 +196,7 @@ export async function POST(req: NextRequest) {
       })
 
       return payment
-    }, { timeout: 15000 })
+    }, { timeout: 30000 })
 
     return NextResponse.json(pi, { status: 201 })
   } catch (err) {
