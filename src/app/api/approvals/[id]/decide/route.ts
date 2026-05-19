@@ -1,6 +1,7 @@
 // src/app/api/approvals/[id]/decide/route.ts
-// Unified decide endpoint — handles PO approvals, invoice approvals, and merged-auth.
-// Body: { type: 'PO' | 'INVOICE' | 'MERGED_AUTH', decision: 'APPROVED' | 'REJECTED', comments?: string }
+// Unified decide endpoint — handles PO approvals, invoice approvals, merged-auth,
+// and workflow-engine step instances (across PO / INVOICE / ENTITY).
+// Body: { type: 'PO' | 'INVOICE' | 'ENTITY' | 'MERGED_AUTH', decision: 'APPROVED' | 'REJECTED', comments?: string }
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
@@ -8,6 +9,8 @@ import { getSession } from '@/lib/session'
 import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sendInvoiceDecisionEmail, sendPODecisionEmail } from '@/lib/resend'
+import { WorkflowEngine } from '@/lib/workflow-engine'
+import { writeAuditEvent } from '@/lib/audit'
 
 const DecideApprovalSchema = z.object({
   type:     z.string().min(1),
@@ -33,8 +36,70 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
     const { type, decision, comments } = parsed.data
 
-    if (!['PO', 'INVOICE', 'MERGED_AUTH'].includes(type)) throw new ValidationError('Invalid type')
+    if (!['PO', 'INVOICE', 'ENTITY', 'MERGED_AUTH'].includes(type)) throw new ValidationError('Invalid type')
     if (!['APPROVED', 'REJECTED'].includes(decision)) throw new ValidationError('decision must be APPROVED or REJECTED')
+
+    // ── Workflow-engine step instance ─────────────────────────────────────────
+    // The id may be a WorkflowStepInstance id (new flow) rather than a legacy
+    // POApproval / InvoiceApproval id. Try this path first.
+    const stepInstance = await prisma.workflowStepInstance.findUnique({
+      where:   { id },
+      include: {
+        stepDefinition:   { select: { stepType: true, config: true } },
+        workflowInstance: { select: { orgId: true, targetObjectType: true, targetObjectId: true } },
+      },
+    })
+
+    if (stepInstance && stepInstance.stepDefinition.stepType === 'APPROVAL') {
+      if (stepInstance.workflowInstance.orgId !== session.orgId) throw new ForbiddenError()
+      if (!['PENDING', 'IN_PROGRESS'].includes(stepInstance.status)) {
+        throw new ValidationError('Step is no longer pending')
+      }
+
+      // Permission: explicit user-assignment OR role-based claim
+      const role = session.role ?? ''
+      const cfg  = stepInstance.stepDefinition.config as { requiredRole?: string } | null
+      const isAssigned   = stepInstance.assignedTo === session.userId
+      const isRoleClaim  = stepInstance.assignedTo === null &&
+                           (role === 'ADMIN' || (!!cfg?.requiredRole && cfg.requiredRole === role))
+      if (!isAssigned && !isRoleClaim) throw new ForbiddenError()
+
+      const engine = new WorkflowEngine(prisma)
+      await engine.completeStep(
+        stepInstance.id,
+        decision === 'APPROVED' ? 'PASS' : 'FAIL',
+        session.userId!,
+        comments ?? undefined,
+      )
+
+      // Audit trail tagged with the underlying target's object type
+      const targetType = stepInstance.workflowInstance.targetObjectType
+      const auditObjectType: 'PURCHASE_ORDER' | 'INVOICE' | 'ENTITY' | 'SYSTEM' =
+        targetType === 'PURCHASE_ORDER' ? 'PURCHASE_ORDER' :
+        targetType === 'INVOICE'        ? 'INVOICE'        :
+        targetType === 'ENTITY'         ? 'ENTITY'         : 'SYSTEM'
+      void writeAuditEvent(prisma, {
+        actorId:    session.userId!,
+        orgId:      session.orgId!,
+        action:     decision === 'APPROVED' ? 'APPROVE' : 'REJECT',
+        objectType: auditObjectType,
+        objectId:   stepInstance.workflowInstance.targetObjectId,
+        after:      { stepInstanceId: stepInstance.id, decision, comments: comments ?? null },
+      })
+
+      // Fetch updated status to return to the caller
+      const updated = await prisma.workflowStepInstance.findUnique({
+        where: { id: stepInstance.id },
+        select: { status: true, result: true },
+      })
+
+      return NextResponse.json({
+        ok: true,
+        stepInstanceId: stepInstance.id,
+        status:         updated?.status ?? null,
+        result:         updated?.result ?? null,
+      })
+    }
 
     // ── PO approval ───────────────────────────────────────────────────────────
     if (type === 'PO') {
