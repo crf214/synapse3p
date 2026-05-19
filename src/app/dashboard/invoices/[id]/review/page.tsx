@@ -247,6 +247,10 @@ export default function InvoiceReviewPage() {
 
   const [corrections, setCorrections] = useState<Record<string, string>>({})
   const [saving,     setSaving]     = useState(false)
+  // F9: edit mode for the Extracted Fields panel — read-only by default
+  const [editMode,   setEditMode]   = useState(false)
+  // F17: dismissible Extracted Fields panel
+  const [extractedVisible, setExtractedVisible] = useState(true)
 
   // Routing state (AP_CLERK → assigns to approver)
   const [selectedApprover, setSelectedApprover] = useState('')
@@ -459,6 +463,25 @@ export default function InvoiceReviewPage() {
       <div className="w-1/2 overflow-y-auto">
         <div className="p-6 space-y-6">
 
+          {/* --- Create Payment (visible when APPROVED) --- */}
+          {invoice.status === 'APPROVED' && (
+            <section className="p-4 rounded-xl flex items-center justify-between gap-3"
+              style={{ background: '#f0fdf4', border: '1px solid #16a34a33' }}>
+              <div>
+                <h2 className="text-sm font-semibold" style={{ color: '#166534' }}>Ready for payment</h2>
+                <p className="text-xs" style={{ color: '#16a34a' }}>
+                  This invoice is approved. Create a payment instruction to send to the bank/ERP.
+                </p>
+              </div>
+              <button
+                onClick={() => router.push(`/dashboard/payments?invoiceId=${invoice.id}`)}
+                className="text-xs font-medium px-3 py-2 rounded-lg whitespace-nowrap"
+                style={{ background: '#16a34a', color: '#fff' }}>
+                Create Payment →
+              </button>
+            </section>
+          )}
+
           {/* --- DUPLICATE QUARANTINE PANEL --- */}
           {invoice.status === 'DUPLICATE' && (invoice.duplicateFlags ?? []).length > 0 && (
             <section className="p-4 rounded-xl"
@@ -641,18 +664,40 @@ export default function InvoiceReviewPage() {
           )}
 
           {/* --- A: Extracted Fields --- */}
+          {extractedVisible && (
           <section>
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-3 gap-2">
               <h2 className="text-base font-semibold" style={{ color: 'var(--ink)' }}>
                 Extracted Fields
               </h2>
-              {Object.keys(corrections).length > 0 && (
-                <button onClick={saveCorrections} disabled={saving}
-                  className="text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-50"
-                  style={{ background: '#2563eb', color: '#fff' }}>
-                  {saving ? 'Saving…' : `Save ${Object.keys(corrections).length} correction${Object.keys(corrections).length !== 1 ? 's' : ''}`}
+              <div className="flex items-center gap-2">
+                {editMode ? (
+                  <>
+                    <button onClick={() => { setCorrections({}); setEditMode(false) }}
+                      className="text-xs px-3 py-1.5 rounded-lg"
+                      style={{ background: 'var(--surface)', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                      Cancel
+                    </button>
+                    <button onClick={async () => { await saveCorrections(); setEditMode(false) }} disabled={saving}
+                      className="text-xs px-3 py-1.5 rounded-lg font-medium disabled:opacity-50"
+                      style={{ background: '#2563eb', color: '#fff' }}>
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => setEditMode(true)}
+                    className="text-xs px-3 py-1.5 rounded-lg font-medium"
+                    style={{ background: 'var(--surface)', color: 'var(--ink)', border: '1px solid var(--border)' }}>
+                    Edit
+                  </button>
+                )}
+                <button onClick={() => setExtractedVisible(false)}
+                  aria-label="Close panel"
+                  className="text-xs px-2 py-1.5 rounded-lg"
+                  style={{ background: 'transparent', color: 'var(--muted)', border: '1px solid var(--border)' }}>
+                  ×
                 </button>
-              )}
+              </div>
             </div>
             <div className="space-y-2">
               {invoice.extractedFields.map(f => {
@@ -706,9 +751,15 @@ export default function InvoiceReviewPage() {
                     <div className="flex-1 min-w-0">
                       <input
                         value={display}
+                        readOnly={!editMode}
                         onChange={e => setCorrections(prev => ({ ...prev, [f.fieldName]: e.target.value }))}
-                        className="w-full text-sm bg-transparent outline-none"
-                        style={{ color: isChanged ? '#2563eb' : 'var(--ink)' }}
+                        className="w-full text-sm outline-none rounded px-2 py-1"
+                        style={{
+                          color: isChanged ? '#2563eb' : 'var(--ink)',
+                          background: editMode ? 'var(--bg)' : 'transparent',
+                          border: editMode ? '1px solid var(--border)' : '1px solid transparent',
+                          cursor: editMode ? 'text' : 'default',
+                        }}
                       />
                     </div>
                     <div className="flex-shrink-0 flex items-center gap-2">
@@ -727,6 +778,7 @@ export default function InvoiceReviewPage() {
               )}
             </div>
           </section>
+          )}
 
           {/* --- B: Context Panel --- */}
           <section>

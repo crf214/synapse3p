@@ -32,7 +32,7 @@ function isApiRoute(pathname: string) {
 }
 
 const CSRF_MUTATING   = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
-const CSRF_EXCLUDED   = new Set(['/api/auth/csrf', '/api/health'])
+const CSRF_EXCLUDED   = new Set(['/api/auth/csrf', '/api/health', '/api/auth/logout'])
 const CSRF_EXCL_PREFIX = ['/api/webhooks/']
 
 function needsCsrf(pathname: string, method: string): boolean {

@@ -15,6 +15,7 @@ export async function GET() {
     const orgId  = session.orgId
 
     // ── PO approvals ──────────────────────────────────────────────────────────
+    // Legacy POApproval rows (pre-workflow-engine POs)
     const poApprovals = await prisma.pOApproval.findMany({
       where: { approverId: userId, status: 'PENDING', po: { orgId } },
       include: {
@@ -34,6 +35,37 @@ export async function GET() {
       },
       orderBy: { createdAt: 'asc' },
     })
+
+    // Workflow-engine PO approval steps assigned to this user.
+    // New POs route through the workflow engine and never create POApproval rows.
+    const workflowPOSteps = await prisma.workflowStepInstance.findMany({
+      where: {
+        assignedTo:     userId,
+        status:         { in: ['IN_PROGRESS', 'PENDING'] },
+        stepDefinition: { stepType: 'APPROVAL' },
+        workflowInstance: {
+          orgId,
+          targetObjectType: 'PURCHASE_ORDER',
+          status:           'IN_PROGRESS',
+        },
+      },
+      include: {
+        workflowInstance: { select: { targetObjectId: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    })
+    const workflowPOIds = [...new Set(workflowPOSteps.map(s => s.workflowInstance.targetObjectId))]
+    const workflowPOs = workflowPOIds.length > 0
+      ? await prisma.purchaseOrder.findMany({
+          where:  { id: { in: workflowPOIds }, orgId },
+          select: {
+            id: true, poNumber: true, title: true, totalAmount: true, currency: true,
+            status: true, requestedBy: true, createdAt: true,
+            entity: { select: { id: true, name: true } },
+          },
+        })
+      : []
+    const poById = Object.fromEntries(workflowPOs.map(po => [po.id, po]))
 
     // ── Invoice approvals ─────────────────────────────────────────────────────
     const invoiceApprovals = await prisma.invoiceApproval.findMany({
@@ -77,6 +109,7 @@ export async function GET() {
     const requesterIds = new Set<string>()
     for (const a of poApprovals) requesterIds.add(a.po.requestedBy)
     for (const m of mergedAuths) requesterIds.add(m.createdBy)
+    for (const po of workflowPOs) requesterIds.add(po.requestedBy)
 
     const requesterUsers = requesterIds.size > 0
       ? await prisma.user.findMany({
@@ -102,6 +135,25 @@ export async function GET() {
         requester:   userMap[a.po.requestedBy] ?? null,
         createdAt:   a.createdAt.toISOString(),
       })),
+
+      ...workflowPOSteps.flatMap(step => {
+        const po = poById[step.workflowInstance.targetObjectId]
+        if (!po) return []
+        return [{
+          id:          step.id,
+          type:        'PO' as const,
+          subjectId:   po.id,
+          reference:   po.poNumber,
+          title:       po.title,
+          entityId:    po.entity.id,
+          entity:      po.entity.name,
+          amount:      Number(po.totalAmount),
+          currency:    po.currency,
+          step:        null as number | null,
+          requester:   userMap[po.requestedBy] ?? null,
+          createdAt:   step.createdAt.toISOString(),
+        }]
+      }),
 
       ...invoiceApprovals.map(a => ({
         id:          a.id,
@@ -136,6 +188,6 @@ export async function GET() {
 
     return NextResponse.json({ items })
   } catch (err) {
-    return handleApiError(err, "")
+    return handleApiError(err, 'GET /api/approvals')
   }
 }

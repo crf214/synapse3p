@@ -7,6 +7,13 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { prisma } from '@/lib/prisma'
 
+if (!process.env.ANTHROPIC_API_KEY) {
+  console.warn(
+    '[invoice-ai] ANTHROPIC_API_KEY is not set. AI extraction will fail until it is provided in .env. ' +
+    'Invoices will be created without extracted fields.',
+  )
+}
+
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 // ---------------------------------------------------------------------------

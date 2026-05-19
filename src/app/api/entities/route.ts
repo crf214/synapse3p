@@ -6,6 +6,7 @@ import { handleApiError, UnauthorizedError, ForbiddenError, ValidationError } fr
 import { sanitiseString } from '@/lib/security/sanitise'
 import { writeAuditEvent } from '@/lib/audit'
 import { WorkflowEngine, selectTemplate } from '@/lib/workflow-engine'
+import { updateEntityRisk } from '@/lib/risk/update-entity-risk'
 import { FINANCE_ROLES } from '@/lib/security/roles'
 
 // All valid EntityType values (must stay in sync with prisma/schema.prisma EntityType enum)
@@ -208,6 +209,18 @@ export async function POST(req: NextRequest) {
         },
       })
 
+      // Pre-create the due-diligence record so the DD tab works immediately.
+      // sanctionsStatus has no PENDING value in the schema; UNDER_REVIEW expresses
+      // "not yet screened" better than CLEAR (which is the schema default).
+      await tx.entityDueDiligence.create({
+        data: {
+          entityId:        created.id,
+          kycStatus:       'PENDING',
+          kybStatus:       'PENDING',
+          sanctionsStatus: 'UNDER_REVIEW',
+        },
+      })
+
       return created
     }, { timeout: 10000 })
 
@@ -218,6 +231,11 @@ export async function POST(req: NextRequest) {
       objectType: 'ENTITY',
       objectId:   entity.id,
     })
+
+    // Compute baseline risk band asynchronously
+    void updateEntityRisk(entity.id, prisma).catch(err =>
+      console.warn('[entities/POST] initial updateEntityRisk failed:', err),
+    )
 
     // Fire-and-forget workflow trigger (must not block entity creation)
     void (async () => {

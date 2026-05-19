@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ reviews, total, page, limit })
   } catch (err) {
-    return handleApiError(err, "")
+    return handleApiError(err, 'GET /api/reviews')
   }
 }
 
@@ -123,6 +123,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(review, { status: 201 })
   } catch (err) {
-    return handleApiError(err, "")
+    return handleApiError(err, 'POST /api/reviews')
   }
 }

@@ -29,6 +29,9 @@ const { mockPrisma, mockGetSession } = vi.hoisted(() => {
     entityOrgRelationship: {
       create: vi.fn(),
     },
+    entityDueDiligence: {
+      create: vi.fn(),
+    },
     entityActivityLog: {
       create: vi.fn(),
     },
@@ -134,6 +137,7 @@ describe('Entity CRUD smoke tests', () => {
     // Audit and activity log writes must not throw
     mockPrisma.auditEvent.create.mockResolvedValue({})
     mockPrisma.entityActivityLog.create.mockResolvedValue({})
+    mockPrisma.entityDueDiligence.create.mockResolvedValue({})
   })
 
   // ── Create entity ──────────────────────────────────────────────────────────

@@ -117,30 +117,68 @@ function RiskBandBadge({ band }: { band: RiskBand | null }) {
 // Add Entity Modal
 // ---------------------------------------------------------------------------
 interface AddEntityForm {
-  name: string; legalStructure: string; jurisdiction: string
-  primaryCurrency: string; registrationNo: string; notes: string
+  name: string; entityType: EntityType; legalStructure: string; jurisdiction: string
+  primaryCurrency: string; parentId: string; notes: string
 }
+
+// Must stay in sync with prisma/schema.prisma EntityType enum
+const ENTITY_TYPE_OPTIONS: { value: EntityType; label: string }[] = [
+  { value: 'VENDOR',            label: 'Vendor' },
+  { value: 'CONTRACTOR',        label: 'Contractor' },
+  { value: 'BROKER',            label: 'Broker' },
+  { value: 'PLATFORM',          label: 'Platform' },
+  { value: 'FUND_SVC_PROVIDER', label: 'Fund Service Provider' },
+  { value: 'OTHER',             label: 'Other' },
+]
+
+interface ParentOption { id: string; name: string }
 
 function AddEntityModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState<AddEntityForm>({
-    name: '', legalStructure: 'COMPANY', jurisdiction: '', primaryCurrency: 'USD', registrationNo: '', notes: '',
+    name: '', entityType: 'VENDOR', legalStructure: 'COMPANY', jurisdiction: '',
+    primaryCurrency: 'USD', parentId: '', notes: '',
   })
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState<string | null>(null)
+  const [parentSearch, setParentSearch] = useState('')
+  const [parentOptions, setParentOptions] = useState<ParentOption[]>([])
+  const [parentDropdownOpen, setParentDropdownOpen] = useState(false)
 
-  function set(k: keyof AddEntityForm) {
+  // Fetch potential parents on mount + when search changes (server already supports search)
+  useEffect(() => {
+    const controller = new AbortController()
+    const url = `/api/entities?limit=20${parentSearch ? `&search=${encodeURIComponent(parentSearch)}` : ''}`
+    fetch(url, { signal: controller.signal })
+      .then(r => r.json())
+      .then((d: { entities?: { id: string; name: string }[] }) => {
+        setParentOptions((d.entities ?? []).map(e => ({ id: e.id, name: e.name })))
+      })
+      .catch(() => { /* aborted or network failure — silent, dropdown just shows empty */ })
+    return () => controller.abort()
+  }, [parentSearch])
+
+  function set<K extends keyof AddEntityForm>(k: K) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-      setForm(f => ({ ...f, [k]: e.target.value }))
+      setForm(f => ({ ...f, [k]: e.target.value as AddEntityForm[K] }))
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true); setError(null)
     try {
+      const payload: Record<string, unknown> = {
+        name:            form.name,
+        entityType:      form.entityType,
+        legalStructure:  form.legalStructure,
+        jurisdiction:    form.jurisdiction,
+        primaryCurrency: form.primaryCurrency,
+        notes:           form.notes,
+      }
+      if (form.parentId) payload.parentId = form.parentId
       const res = await apiClient('/api/entities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       })
       if (!res.ok) {
         const d = await res.json() as { error?: { message: string; code: string } }
@@ -157,6 +195,7 @@ function AddEntityModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
   const labelCls = 'block text-xs font-medium mb-1'
   const inputCls = 'w-full text-sm px-3 py-2 rounded-lg outline-none transition-colors'
   const inputStyle = { background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--ink)' }
+  const selectedParent = parentOptions.find(p => p.id === form.parentId)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -171,9 +210,9 @@ function AddEntityModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelCls} style={{ color: 'var(--muted)' }}>Legal structure *</label>
-              <select className={inputCls} style={inputStyle} value={form.legalStructure} onChange={set('legalStructure')}>
-                {LEGAL_STRUCTURES.map(s => <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
+              <label className={labelCls} style={{ color: 'var(--muted)' }}>Entity type *</label>
+              <select className={inputCls} style={inputStyle} value={form.entityType} onChange={set('entityType')} required>
+                {ENTITY_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
             <div>
@@ -189,9 +228,47 @@ function AddEntityModal({ onClose, onSaved }: { onClose: () => void; onSaved: ()
               </select>
             </div>
             <div>
-              <label className={labelCls} style={{ color: 'var(--muted)' }}>Registration No.</label>
-              <input className={inputCls} style={inputStyle} value={form.registrationNo} onChange={set('registrationNo')} />
+              <label className={labelCls} style={{ color: 'var(--muted)' }}>Legal structure</label>
+              <select className={inputCls} style={inputStyle} value={form.legalStructure} onChange={set('legalStructure')}>
+                {LEGAL_STRUCTURES.map(s => <option key={s} value={s}>{s.charAt(0) + s.slice(1).toLowerCase()}</option>)}
+              </select>
             </div>
+          </div>
+          <div className="relative">
+            <label className={labelCls} style={{ color: 'var(--muted)' }}>Parent entity (optional)</label>
+            <input
+              className={inputCls}
+              style={inputStyle}
+              placeholder="Search entities to set a parent…"
+              value={selectedParent?.name ?? parentSearch}
+              onChange={e => { setParentSearch(e.target.value); setForm(f => ({ ...f, parentId: '' })); setParentDropdownOpen(true) }}
+              onFocus={() => setParentDropdownOpen(true)}
+              onBlur={() => setTimeout(() => setParentDropdownOpen(false), 150)}
+            />
+            {parentDropdownOpen && parentOptions.length > 0 && (
+              <ul className="absolute z-10 w-full mt-1 max-h-48 overflow-auto rounded-lg shadow"
+                style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
+                {form.parentId && (
+                  <li>
+                    <button type="button" onClick={() => { setForm(f => ({ ...f, parentId: '' })); setParentSearch('') }}
+                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-50"
+                      style={{ color: 'var(--muted)' }}>
+                      Clear selection
+                    </button>
+                  </li>
+                )}
+                {parentOptions.map(p => (
+                  <li key={p.id}>
+                    <button type="button"
+                      onClick={() => { setForm(f => ({ ...f, parentId: p.id })); setParentSearch(''); setParentDropdownOpen(false) }}
+                      className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50"
+                      style={{ color: 'var(--ink)' }}>
+                      {p.name}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           <div>
             <label className={labelCls} style={{ color: 'var(--muted)' }}>Notes</label>
@@ -299,7 +376,7 @@ export default function EntitiesPage() {
   ]
 
   const RISK_BAND_OPTIONS: { key: RiskBandFilter; label: string }[] = [
-    { key: 'ALL',      label: 'All bands'  },
+    { key: 'ALL',      label: 'All risk bands' },
     { key: 'LOW',      label: 'Low'        },
     { key: 'MEDIUM',   label: 'Medium'     },
     { key: 'HIGH',     label: 'High'       },
