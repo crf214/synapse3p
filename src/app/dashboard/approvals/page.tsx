@@ -9,7 +9,7 @@ import { apiClient } from '@/lib/api-client'
 
 const ALLOWED_ROLES = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
 
-type ItemType = 'PO' | 'INVOICE' | 'MERGED_AUTH'
+type ItemType = 'PO' | 'INVOICE' | 'ENTITY' | 'MERGED_AUTH'
 
 interface ApprovalItem {
   id:        string
@@ -29,17 +29,28 @@ interface ApprovalItem {
 const TYPE_LABEL: Record<ItemType, string> = {
   PO:          'Purchase Order',
   INVOICE:     'Invoice',
+  ENTITY:      'Entity',
   MERGED_AUTH: 'Batch Auth',
 }
 
 const TYPE_COLOR: Record<ItemType, { bg: string; text: string; border: string }> = {
   PO:          { bg: '#eff6ff', text: '#2563eb', border: '#2563eb22' },
   INVOICE:     { bg: '#f0fdf4', text: '#16a34a', border: '#16a34a22' },
+  ENTITY:      { bg: '#fff7ed', text: '#ea580c', border: '#ea580c22' },
   MERGED_AUTH: { bg: '#fdf4ff', text: '#9333ea', border: '#9333ea22' },
 }
 
+// Defensive fallback for any unrecognised type the API might return in the future.
+const UNKNOWN_COLOR = { bg: '#f1f5f9', text: '#475569', border: '#47556922' }
+
 function fmtAmt(amount: number, currency: string) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount)
+  // ENTITY items have no monetary amount — currency is empty string.
+  if (!currency) return ''
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount)
+  } catch {
+    return `${amount} ${currency}`
+  }
 }
 
 function fmtDate(iso: string) {
@@ -49,6 +60,7 @@ function fmtDate(iso: string) {
 function subjectHref(item: ApprovalItem) {
   if (item.type === 'PO')          return `/dashboard/purchase-orders/${item.subjectId}`
   if (item.type === 'INVOICE')     return `/dashboard/invoices/${item.subjectId}/review`
+  if (item.type === 'ENTITY')      return `/dashboard/entities/${item.subjectId}`
   if (item.type === 'MERGED_AUTH') return `/dashboard/invoices?batch=${item.subjectId}`
   return '#'
 }
@@ -111,6 +123,7 @@ export default function ApprovalsPage() {
     ALL:          items.length,
     PO:           items.filter(i => i.type === 'PO').length,
     INVOICE:      items.filter(i => i.type === 'INVOICE').length,
+    ENTITY:       items.filter(i => i.type === 'ENTITY').length,
     MERGED_AUTH:  items.filter(i => i.type === 'MERGED_AUTH').length,
   }
 
@@ -126,7 +139,7 @@ export default function ApprovalsPage() {
 
       {/* Filter tabs */}
       <div className="flex gap-2 mb-6 flex-wrap">
-        {(['ALL', 'PO', 'INVOICE', 'MERGED_AUTH'] as const).map(t => (
+        {(['ALL', 'PO', 'INVOICE', 'ENTITY', 'MERGED_AUTH'] as const).map(t => (
           <button
             key={t}
             onClick={() => setFilter(t)}
@@ -165,7 +178,8 @@ export default function ApprovalsPage() {
       ) : (
         <div className="space-y-3">
           {visible.map(item => {
-            const col = TYPE_COLOR[item.type]
+            const col   = TYPE_COLOR[item.type] ?? UNKNOWN_COLOR
+            const label = TYPE_LABEL[item.type] ?? 'Unknown'
             return (
               <div key={item.id} className="rounded-2xl p-5"
                 style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
@@ -174,7 +188,7 @@ export default function ApprovalsPage() {
                     <div className="flex items-center gap-2 mb-2 flex-wrap">
                       <span className="text-xs px-2 py-0.5 rounded-full font-medium"
                         style={{ background: col.bg, color: col.text, border: `1px solid ${col.border}` }}>
-                        {TYPE_LABEL[item.type]}
+                        {label}
                       </span>
                       <span className="text-xs" style={{ color: 'var(--muted)' }}>
                         {item.reference}
