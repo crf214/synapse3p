@@ -37,14 +37,17 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
 }
 
 const STATUS_VALUES = ['NOT_REQUIRED', 'PENDING', 'IN_REVIEW', 'APPROVED', 'FAILED', 'EXPIRED'] as const
+const SANCTIONS_VALUES = ['CLEAR', 'FLAGGED', 'UNDER_REVIEW', 'BLOCKED'] as const
 
 const PatchDueDiligenceSchema = z.object({
-  kycStatus:     z.enum(STATUS_VALUES).optional(),
-  kybStatus:     z.enum(STATUS_VALUES).optional(),
-  reviewedBy:    z.string().optional(),
-  nextReviewDate: z.string().optional().nullable(),
-  ddLevel:       z.number().int().min(1).max(3).optional(),
-  notes:         z.string().optional(),
+  kycStatus:       z.enum(STATUS_VALUES).optional(),
+  kybStatus:       z.enum(STATUS_VALUES).optional(),
+  sanctionsStatus: z.enum(SANCTIONS_VALUES).optional(),
+  reviewedBy:      z.string().optional(),
+  reviewedAt:      z.string().optional().nullable(),
+  nextReviewDate:  z.string().optional().nullable(),
+  ddLevel:         z.number().int().min(1).max(3).optional(),
+  notes:           z.string().optional(),
 })
 
 const READ_ROLES  = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR', 'LEGAL', 'CISO'])
@@ -143,15 +146,30 @@ export async function PATCH(
     // ── Build update payload ──────────────────────────────────────────────────
     const approvedNow =
       body.kycStatus === 'APPROVED' || body.kybStatus === 'APPROVED'
-    const nextReviewDate = body.nextReviewDate
-      ? new Date(body.nextReviewDate)
+    const nextReviewDate = body.nextReviewDate !== undefined
+      ? (body.nextReviewDate ? new Date(body.nextReviewDate) : null)
+      : undefined
+    const reviewedAt = body.reviewedAt !== undefined
+      ? (body.reviewedAt ? new Date(body.reviewedAt) : null)
+      : undefined
+
+    // Reviewer notes are stored in internalFactors.reviewerNotes — no dedicated column exists
+    const baseFactors =
+      existing.internalFactors && typeof existing.internalFactors === 'object' && !Array.isArray(existing.internalFactors)
+        ? (existing.internalFactors as Record<string, unknown>)
+        : {}
+    const internalFactors = body.notes !== undefined
+      ? { ...baseFactors, reviewerNotes: body.notes }
       : undefined
 
     const updates: Record<string, unknown> = {
-      ...(body.kycStatus     !== undefined ? { kycStatus: body.kycStatus }         : {}),
-      ...(body.kybStatus     !== undefined ? { kybStatus: body.kybStatus }         : {}),
-      ...(body.ddLevel       !== undefined ? { ddLevel: body.ddLevel }             : {}),
-      ...(nextReviewDate     !== undefined ? { nextReviewDate }                    : {}),
+      ...(body.kycStatus       !== undefined ? { kycStatus: body.kycStatus }             : {}),
+      ...(body.kybStatus       !== undefined ? { kybStatus: body.kybStatus }             : {}),
+      ...(body.sanctionsStatus !== undefined ? { sanctionsStatus: body.sanctionsStatus } : {}),
+      ...(body.ddLevel         !== undefined ? { ddLevel: body.ddLevel }                 : {}),
+      ...(nextReviewDate       !== undefined ? { nextReviewDate }                        : {}),
+      ...(reviewedAt           !== undefined ? { reviewedAt }                            : {}),
+      ...(internalFactors      !== undefined ? { internalFactors }                       : {}),
       // reviewedAt and reviewedBy are set when a status reaches APPROVED
       ...(approvedNow ? {
         reviewedAt: new Date(),
@@ -171,31 +189,38 @@ export async function PATCH(
       objectType: 'ENTITY',
       objectId:   entityId,
       before:     {
-        kycStatus: existing.kycStatus,
-        kybStatus: existing.kybStatus,
+        kycStatus:       existing.kycStatus,
+        kybStatus:       existing.kybStatus,
+        sanctionsStatus: existing.sanctionsStatus,
       },
       after: {
-        kycStatus: dueDiligence.kycStatus,
-        kybStatus: dueDiligence.kybStatus,
+        kycStatus:       dueDiligence.kycStatus,
+        kybStatus:       dueDiligence.kybStatus,
+        sanctionsStatus: dueDiligence.sanctionsStatus,
       },
     })
 
-    // Activity log entry
+    // Activity log entry — only when a tracked status actually changed
     const changedParts: string[] = []
     if (body.kycStatus) changedParts.push(`KYC: ${existing.kycStatus} → ${body.kycStatus}`)
     if (body.kybStatus) changedParts.push(`KYB: ${existing.kybStatus} → ${body.kybStatus}`)
+    if (body.sanctionsStatus && body.sanctionsStatus !== existing.sanctionsStatus) {
+      changedParts.push(`Sanctions: ${existing.sanctionsStatus} → ${body.sanctionsStatus}`)
+    }
 
-    await prisma.entityActivityLog.create({
-      data: {
-        entityId,
-        orgId:        orgId,
-        activityType: 'STATUS_CHANGE',
-        title:        'Due diligence status updated',
-        description:  changedParts.join('; '),
-        performedBy:  session.name ?? session.email ?? session.userId,
-        occurredAt:   new Date(),
-      },
-    })
+    if (changedParts.length > 0) {
+      await prisma.entityActivityLog.create({
+        data: {
+          entityId,
+          orgId:        orgId,
+          activityType: 'STATUS_CHANGE',
+          title:        'Due diligence status updated',
+          description:  changedParts.join('; '),
+          performedBy:  session.name ?? session.email ?? session.userId,
+          occurredAt:   new Date(),
+        },
+      })
+    }
 
     // Recompute risk band asynchronously after due diligence update
     void updateEntityRisk(entityId, prisma).catch(console.error)

@@ -11,7 +11,7 @@ import type { WorkflowState, WorkflowHistoryEntry } from '@/components/shared/Wo
 
 const ALLOWED_ROLES    = new Set(['ADMIN', 'AP_CLERK', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO', 'AUDITOR'])
 const WRITE_ROLES      = new Set(['ADMIN', 'FINANCE_MANAGER', 'CONTROLLER', 'CFO'])
-const ONBOARDING_ROLES = new Set(['ADMIN', 'FINANCE_MANAGER', 'LEGAL', 'CISO', 'CFO', 'CONTROLLER'])
+const DD_EDIT_ROLES    = new Set(['ADMIN', 'LEGAL', 'CISO'])
 const OVERRIDE_ROLES   = new Set(['ADMIN', 'FINANCE_MANAGER'])
 
 // ---------------------------------------------------------------------------
@@ -905,9 +905,56 @@ const SANCTIONS_COLOR: Record<SanctionsStatus, { bg: string; color: string; bord
   BLOCKED:      { bg: '#fef2f2', color: '#dc2626', border: '#dc262622', label: 'Blocked'      },
 }
 
-function DueDiligenceTab({ entity }: { entity: EntityDetail }) {
+const SANCTIONS_OPTIONS: SanctionsStatus[] = ['CLEAR', 'FLAGGED', 'UNDER_REVIEW', 'BLOCKED']
+
+function DueDiligenceTab({
+  entity, canEditDD, onViewWorkflow, onRefresh,
+}: {
+  entity:         EntityDetail
+  canEditDD:      boolean
+  onViewWorkflow: () => void
+  onRefresh:      () => void
+}) {
   const dd = entity.dueDiligence
+  const factors      = (dd?.internalFactors ?? {}) as Record<string, unknown>
+  const initialNotes = typeof factors.reviewerNotes === 'string' ? factors.reviewerNotes : ''
+
+  const [sanctions,    setSanctions]    = useState<SanctionsStatus>(dd?.sanctionsStatus ?? 'CLEAR')
+  const [notes,        setNotes]        = useState(initialNotes)
+  const [lastReviewed, setLastReviewed] = useState(dd?.reviewedAt ? dd.reviewedAt.slice(0, 10) : '')
+  const [nextReview,   setNextReview]   = useState(dd?.nextReviewDate ? dd.nextReviewDate.slice(0, 10) : '')
+  const [saving, setSaving] = useState(false)
+  const [saved,  setSaved]  = useState(false)
+  const [error,  setError]  = useState<string | null>(null)
+
   if (!dd) return <div className="py-10 text-sm text-center" style={{ color: 'var(--muted)' }}>No due diligence record found.</div>
+
+  async function save() {
+    setSaving(true); setError(null); setSaved(false)
+    try {
+      const res = await apiClient(`/api/entities/${entity.id}/due-diligence`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          sanctionsStatus: sanctions,
+          notes,
+          reviewedAt:      lastReviewed || null,
+          nextReviewDate:  nextReview   || null,
+        }),
+      })
+      const d = await res.json() as { error?: { message: string } }
+      if (!res.ok) throw new Error(d.error?.message ?? 'Save failed')
+      setSaved(true)
+      onRefresh()
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const ddHistory = entity.entityActivityLogs.filter(l => l.title === 'Due diligence status updated')
 
   function Row({ label, value }: { label: string; value: React.ReactNode }) {
     return (
@@ -920,37 +967,103 @@ function DueDiligenceTab({ entity }: { entity: EntityDetail }) {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-2xl p-4 space-y-0" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
-        <Row label="DD level"        value={`Level ${dd.ddLevel}`} />
-        <Row label="KYC status"      value={<Badge {...KYC_COLOR[dd.kycStatus]} />} />
-        <Row label="KYB status"      value={<Badge {...KYC_COLOR[dd.kybStatus]} />} />
-        <Row label="Sanctions"       value={<Badge {...SANCTIONS_COLOR[dd.sanctionsStatus]} />} />
-        <Row label="PEP flag"        value={dd.pepStatus ? <Badge label="PEP flagged" bg="#fef2f2" color="#dc2626" border="#dc262622" /> : <span style={{ color: 'var(--muted)' }}>None</span>} />
-        <Row label="Last reviewed"   value={fmt(dd.reviewedAt)} />
-        <Row label="Next review due" value={fmt(dd.nextReviewDate)} />
+      {/* ── Section 1: Formal status — workflow-driven, read-only ─────────── */}
+      <div className="rounded-2xl p-4" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+        <div className="flex items-center justify-between mb-1">
+          <h4 className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>Formal status</h4>
+          <button onClick={onViewWorkflow}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg"
+            style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #2563eb22' }}>
+            View workflow →
+          </button>
+        </div>
+        <Row label="DD level"   value={`Level ${dd.ddLevel}`} />
+        <Row label="KYC status" value={<Badge {...KYC_COLOR[dd.kycStatus]} />} />
+        <Row label="KYB status" value={<Badge {...KYC_COLOR[dd.kybStatus]} />} />
+        <Row label="PEP flag"   value={dd.pepStatus ? <Badge label="PEP flagged" bg="#fef2f2" color="#dc2626" border="#dc262622" /> : <span style={{ color: 'var(--muted)' }}>None</span>} />
+        <p className="text-xs pt-3" style={{ color: 'var(--muted)' }}>
+          Status transitions are managed through the entity workflow.
+        </p>
       </div>
-      {Object.entries(dd.internalFactors).length > 0 && (
-        <div className="rounded-2xl p-4 space-y-2" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
-          <h4 className="text-sm font-medium mb-3" style={{ color: 'var(--ink)' }}>Internal factors</h4>
-          {Object.entries(dd.internalFactors).map(([k, v]) => (
-            <div key={k} className="flex justify-between text-sm">
-              <span style={{ color: 'var(--muted)' }}>{k}</span>
-              <span style={{ color: 'var(--ink)' }}>{String(v)}</span>
+
+      {/* ── Section 2: Directly editable review fields ───────────────────── */}
+      <div className="rounded-2xl p-4 space-y-4" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-semibold" style={{ color: 'var(--ink)' }}>Review details</h4>
+          {canEditDD && (
+            <div className="flex items-center gap-2">
+              {saved && <span className="text-xs" style={{ color: '#16a34a' }}>✓ Saved</span>}
+              {error && <span className="text-xs" style={{ color: '#dc2626' }}>{error}</span>}
+              <button onClick={save} disabled={saving}
+                className="text-sm font-medium px-4 py-1.5 rounded-lg disabled:opacity-50"
+                style={{ background: '#2563eb', color: '#fff' }}>
+                {saving ? 'Saving…' : 'Save changes'}
+              </button>
             </div>
-          ))}
+          )}
         </div>
-      )}
-      {Object.entries(dd.externalFactors).length > 0 && (
-        <div className="rounded-2xl p-4 space-y-2" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
-          <h4 className="text-sm font-medium mb-3" style={{ color: 'var(--ink)' }}>External factors</h4>
-          {Object.entries(dd.externalFactors).map(([k, v]) => (
-            <div key={k} className="flex justify-between text-sm">
-              <span style={{ color: 'var(--muted)' }}>{k}</span>
-              <span style={{ color: 'var(--ink)' }}>{String(v)}</span>
+
+        {canEditDD ? (
+          <div className="space-y-4">
+            <div>
+              <label style={labelStyle}>Sanctions status</label>
+              <select value={sanctions} className={inputCls} style={inputStyle}
+                onChange={e => { setSaved(false); setSanctions(e.target.value as SanctionsStatus) }}>
+                {SANCTIONS_OPTIONS.map(s => <option key={s} value={s}>{SANCTIONS_COLOR[s].label}</option>)}
+              </select>
             </div>
-          ))}
-        </div>
-      )}
+            <div>
+              <label style={labelStyle}>Reviewer notes</label>
+              <textarea value={notes} rows={4} className={inputCls} style={inputStyle}
+                placeholder="Add reviewer notes…"
+                onChange={e => { setSaved(false); setNotes(e.target.value) }} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label style={labelStyle}>Last reviewed</label>
+                <input type="date" value={lastReviewed} className={inputCls} style={inputStyle}
+                  onChange={e => { setSaved(false); setLastReviewed(e.target.value) }} />
+              </div>
+              <div>
+                <label style={labelStyle}>Next review due</label>
+                <input type="date" value={nextReview} className={inputCls} style={inputStyle}
+                  onChange={e => { setSaved(false); setNextReview(e.target.value) }} />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-0">
+            <Row label="Sanctions"       value={<Badge {...SANCTIONS_COLOR[dd.sanctionsStatus]} />} />
+            <Row label="Reviewer notes"  value={initialNotes || <span style={{ color: 'var(--muted)' }}>—</span>} />
+            <Row label="Last reviewed"   value={fmt(dd.reviewedAt)} />
+            <Row label="Next review due" value={fmt(dd.nextReviewDate)} />
+          </div>
+        )}
+      </div>
+
+      {/* ── Section 3: Due diligence history ─────────────────────────────── */}
+      <div className="rounded-2xl p-4" style={{ border: '1px solid var(--border)', background: 'var(--surface)' }}>
+        <h4 className="text-sm font-semibold mb-3" style={{ color: 'var(--ink)' }}>Due diligence history</h4>
+        {ddHistory.length === 0 ? (
+          <p className="text-sm" style={{ color: 'var(--muted)' }}>No status changes recorded yet.</p>
+        ) : (
+          <div>
+            {ddHistory.map(log => (
+              <div key={log.id} className="flex gap-3 py-2.5" style={{ borderBottom: '1px solid var(--border)' }}>
+                <span className="text-xs flex-shrink-0 mt-0.5" style={{ color: 'var(--muted)', minWidth: 92 }}>
+                  {fmt(log.occurredAt)}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm" style={{ color: 'var(--ink)' }}>{log.description || log.title}</div>
+                  {log.performedBy && (
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>by {log.performedBy}</div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1168,6 +1281,7 @@ export default function EntityDetailPage() {
 
   const canWrite    = WRITE_ROLES.has(role ?? '')
   const canOverride = OVERRIDE_ROLES.has(role ?? '')
+  const canEditDD   = DD_EDIT_ROLES.has(role ?? '')
 
   const fetchEntity = useCallback(() => {
     setLoading(true)
@@ -1215,13 +1329,6 @@ export default function EntityDetailPage() {
             </p>
           </div>
           <div className="flex items-center gap-3">
-            {ONBOARDING_ROLES.has(role ?? '') && (
-              <button onClick={() => router.push(`/dashboard/entities/${entityId}/onboarding`)}
-                className="text-sm font-medium px-4 py-2 rounded-xl"
-                style={{ background: '#eff6ff', color: '#2563eb', border: '1px solid #2563eb22' }}>
-                Onboarding
-              </button>
-            )}
             {/* Risk band display in header */}
             <div className="flex flex-col items-end gap-0.5">
               <RiskBandBadge band={entity.riskBand} />
@@ -1262,7 +1369,7 @@ export default function EntityDetailPage() {
       {tab === 'overview'        && <OverviewTab        entity={entity} canWrite={canWrite} canOverride={canOverride} onRefresh={fetchEntity} />}
       {tab === 'classifications' && <ClassificationsTab entity={entity} canWrite={canWrite} onRefresh={fetchEntity} />}
       {tab === 'bank-accounts'   && <BankAccountsTab    entity={entity} canWrite={canWrite} onRefresh={fetchEntity} />}
-      {tab === 'due-diligence'   && <DueDiligenceTab    entity={entity} />}
+      {tab === 'due-diligence'   && <DueDiligenceTab    entity={entity} canEditDD={canEditDD} onViewWorkflow={() => setTab('workflow')} onRefresh={fetchEntity} />}
       {tab === 'services'        && <ServicesTab        entity={entity} />}
       {tab === 'activity'        && <ActivityTab        entity={entity} />}
       {tab === 'risk-history'    && <RiskHistoryTab     entityId={entityId} />}
