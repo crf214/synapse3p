@@ -11,6 +11,12 @@
 import { prisma } from '@/lib/prisma'
 import { getErpAdapter } from '@/lib/erp'
 import type { PaymentInstructionPayload } from '@/lib/erp/types'
+import { decrypt, isEncrypted } from '@/lib/crypto/field-encryption'
+
+// Decrypt a field stored at rest — backward compatible: plain values returned as-is
+function decryptField(v: string | null | undefined): string | null | undefined {
+  return v && isEncrypted(v) ? decrypt(v) : v
+}
 
 const MAX_RETRIES = 3
 
@@ -56,9 +62,9 @@ export async function executePaymentExecution(executionId: string): Promise<void
       instructionId: pi?.id ?? executionId,
       vendorErpId:   execution.entityId ?? '',  // adapter resolves to ERP vendor id
       bankAccount: {
-        accountNo: bankAccount?.accountNo ?? '',
-        routingNo: bankAccount?.routingNo  ?? undefined,
-        swiftBic:  bankAccount?.swiftBic   ?? undefined,
+        accountNo: decryptField(bankAccount?.accountNo) ?? '',
+        routingNo: decryptField(bankAccount?.routingNo) ?? undefined,
+        swiftBic:  decryptField(bankAccount?.swiftBic)  ?? undefined,
       },
       amount:      execution.amount,
       currency:    execution.currency,

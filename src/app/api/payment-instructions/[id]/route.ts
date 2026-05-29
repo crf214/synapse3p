@@ -7,6 +7,7 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { sanitiseString } from '@/lib/security/sanitise'
 import { FINANCE_ROLES } from '@/lib/security/roles'
+import { decrypt, isEncrypted } from '@/lib/crypto/field-encryption'
 
 const UpdatePaymentInstructionSchema = z.object({
   bankAccountId: z.string().optional(),
@@ -58,6 +59,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
     const userMap = Object.fromEntries(users.map(u => [u.id, u]))
 
+    // Decrypt sensitive bank account field — backward compatible: plain values returned as-is
+    const bankAccountDecrypted = bankAccount
+      ? { ...bankAccount, accountNo: isEncrypted(bankAccount.accountNo) ? decrypt(bankAccount.accountNo) : bankAccount.accountNo }
+      : null
+
     return NextResponse.json({
       ...pi,
       amount:          Number(pi.amount),
@@ -71,7 +77,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       updatedAt:       pi.updatedAt.toISOString(),
       entity,
       invoice: invoice ? { ...invoice, amount: Number(invoice.amount) } : null,
-      bankAccount,
+      bankAccount: bankAccountDecrypted,
       creator:  userMap[pi.createdBy]  ?? null,
       approver: pi.approvedBy ? userMap[pi.approvedBy] ?? null : null,
       versions: pi.versions.map(v => ({
