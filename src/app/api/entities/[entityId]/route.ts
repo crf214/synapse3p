@@ -8,6 +8,7 @@ import { resolveStepDependencies, DependencyType } from '@/lib/workflow/resolve-
 import { updateEntityRisk } from '@/lib/risk/update-entity-risk'
 import { WorkflowEngine, selectTemplate } from '@/lib/workflow-engine'
 import { APPROVAL_ROLES, FINANCE_ROLES } from '@/lib/security/roles'
+import { decrypt, isEncrypted } from '@/lib/crypto/field-encryption'
 
 const READ_ROLES  = FINANCE_ROLES
 const WRITE_ROLES = APPROVAL_ROLES
@@ -58,7 +59,20 @@ export async function GET(
 
     if (!entity) throw new NotFoundError('Entity not found')
 
-    return NextResponse.json({ entity })
+    // Decrypt sensitive bank account fields — backward compatible: plain values returned as-is
+    const decryptField = (v: string | null) => (v && isEncrypted(v) ? decrypt(v) : v)
+    const decrypted = {
+      ...entity,
+      bankAccounts: entity.bankAccounts.map(ba => ({
+        ...ba,
+        accountNo: decryptField(ba.accountNo),
+        routingNo: decryptField(ba.routingNo),
+        iban:      decryptField(ba.iban),
+        swiftBic:  decryptField(ba.swiftBic),
+      })),
+    }
+
+    return NextResponse.json({ entity: decrypted })
   } catch (err) {
     return handleApiError(err, 'GET /api/entities/[entityId]')
   }
