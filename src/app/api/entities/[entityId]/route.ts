@@ -292,6 +292,11 @@ export async function PATCH(
     // Recompute risk band asynchronously after entity update
     void updateEntityRisk(entityId, prisma).catch(console.error)
 
+    // Re-evaluate any WAITING workflow steps now that entity fields changed —
+    // the engine does not yet auto-trigger on field changes, so any in-progress
+    // workflow on this entity is advanced fire-and-forget. See Finding 27.
+    void reevaluateWaitingWorkflows(entityId)
+
     // Fire-and-forget workflow trigger on status change
     if (changedFields.includes('status')) {
       void (async () => {
