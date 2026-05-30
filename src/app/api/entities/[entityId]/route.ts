@@ -18,6 +18,24 @@ const ENTITY_STATUSES  = new Set(['ACTIVE', 'INACTIVE', 'SUSPENDED', 'PENDING_RE
 // Must stay in sync with prisma/schema.prisma EntityType enum
 const ENTITY_TYPES     = new Set(['VENDOR', 'CONTRACTOR', 'BROKER', 'PLATFORM', 'FUND_SVC_PROVIDER', 'OTHER'])
 
+// Advance any in-progress workflow on this entity so WAIT_FOR steps whose
+// awaited condition is now satisfied can move forward. Fire-and-forget; never throws.
+async function reevaluateWaitingWorkflows(entityId: string): Promise<void> {
+  try {
+    const instances = await prisma.workflowInstance.findMany({
+      where:  { targetObjectType: 'ENTITY', targetObjectId: entityId, status: 'IN_PROGRESS' },
+      select: { id: true },
+    })
+    if (instances.length === 0) return
+    const engine = new WorkflowEngine(prisma)
+    for (const instance of instances) {
+      await engine.advanceWorkflow(instance.id)
+    }
+  } catch (err) {
+    console.error('reevaluateWaitingWorkflows failed', err)
+  }
+}
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ entityId: string }> },

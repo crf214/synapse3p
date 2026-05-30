@@ -22,6 +22,7 @@ import { prisma } from '@/lib/prisma'
 import { handleApiError, UnauthorizedError, ForbiddenError, NotFoundError, ValidationError } from '@/lib/errors'
 import { writeAuditEvent } from '@/lib/audit'
 import { updateEntityRisk } from '@/lib/risk/update-entity-risk'
+import { WorkflowEngine } from '@/lib/workflow-engine'
 
 // ---------------------------------------------------------------------------
 // Transition table — only these moves are valid
@@ -61,6 +62,25 @@ function assertTransition(field: string, from: string, to: string): void {
   const allowed = ALLOWED_TRANSITIONS[from] ?? []
   if (!allowed.includes(to)) {
     throw new ValidationError(`Invalid status transition from ${from} to ${to}`)
+  }
+}
+
+// Advance any in-progress workflow on this entity so WAIT_FOR steps whose
+// awaited condition is now satisfied (e.g. sanctionsStatus == CLEAR) can move
+// forward. Intended to be called fire-and-forget; never throws.
+async function reevaluateWaitingWorkflows(entityId: string): Promise<void> {
+  try {
+    const instances = await prisma.workflowInstance.findMany({
+      where:  { targetObjectType: 'ENTITY', targetObjectId: entityId, status: 'IN_PROGRESS' },
+      select: { id: true },
+    })
+    if (instances.length === 0) return
+    const engine = new WorkflowEngine(prisma)
+    for (const instance of instances) {
+      await engine.advanceWorkflow(instance.id)
+    }
+  } catch (err) {
+    console.error('reevaluateWaitingWorkflows failed', err)
   }
 }
 
@@ -224,6 +244,12 @@ export async function PATCH(
 
     // Recompute risk band asynchronously after due diligence update
     void updateEntityRisk(entityId, prisma).catch(console.error)
+
+    // Re-evaluate any WAITING workflow steps now that due diligence fields
+    // (e.g. sanctionsStatus) changed — the engine does not yet auto-trigger on
+    // field changes, so any in-progress workflow on this entity is advanced
+    // fire-and-forget. See Finding 27.
+    void reevaluateWaitingWorkflows(entityId)
 
     return NextResponse.json({ dueDiligence })
   } catch (err) {
