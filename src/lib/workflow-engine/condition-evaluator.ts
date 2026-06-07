@@ -4,7 +4,7 @@ import type { Condition, ConditionOperator } from './types'
  * Resolve a dot-notation field path against a nested object.
  * e.g. "entity.riskBand" against { entity: { riskBand: "HIGH" } } → "HIGH"
  */
-function getNestedValue(obj: Record<string, unknown>, field: string): unknown {
+export function getNestedValue(obj: Record<string, unknown>, field: string): unknown {
   const parts = field.split('.')
   let current: unknown = obj
   for (const part of parts) {

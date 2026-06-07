@@ -1,5 +1,6 @@
 import { PrismaClient, WorkflowTargetType } from '@prisma/client'
-import type { StepResult } from './types'
+import type { StepResult, Condition } from './types'
+import { getNestedValue } from './condition-evaluator'
 import { handleApprovalStep }        from './step-handlers/approval'
 import { handleAutoRuleStep }        from './step-handlers/auto-rule'
 import { handleConditionBranchStep } from './step-handlers/condition-branch'
@@ -40,11 +41,16 @@ export async function executeStep(
   const config  = (stepDefinition.config  ?? {}) as Record<string, unknown>
   const context = (workflowInstance.context ?? {}) as Record<string, unknown>
 
-  // 2. Check onMissingContext — validate required context fields
+  // 2. Check onMissingContext — validate the context fields this step actually
+  //    reads. These are the condition fields declared in the step config (NOT
+  //    `dependencies`, which are step-ordering references resolved by the
+  //    engine). A field is "missing" only when it resolves to undefined against
+  //    the live context; a present-but-failing value (e.g. sanctions FLAGGED)
+  //    is a real PASS/FAIL evaluation, not a reason to WAIT.
   if (stepDefinition.onMissingContext !== 'FAIL') {
     // WAIT and SKIP are handled here (FAIL is the default — no special check needed)
-    const dependencies = (stepDefinition.dependencies ?? []) as string[]
-    const missingFields = dependencies.filter(f => !(f in context))
+    const requiredFields = getRequiredContextFields(stepDefinition.stepType, config)
+    const missingFields  = requiredFields.filter(f => getNestedValue(context, f) === undefined)
 
     if (missingFields.length > 0) {
       if (stepDefinition.onMissingContext === 'WAIT') {
@@ -131,4 +137,34 @@ export async function executeStep(
   }
 
   return result
+}
+
+/**
+ * The context fields a step reads when it runs. Used to decide whether a step
+ * with `onMissingContext: WAIT | SKIP` should defer because the data it needs
+ * is not yet present. Only condition-driven step types reference context fields;
+ * everything else returns [] (nothing to wait on).
+ */
+function getRequiredContextFields(
+  stepType: string,
+  config: Record<string, unknown>,
+): string[] {
+  const fields: string[] = []
+
+  const collect = (conditions: Condition[] | undefined) => {
+    for (const c of conditions ?? []) {
+      // Special async sentinels (e.g. __THREE_WAY_MATCH__) are resolved by the
+      // handler against the database, not the context — never wait on them.
+      if (c.field && !c.field.startsWith('__')) fields.push(c.field)
+    }
+  }
+
+  if (stepType === 'AUTO_RULE') {
+    collect(config.conditions as Condition[] | undefined)
+  } else if (stepType === 'CONDITION_BRANCH') {
+    const branches = (config.branches ?? []) as Array<{ conditions?: Condition[] }>
+    for (const branch of branches) collect(branch.conditions)
+  }
+
+  return fields
 }
